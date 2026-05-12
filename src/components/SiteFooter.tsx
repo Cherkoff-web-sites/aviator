@@ -1,11 +1,11 @@
-const footerLogoPath = '/src/assets/header/logo.svg'
-const instagramIconPath = '/src/assets/footer/instagram.svg'
-const maxIconPath = '/src/assets/footer/max.svg'
-const viberIconPath = '/src/assets/footer/viber.svg'
-const whatsappIconPath = '/src/assets/footer/whatsapp.svg'
-const telegramIconPath = '/src/assets/footer/telegram.svg'
-const paymentStripPath = '/src/assets/footer/payments.png'
-const arrowUpIconPath = '/src/assets/icons/arrow-up.svg'
+const footerLogoPath = '/assets/header/logo.svg'
+const instagramIconPath = '/assets/footer/instagram.svg'
+const maxIconPath = '/assets/footer/max.svg'
+const viberIconPath = '/assets/footer/viber.svg'
+const whatsappIconPath = '/assets/footer/whatsapp.svg'
+const telegramIconPath = '/assets/footer/telegram.svg'
+const paymentStripPath = '/assets/footer/payments.png'
+const arrowUpIconPath = '/assets/icons/arrow-up.svg'
 
 const mobileFooterSocials = [
   { src: instagramIconPath, label: 'Instagram' },

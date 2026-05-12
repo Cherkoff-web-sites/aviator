@@ -5,19 +5,19 @@ const slides = [
     id: 'mi-2',
     title: 'Ми-2',
     mobileButtonText: 'Тренажер Ми-2',
-    image: '/src/assets/hero/mi-2.webp',
+    image: '/assets/hero/mi-2.webp',
   },
   {
     id: 'boeing-737',
     title: 'Boeing 737 NG',
     mobileButtonText: 'Тренажер Boeing 737NG',
-    image: '/src/assets/hero/boeing-737.webp',
+    image: '/assets/hero/boeing-737.webp',
   },
   {
     id: 'avia-school',
     title: 'Авиашкола',
     mobileButtonText: 'Авиашкола',
-    image: '/src/assets/hero/avia-school.webp',
+    image: '/assets/hero/avia-school.webp',
   },
 ]
 

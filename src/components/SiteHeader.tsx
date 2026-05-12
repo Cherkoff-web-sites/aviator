@@ -20,16 +20,16 @@ const mobileNavItems = [
 ]
 
 const mobileSocialIcons = [
-  { src: '/src/assets/footer/instagram.svg', label: 'Instagram' },
-  { src: '/src/assets/footer/vk.svg', label: 'VK' },
-  { src: '/src/assets/footer/whatsapp.svg', label: 'WhatsApp' },
-  { src: '/src/assets/footer/telegram.svg', label: 'Telegram' },
+  { src: '/assets/footer/instagram.svg', label: 'Instagram' },
+  { src: '/assets/footer/vk.svg', label: 'VK' },
+  { src: '/assets/footer/whatsapp.svg', label: 'WhatsApp' },
+  { src: '/assets/footer/telegram.svg', label: 'Telegram' },
 ]
 
-const logoPath = '/src/assets/header/logo.svg'
-const arrowIconPath = '/src/assets/icons/arrow-right.svg'
-const menuIconPath = '/src/assets/icons/menu.svg'
-const closeIconPath = '/src/assets/icons/close.svg'
+const logoPath = '/assets/header/logo.svg'
+const arrowIconPath = '/assets/icons/arrow-right.svg'
+const menuIconPath = '/assets/icons/menu.svg'
+const closeIconPath = '/assets/icons/close.svg'
 
 function SiteHeader() {
   const [isMenuOpen, setIsMenuOpen] = useState(false)
