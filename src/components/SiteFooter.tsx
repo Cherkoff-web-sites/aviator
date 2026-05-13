@@ -1,19 +1,12 @@
+import { Link } from 'react-router-dom'
+
+import { FOOTER_SOCIAL_ICONS, SOCIAL_ASSETS } from '../data/socialAssets'
+
 const footerLogoPath = '/assets/header/logo.svg'
-const instagramIconPath = '/assets/footer/instagram.svg'
-const maxIconPath = '/assets/footer/max.svg'
-const viberIconPath = '/assets/footer/viber.svg'
-const whatsappIconPath = '/assets/footer/whatsapp.svg'
-const telegramIconPath = '/assets/footer/telegram.svg'
-const paymentStripPath = '/assets/footer/payments.png'
+const paymentStripPath = SOCIAL_ASSETS.payments
 const arrowUpIconPath = '/assets/icons/arrow_up.svg'
 
-const mobileFooterSocials = [
-  { src: instagramIconPath, label: 'Instagram' },
-  { src: maxIconPath, label: 'Max' },
-  { src: whatsappIconPath, label: 'WhatsApp' },
-  { src: viberIconPath, label: 'Viber' },
-  { src: telegramIconPath, label: 'Telegram' },
-]
+const mobileFooterSocials = FOOTER_SOCIAL_ICONS
 
 function SiteFooter() {
   return (
@@ -40,10 +33,26 @@ function SiteFooter() {
                 <div>
                   <h3 className="mb-3 text-[20px] font-bold">Меню</h3>
                   <ul className="space-y-2 text-[15px] font-medium text-white/90">
-                    <li>Цены</li>
-                    <li>Галерея</li>
-                    <li>FAQ</li>
-                    <li>Контакты</li>
+                    <li>
+                      <Link to="/prices" className="text-inherit no-underline hover:opacity-90">
+                        Цены
+                      </Link>
+                    </li>
+                    <li>
+                      <Link to="/gallery" className="text-inherit no-underline hover:opacity-90">
+                        Галерея
+                      </Link>
+                    </li>
+                    <li>
+                      <Link to="/faq" className="text-inherit no-underline hover:opacity-90">
+                        FAQ
+                      </Link>
+                    </li>
+                    <li>
+                      <Link to="/contacts" className="text-inherit no-underline hover:opacity-90">
+                        Контакты
+                      </Link>
+                    </li>
                   </ul>
                 </div>
 
@@ -151,10 +160,26 @@ function SiteFooter() {
             <div className="text-right">
               <h3 className="text-[18px] font-bold">Меню</h3>
               <ul className="mt-4 space-y-3 text-sm text-white/90">
-                <li>Цены</li>
-                <li>Галерея</li>
-                <li>FAQ</li>
-                <li>Контакты</li>
+                <li>
+                  <Link to="/prices" className="text-inherit no-underline hover:opacity-90">
+                    Цены
+                  </Link>
+                </li>
+                <li>
+                  <Link to="/gallery" className="text-inherit no-underline hover:opacity-90">
+                    Галерея
+                  </Link>
+                </li>
+                <li>
+                  <Link to="/faq" className="text-inherit no-underline hover:opacity-90">
+                    FAQ
+                  </Link>
+                </li>
+                <li>
+                  <Link to="/contacts" className="text-inherit no-underline hover:opacity-90">
+                    Контакты
+                  </Link>
+                </li>
               </ul>
             </div>
           </div>

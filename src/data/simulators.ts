@@ -12,6 +12,25 @@ export interface SimulatorContentSection {
   image: string
 }
 
+export interface SimulatorPricingPlan {
+  durationLabel: string
+  /** Как на макете, напр. «Б 170 BYN» */
+  priceDisplay: string
+  /** Текст между разделителями (например «Базовый минимум») */
+  ribbon?: string
+  highlighted?: boolean
+}
+
+export interface SimulatorPricingBlock {
+  /** Фон секции (размытие + затемнение поверх) */
+  backgroundImage: string
+  headingIcon: string
+  headingTitle: string
+  headingSubtitle: string
+  features: string[]
+  plans: SimulatorPricingPlan[]
+}
+
 export interface Simulator {
   slug: string
   title: string
@@ -27,6 +46,7 @@ export interface Simulator {
     /** Ссылка «Посмотреть больше в Галерее» (после долистывания слайдера) */
     galleryTo: string
   }
+  pricingBlock: SimulatorPricingBlock
   sections: SimulatorContentSection[]
 }
 
@@ -44,6 +64,30 @@ const SECTION_ICONS = [
   '/assets/icons/people.svg',
 ] as const
 
+const MI2_PRICING_FEATURES = [
+  'Полет по кругу',
+  'Запуск с ВПП',
+  'Брифинг',
+  'Послеполетный разбор',
+  'Фото и видео',
+] as const
+
+const BOEING_PRICING_FEATURES = [
+  'Полноразмерная кабина 737',
+  'Инструктор на весь сеанс',
+  'Выбор аэропорта и погоды',
+  'Работа автопилота',
+  'Фото и видео',
+] as const
+
+const SCHOOL_PRICING_FEATURES = [
+  'Учебные материалы',
+  'Практика на тренажёре',
+  'Обратная связь от инструктора',
+  'Гибкий график',
+  'Сертификат по запросу',
+] as const
+
 export const simulators: Simulator[] = [
   {
     slug: 'mi-2',
@@ -58,6 +102,19 @@ export const simulators: Simulator[] = [
       description:
         'HD-видео вашего полёта, включая работу приборов и ваши действия на органах управления — чтобы пересматривать, анализировать и делиться этой эмоцией.',
       galleryTo: '/gallery',
+    },
+    pricingBlock: {
+      backgroundImage: '/assets/simulator/sm_price_2.webp',
+      headingIcon: '/assets/icons/vertolet.svg',
+      headingTitle: 'Авиатренажер Ми-2',
+      headingSubtitle: 'Настоящая кабина вертолета Ми-2',
+      features: [...MI2_PRICING_FEATURES],
+      plans: [
+        { durationLabel: '30 минут', priceDisplay: 'Б 170 BYN', ribbon: 'Базовый минимум' },
+        { durationLabel: '60 минут', priceDisplay: 'Б 300 BYN', ribbon: 'Базовый минимум' },
+        { durationLabel: '90 минут', priceDisplay: 'Б 400 BYN', highlighted: true, ribbon: 'Базовый минимум' },
+        { durationLabel: '120 минут', priceDisplay: 'Б 450 BYN', ribbon: 'Базовый минимум' },
+      ],
     },
     sections: [
       {
@@ -113,6 +170,19 @@ export const simulators: Simulator[] = [
       title: 'Погрузитесь в атмосферу Boeing 737NG',
       description: 'Посмотрите фото, видео и панораму кабины Boeing 737NG',
       galleryTo: '/gallery',
+    },
+    pricingBlock: {
+      backgroundImage: '/assets/simulator/sm_price_1.webp',
+      headingIcon: '/assets/icons/samolet.svg',
+      headingTitle: 'Авиатренажёр Boeing 737NG',
+      headingSubtitle: 'Полноразмерная кабина пассажирского лайнера',
+      features: [...BOEING_PRICING_FEATURES],
+      plans: [
+        { durationLabel: '30 минут', priceDisplay: 'Б 200 BYN', ribbon: 'Базовый минимум' },
+        { durationLabel: '60 минут', priceDisplay: 'Б 350 BYN', ribbon: 'Базовый минимум' },
+        { durationLabel: '90 минут', priceDisplay: 'Б 480 BYN', highlighted: true, ribbon: 'Базовый минимум' },
+        { durationLabel: '120 минут', priceDisplay: 'Б 600 BYN', ribbon: 'Базовый минимум' },
+      ],
     },
     sections: [
       {
@@ -171,6 +241,19 @@ export const simulators: Simulator[] = [
       description:
         'Сохраняем ключевые фрагменты практики: положение приборов, манёвры и комментарии инструктора — чтобы возвращаться к разбору и видеть прогресс.',
       galleryTo: '/gallery',
+    },
+    pricingBlock: {
+      backgroundImage: '/assets/simulator/school.webp',
+      headingIcon: '/assets/icons/people.svg',
+      headingTitle: 'Авиашкола',
+      headingSubtitle: 'Обучение и практика на профессиональных тренажёрах',
+      features: [...SCHOOL_PRICING_FEATURES],
+      plans: [
+        { durationLabel: '1 занятие', priceDisplay: 'Б 150 BYN', ribbon: 'Базовый минимум' },
+        { durationLabel: '4 занятия', priceDisplay: 'Б 520 BYN', ribbon: 'Базовый минимум' },
+        { durationLabel: '8 занятий', priceDisplay: 'Б 960 BYN', highlighted: true, ribbon: 'Базовый минимум' },
+        { durationLabel: '12 занятий', priceDisplay: 'Б 1320 BYN', ribbon: 'Базовый минимум' },
+      ],
     },
     sections: [
       {

@@ -1,30 +1,33 @@
 import { useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, NavLink } from 'react-router-dom'
 
-const desktopNavItems = [
-  'Авиатренажеры',
-  'Школа',
-  'Цены',
-  'Галерея',
-  'Частые вопросы',
-  'Контакты',
+import { useBookingModal } from '../contexts/BookingModalContext'
+import { SOCIAL_ASSETS } from '../data/socialAssets'
+
+const desktopNavItems: ({ label: string } & ({ to: string } | { href: string }))[] = [
+  { label: 'Авиатренажеры', to: '/' },
+  { label: 'Школа', to: '/simulator/avia-school' },
+  { label: 'Цены', to: '/prices' },
+  { label: 'Галерея', to: '/gallery' },
+  { label: 'Частые вопросы', to: '/faq' },
+  { label: 'Контакты', to: '/contacts' },
 ]
 
 const mobileNavItems: { label: string; to?: string }[] = [
   { label: 'Boing 737', to: '/simulator/boeing-737' },
   { label: 'Ми-2', to: '/simulator/mi-2' },
   { label: 'Летная школа', to: '/simulator/avia-school' },
-  { label: 'Цены и акции' },
-  { label: 'Галерея' },
-  { label: 'Контакты' },
-  { label: 'Вопросы и ответы' },
+  { label: 'Цены и акции', to: '/prices' },
+  { label: 'Галерея', to: '/gallery' },
+  { label: 'Контакты', to: '/contacts' },
+  { label: 'Вопросы и ответы', to: '/faq' },
 ]
 
 const mobileSocialIcons = [
-  { src: '/assets/footer/instagram.svg', label: 'Instagram' },
-  { src: '/assets/footer/vk.svg', label: 'VK' },
-  { src: '/assets/footer/whatsapp.svg', label: 'WhatsApp' },
-  { src: '/assets/footer/telegram.svg', label: 'Telegram' },
+  { src: SOCIAL_ASSETS.instagram, label: 'Instagram' },
+  { src: SOCIAL_ASSETS.vk, label: 'VK' },
+  { src: SOCIAL_ASSETS.whatsapp, label: 'WhatsApp' },
+  { src: SOCIAL_ASSETS.telegram, label: 'Telegram' },
 ]
 
 const logoPath = '/assets/header/logo.svg'
@@ -34,6 +37,7 @@ const closeIconPath = '/assets/icons/close.svg'
 
 function SiteHeader() {
   const [isMenuOpen, setIsMenuOpen] = useState(false)
+  const { openBooking } = useBookingModal()
 
   useEffect(() => {
     document.body.style.overflow = isMenuOpen ? 'hidden' : ''
@@ -58,19 +62,36 @@ function SiteHeader() {
             aria-label="Главное меню"
             className="hidden items-center gap-[35px] min-[990px]:flex"
           >
-            {desktopNavItems.map((item) => (
-              <a
-                key={item}
-                href="#"
-                className="whitespace-nowrap text-base font-medium text-[#f5f6fa] no-underline transition-opacity hover:opacity-80"
-              >
-                {item}
-              </a>
-            ))}
+            {desktopNavItems.map((item) =>
+              'to' in item ? (
+                <NavLink
+                  key={item.label}
+                  to={item.to}
+                  end={item.to === '/'}
+                  className={({ isActive }) =>
+                    [
+                      'whitespace-nowrap border-b-2 border-transparent pb-0.5 text-base font-medium no-underline transition-opacity hover:opacity-80',
+                      isActive ? 'border-white text-white' : 'text-[#f5f6fa]',
+                    ].join(' ')
+                  }
+                >
+                  {item.label}
+                </NavLink>
+              ) : (
+                <a
+                  key={item.label}
+                  href={item.href}
+                  className="whitespace-nowrap border-b-2 border-transparent pb-0.5 text-base font-medium text-[#f5f6fa] no-underline transition-opacity hover:opacity-80"
+                >
+                  {item.label}
+                </a>
+              ),
+            )}
           </nav>
 
           <button
             type="button"
+            onClick={() => openBooking()}
             className="hidden cursor-pointer items-center gap-[6px] rounded-full border-0 bg-white px-[34px] py-[12px] text-[16px] font-semibold text-[#1f2430] min-[990px]:inline-flex"
           >
             Забронировать
@@ -135,6 +156,10 @@ function SiteHeader() {
 
             <button
               type="button"
+              onClick={() => {
+                openBooking()
+                setIsMenuOpen(false)
+              }}
               className="mt-9 inline-flex h-12 items-center justify-center self-start rounded-full bg-white px-7 text-base font-semibold text-[#002D62]"
             >
               Забронировать полет

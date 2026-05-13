@@ -1,3 +1,7 @@
+import { useParams } from 'react-router-dom'
+
+import { useBookingModal } from '../contexts/BookingModalContext'
+
 export type SimulatorPageViewProps = {
   heroImage: string
   heading: string
@@ -5,6 +9,8 @@ export type SimulatorPageViewProps = {
 }
 
 function SimulatorPageView({ heroImage, heading, description }: SimulatorPageViewProps) {
+  const { openBooking } = useBookingModal()
+  const { slug } = useParams()
   return (
     <section className="relative bg-[#202020] min-[990px]:h-[50vw]">
       <img
@@ -31,6 +37,12 @@ function SimulatorPageView({ heroImage, heading, description }: SimulatorPageVie
           </p>
           <button
             type="button"
+            onClick={() =>
+              openBooking({
+                simulatorSlug:
+                  slug === 'mi-2' || slug === 'boeing-737' || slug === 'avia-school' ? slug : null,
+              })
+            }
             className="mt-8 inline-flex items-center rounded-full bg-white px-8 py-3 text-[16px] font-semibold text-[#1f2430] min-[990px]:mt-10"
           >
             Забронировать полет

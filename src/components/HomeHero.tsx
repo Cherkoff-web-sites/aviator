@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
+import { useBookingModal, type BookingSimulatorSlug } from '../contexts/BookingModalContext'
 import { simulators } from '../data/simulators'
 
 const slides = simulators
@@ -19,6 +20,7 @@ const DESKTOP_MIN = 990
 const DEFAULT_ACTIVE_ID = slides[1].slug
 
 function HomeHero() {
+  const { openBooking } = useBookingModal()
   const [activeId, setActiveId] = useState(DEFAULT_ACTIVE_ID)
   const [hasUserHovered, setHasUserHovered] = useState(false)
   const [isDesktop, setIsDesktop] = useState(() =>
@@ -105,6 +107,11 @@ function HomeHero() {
               >
                 <button
                   type="button"
+                  onClick={() =>
+                    openBooking({
+                      simulatorSlug: slide.slug as BookingSimulatorSlug,
+                    })
+                  }
                   className="h-12 rounded-full bg-[#1f69ff] px-10 text-lg font-medium text-white"
                 >
                   Забронировать полет
