@@ -1,14 +1,15 @@
-import HomeHero from './components/HomeHero'
-import SiteFooter from './components/SiteFooter'
-import SiteHeader from './components/SiteHeader'
+import { BrowserRouter, Route, Routes } from 'react-router-dom'
+import HomePage from './pages/HomePage'
+import SimulatorPage from './pages/SimulatorPage'
 
 function App() {
   return (
-    <>
-      <SiteHeader />
-      <HomeHero />
-      <SiteFooter />
-    </>
+    <BrowserRouter>
+      <Routes>
+        <Route path="/" element={<HomePage />} />
+        <Route path="/simulator/:slug" element={<SimulatorPage />} />
+      </Routes>
+    </BrowserRouter>
   )
 }
 

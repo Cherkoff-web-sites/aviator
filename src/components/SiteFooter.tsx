@@ -5,7 +5,7 @@ const viberIconPath = '/assets/footer/viber.svg'
 const whatsappIconPath = '/assets/footer/whatsapp.svg'
 const telegramIconPath = '/assets/footer/telegram.svg'
 const paymentStripPath = '/assets/footer/payments.png'
-const arrowUpIconPath = '/assets/icons/arrow-up.svg'
+const arrowUpIconPath = '/assets/icons/arrow_up.svg'
 
 const mobileFooterSocials = [
   { src: instagramIconPath, label: 'Instagram' },

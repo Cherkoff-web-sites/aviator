@@ -1,32 +1,22 @@
 import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
+import { simulators } from '../data/simulators'
 
-const slides = [
-  {
-    id: 'mi-2',
-    title: 'Ми-2',
-    mobileButtonText: 'Тренажер Ми-2',
-    image: '/assets/hero/mi-2.webp',
-  },
-  {
-    id: 'boeing-737',
-    title: 'Boeing 737 NG',
-    mobileButtonText: 'Тренажер Boeing 737NG',
-    image: '/assets/hero/boeing-737.webp',
-  },
-  {
-    id: 'avia-school',
-    title: 'Авиашкола',
-    mobileButtonText: 'Авиашкола',
-    image: '/assets/hero/avia-school.webp',
-  },
-]
+const slides = simulators
+
+/** Фоны колонок первой секции на главной — из `public/assets/hero/` */
+const HOME_HERO_SLIDE_IMAGES: Record<(typeof slides)[number]['slug'], string> = {
+  'mi-2': '/assets/hero/mi_2.webp',
+  'boeing-737': '/assets/hero/boeing_737.webp',
+  'avia-school': '/assets/hero/avia_school.webp',
+}
 
 const SLANT_VW = 22.2603
 const ACTIVE_W_VW = 68
 const INACTIVE_W_VW = 41.0959
 const DESKTOP_MIN = 990
 
-const DEFAULT_ACTIVE_ID = slides[1].id
+const DEFAULT_ACTIVE_ID = slides[1].slug
 
 function HomeHero() {
   const [activeId, setActiveId] = useState(DEFAULT_ACTIVE_ID)
@@ -52,8 +42,8 @@ function HomeHero() {
     >
       <div className="flex w-full flex-col min-[990px]:h-full min-[990px]:flex-row min-[990px]:gap-0 min-[990px]:p-0">
         {slides.map((slide, idx) => {
-          const isActive = slide.id === activeId
-          const isDimmed = activeId !== slide.id
+          const isActive = slide.slug === activeId
+          const isDimmed = activeId !== slide.slug
           const isFirst = idx === 0
           const isLast = idx === slides.length - 1
 
@@ -69,13 +59,14 @@ function HomeHero() {
               }
             : undefined
           const actionsRightOffset = isLast ? '40px' : `calc(${SLANT_VW}vw + 24px)`
+          const simulatorPath = `/simulator/${slide.slug}`
 
           return (
             <article
-              key={slide.id}
+              key={slide.slug}
               onMouseEnter={() => {
                 if (!isDesktop) return
-                setActiveId(slide.id)
+                setActiveId(slide.slug)
                 setHasUserHovered(true)
               }}
               style={desktopStyle}
@@ -85,7 +76,7 @@ function HomeHero() {
               ].join(' ')}
             >
               <img
-                src={slide.image}
+                src={HOME_HERO_SLIDE_IMAGES[slide.slug]}
                 alt={slide.title}
                 className="block h-auto w-full object-cover object-center min-[990px]:absolute min-[990px]:inset-0 min-[990px]:h-full min-[990px]:w-full min-[990px]:transition-transform min-[990px]:duration-700 min-[990px]:group-hover:scale-[1.03]"
               />
@@ -112,21 +103,27 @@ function HomeHero() {
                     : 'opacity-0',
                 ].join(' ')}
               >
-                <button className="h-12 rounded-full bg-[#1f69ff] px-10 text-lg font-medium text-white">
+                <button
+                  type="button"
+                  className="h-12 rounded-full bg-[#1f69ff] px-10 text-lg font-medium text-white"
+                >
                   Забронировать полет
                 </button>
-                <button className="inline-flex h-12 items-center rounded-full border border-white/70 bg-transparent px-9 text-lg font-medium text-white">
+                <Link
+                  to={simulatorPath}
+                  className="inline-flex h-12 items-center rounded-full border border-white/70 bg-transparent px-9 text-lg font-medium text-white no-underline"
+                >
                   Подробнее <span className="ml-2">→</span>
-                </button>
+                </Link>
               </div>
 
-              <a
-                href="#"
-                className="absolute bottom-6 left-1/2 z-20 inline-flex -translate-x-1/2 items-center gap-2 whitespace-nowrap rounded-[35px] bg-[radial-gradient(98.31%_98.31%_at_50%_50%,#0075FF_0%,#322E67_100%)] px-7 py-3 text-base font-semibold text-white min-[990px]:hidden"
+              <Link
+                to={simulatorPath}
+                className="absolute bottom-6 left-1/2 z-20 inline-flex -translate-x-1/2 items-center gap-2 whitespace-nowrap rounded-[35px] bg-[radial-gradient(98.31%_98.31%_at_50%_50%,#0075FF_0%,#322E67_100%)] px-7 py-3 text-base font-semibold text-white no-underline min-[990px]:hidden"
               >
                 {slide.mobileButtonText}
                 <span aria-hidden="true">→</span>
-              </a>
+              </Link>
             </article>
           )
         })}
