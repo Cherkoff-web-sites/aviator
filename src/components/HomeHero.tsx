@@ -21,11 +21,16 @@ const slides = [
   },
 ]
 
-const SLANT = 500
+const SLANT_VW = 22.2603
+const ACTIVE_W_VW = 68
+const INACTIVE_W_VW = 41.0959
 const DESKTOP_MIN = 990
 
+const DEFAULT_ACTIVE_ID = slides[1].id
+
 function HomeHero() {
-  const [activeId, setActiveId] = useState(slides[1].id)
+  const [activeId, setActiveId] = useState(DEFAULT_ACTIVE_ID)
+  const [hasUserHovered, setHasUserHovered] = useState(false)
   const [isDesktop, setIsDesktop] = useState(() =>
     typeof window !== 'undefined' ? window.innerWidth >= DESKTOP_MIN : true
   )
@@ -37,7 +42,14 @@ function HomeHero() {
   }, [])
 
   return (
-    <section className="relative overflow-hidden bg-[#202020] min-[990px]:aspect-[1460/900]">
+    <section
+      onMouseLeave={() => {
+        if (!isDesktop) return
+        setActiveId(DEFAULT_ACTIVE_ID)
+        setHasUserHovered(false)
+      }}
+      className="relative w-full overflow-hidden bg-[#202020] min-[990px]:h-[min(61.6438vw,100vh)]"
+    >
       <div className="flex w-full flex-col min-[990px]:h-full min-[990px]:flex-row min-[990px]:gap-0 min-[990px]:p-0">
         {slides.map((slide, idx) => {
           const isActive = slide.id === activeId
@@ -45,23 +57,31 @@ function HomeHero() {
           const isFirst = idx === 0
           const isLast = idx === slides.length - 1
 
-          const topLeft = isFirst ? '0' : `${SLANT}px`
-          const bottomRight = isLast ? '100%' : `calc(100% - ${SLANT}px)`
+          const topLeft = isFirst ? '0' : `${SLANT_VW}vw`
+          const bottomRight = isLast ? '100%' : `calc(100% - ${SLANT_VW}vw)`
           const clipPath = `polygon(${topLeft} 0, 100% 0, ${bottomRight} 100%, 0 100%)`
 
           const desktopStyle = isDesktop
-            ? { clipPath, marginLeft: isFirst ? 0 : -SLANT }
+            ? {
+                clipPath,
+                width: `${isActive ? ACTIVE_W_VW : INACTIVE_W_VW}vw`,
+                marginLeft: isFirst ? 0 : `-${SLANT_VW}vw`,
+              }
             : undefined
+          const actionsRightOffset = isLast ? '40px' : `calc(${SLANT_VW}vw + 24px)`
 
           return (
             <article
               key={slide.id}
-              onMouseEnter={() => isDesktop && setActiveId(slide.id)}
+              onMouseEnter={() => {
+                if (!isDesktop) return
+                setActiveId(slide.id)
+                setHasUserHovered(true)
+              }}
               style={desktopStyle}
               className={[
                 'group relative overflow-hidden',
-                'min-[990px]:h-full min-[990px]:cursor-pointer min-[990px]:transition-all min-[990px]:duration-500 min-[990px]:ease-out',
-                isActive ? 'min-[990px]:flex-[1.55]' : 'min-[990px]:flex-1',
+                'min-[990px]:h-full min-[990px]:flex-none min-[990px]:cursor-pointer min-[990px]:transition-all min-[990px]:duration-500 min-[990px]:ease-out',
               ].join(' ')}
             >
               <img
@@ -73,20 +93,23 @@ function HomeHero() {
               <div
                 className={[
                   'absolute inset-0 hidden transition-colors duration-500 min-[990px]:block',
-                  isDimmed ? 'bg-[#151824]/45' : 'bg-[#151824]/20',
+                  hasUserHovered && isDimmed ? 'bg-[#151824]/45' : 'bg-transparent',
                 ].join(' ')}
               />
 
               <div className="absolute inset-x-0 bottom-0 z-10 hidden items-end px-10 pb-8 pt-20 min-[990px]:flex">
-                <h2 className="text-[48px] font-bold leading-none tracking-tight text-white">
+                <h2 className="text-[38px] font-bold leading-none tracking-tight text-white">
                   {slide.title}
                 </h2>
               </div>
 
               <div
+                style={isDesktop ? { right: actionsRightOffset } : undefined}
                 className={[
-                  'pointer-events-none absolute bottom-9 right-[100px] z-20 hidden items-center gap-3 transition-opacity duration-300 min-[990px]:flex',
-                  isActive ? 'opacity-100 pointer-events-auto' : 'opacity-0',
+                  'pointer-events-none absolute bottom-9 z-20 hidden items-center gap-3 transition-opacity duration-300 min-[990px]:flex',
+                  hasUserHovered && isActive
+                    ? 'opacity-100 pointer-events-auto'
+                    : 'opacity-0',
                 ].join(' ')}
               >
                 <button className="h-12 rounded-full bg-[#1f69ff] px-10 text-lg font-medium text-white">
@@ -99,7 +122,7 @@ function HomeHero() {
 
               <a
                 href="#"
-                className="absolute bottom-6 left-1/2 z-20 inline-flex -translate-x-1/2 items-center gap-2 rounded-full bg-[#1f69ff] px-7 py-3 text-base font-semibold text-white min-[990px]:hidden"
+                className="absolute bottom-6 left-1/2 z-20 inline-flex -translate-x-1/2 items-center gap-2 whitespace-nowrap rounded-[35px] bg-[radial-gradient(98.31%_98.31%_at_50%_50%,#0075FF_0%,#322E67_100%)] px-7 py-3 text-base font-semibold text-white min-[990px]:hidden"
               >
                 {slide.mobileButtonText}
                 <span aria-hidden="true">→</span>

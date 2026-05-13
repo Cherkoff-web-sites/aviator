@@ -50,12 +50,12 @@ function SiteHeader() {
             aria-label="Aviator"
             className="inline-flex items-center gap-2 text-[#f3f5f8] no-underline"
           >
-            <img src={logoPath} alt="Aviator" className="h-6 w-auto min-[990px]:h-7" />
+            <img src={logoPath} alt="Aviator" className="h-auto w-[180px] min-[990px]:w-[235px]" />
           </a>
 
           <nav
             aria-label="Главное меню"
-            className="hidden items-center gap-10 min-[990px]:flex"
+            className="hidden items-center gap-[35px] min-[990px]:flex"
           >
             {desktopNavItems.map((item) => (
               <a
@@ -70,7 +70,7 @@ function SiteHeader() {
 
           <button
             type="button"
-            className="hidden h-12 cursor-pointer items-center gap-2 rounded-full border-0 bg-white px-8 text-[30px] font-semibold text-[#1f2430] min-[990px]:inline-flex"
+            className="hidden cursor-pointer items-center gap-[6px] rounded-full border-0 bg-white px-[34px] py-[12px] text-[16px] font-semibold text-[#1f2430] min-[990px]:inline-flex"
           >
             Забронировать
             <img src={arrowIconPath} alt="" aria-hidden="true" className="h-6 w-6" />
@@ -91,11 +91,11 @@ function SiteHeader() {
         <div
           role="dialog"
           aria-modal="true"
-          className="fixed inset-0 z-50 overflow-y-auto bg-[#0d3a82] text-white min-[990px]:hidden"
+          className="fixed inset-0 z-50 overflow-y-auto bg-[#002D62] text-white min-[990px]:hidden"
         >
           <div className="container-app flex min-h-full flex-col py-6">
             <div className="flex items-center justify-between">
-              <img src={logoPath} alt="Aviator" className="h-6 w-auto" />
+              <img src={logoPath} alt="Aviator" className="h-auto w-[180px]" />
               <button
                 type="button"
                 onClick={() => setIsMenuOpen(false)}
@@ -122,7 +122,7 @@ function SiteHeader() {
 
             <button
               type="button"
-              className="mt-9 inline-flex h-12 items-center justify-center self-start rounded-full bg-white px-7 text-base font-semibold text-[#0d3a82]"
+              className="mt-9 inline-flex h-12 items-center justify-center self-start rounded-full bg-white px-7 text-base font-semibold text-[#002D62]"
             >
               Забронировать полет
             </button>
@@ -137,9 +137,9 @@ function SiteHeader() {
                     key={s.label}
                     href="#"
                     aria-label={s.label}
-                    className="inline-flex h-10 w-10 items-center justify-center rounded-md border border-white/30"
+                    className="inline-flex items-center justify-center"
                   >
-                    <img src={s.src} alt="" aria-hidden="true" className="h-5 w-5" />
+                    <img src={s.src} alt="" aria-hidden="true" className="h-8 w-8" />
                   </a>
                 ))}
               </div>

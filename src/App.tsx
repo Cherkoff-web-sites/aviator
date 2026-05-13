@@ -4,11 +4,11 @@ import SiteHeader from './components/SiteHeader'
 
 function App() {
   return (
-    <div className="text-white">
+    <>
       <SiteHeader />
       <HomeHero />
       <SiteFooter />
-    </div>
+    </>
   )
 }
 
