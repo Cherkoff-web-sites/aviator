@@ -53,6 +53,11 @@ function SiteFooter() {
                         Контакты
                       </Link>
                     </li>
+                    <li>
+                      <Link to="/admin" className="text-inherit no-underline hover:opacity-90">
+                        Админ-панель
+                      </Link>
+                    </li>
                   </ul>
                 </div>
 
@@ -178,6 +183,11 @@ function SiteFooter() {
                 <li>
                   <Link to="/contacts" className="text-inherit no-underline hover:opacity-90">
                     Контакты
+                  </Link>
+                </li>
+                <li>
+                  <Link to="/admin" className="text-inherit no-underline hover:opacity-90">
+                    Админ-панель
                   </Link>
                 </li>
               </ul>

@@ -4,6 +4,12 @@ import GiftCertificateModal from './components/giftCertificate/GiftCertificateMo
 import ScrollToTop from './components/ScrollToTop'
 import { BookingModalProvider } from './contexts/BookingModalContext'
 import { GiftCertificateModalProvider } from './contexts/GiftCertificateModalContext'
+import AdminLayout from './pages/admin/AdminLayout'
+import AdminCertificatesPage from './pages/admin/AdminCertificatesPage'
+import AdminDashboardPage from './pages/admin/AdminDashboardPage'
+import AdminSectionPage from './pages/admin/AdminSectionPage'
+import AdminSettingsPage from './pages/admin/AdminSettingsPage'
+import { ADMIN_NAV_MAIN } from './data/adminNav'
 import ContactsPage from './pages/ContactsPage'
 import FaqPage from './pages/FaqPage'
 import GalleryPage from './pages/GalleryPage'
@@ -20,6 +26,20 @@ function App() {
             <ScrollToTop />
             <div className="flex min-h-0 flex-1 flex-col">
               <Routes>
+                <Route path="/admin" element={<AdminLayout />}>
+                  <Route index element={<AdminDashboardPage />} />
+                  <Route path="settings" element={<AdminSettingsPage />} />
+                  <Route path="certificates" element={<AdminCertificatesPage />} />
+                  {ADMIN_NAV_MAIN.filter(
+                    (item) => item.to !== '/admin' && item.to !== '/admin/certificates',
+                  ).map((item) => (
+                    <Route
+                      key={item.to}
+                      path={item.to.slice('/admin/'.length)}
+                      element={<AdminSectionPage />}
+                    />
+                  ))}
+                </Route>
                 <Route path="/" element={<HomePage />} />
                 <Route path="/gallery" element={<GalleryPage />} />
                 <Route path="/prices" element={<PricesPage />} />
