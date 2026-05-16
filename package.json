@@ -23,11 +23,12 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "date-fns": "^4.1.0",
-    "lucide-react": "^1.14.0",
+    "lucide-react": "^1.16.0",
     "react": "^19.2.5",
     "react-day-picker": "^10.0.0",
     "react-dom": "^19.2.5",
     "react-router-dom": "^7.15.0",
+    "recharts": "^2.15.4",
     "swiper": "^12.1.4",
     "tailwind-merge": "^3.6.0"
   },

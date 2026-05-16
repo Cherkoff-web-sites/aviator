@@ -8,6 +8,7 @@ import AdminLayout from './pages/admin/AdminLayout'
 import AdminAccountsPage from './pages/admin/AdminAccountsPage'
 import AdminCertificatesPage from './pages/admin/AdminCertificatesPage'
 import AdminDashboardPage from './pages/admin/AdminDashboardPage'
+import AdminAnalyticsPage from './pages/admin/AdminAnalyticsPage'
 import AdminMaintenancePage from './pages/admin/AdminMaintenancePage'
 import AdminPricesPromosPage from './pages/admin/AdminPricesPromosPage'
 import AdminSectionPage from './pages/admin/AdminSectionPage'
@@ -42,6 +43,7 @@ function App() {
                   <Route path="prices-promos" element={<AdminPricesPromosPage />} />
                   <Route path="accounts" element={<AdminAccountsPage />} />
                   <Route path="maintenance" element={<AdminMaintenancePage />} />
+                  <Route path="analytics" element={<AdminAnalyticsPage />} />
                   {ADMIN_NAV_MAIN.filter(
                     (item) =>
                       item.to !== '/admin' &&
@@ -51,7 +53,8 @@ function App() {
                       item.to !== '/admin/schedule-settings' &&
                       item.to !== '/admin/prices-promos' &&
                       item.to !== '/admin/accounts' &&
-                      item.to !== '/admin/maintenance',
+                      item.to !== '/admin/maintenance' &&
+                      item.to !== '/admin/analytics',
                   ).map((item) => (
                     <Route
                       key={item.to}
