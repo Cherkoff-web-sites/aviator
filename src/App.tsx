@@ -7,6 +7,7 @@ import { GiftCertificateModalProvider } from './contexts/GiftCertificateModalCon
 import AdminLayout from './pages/admin/AdminLayout'
 import AdminCertificatesPage from './pages/admin/AdminCertificatesPage'
 import AdminDashboardPage from './pages/admin/AdminDashboardPage'
+import AdminPricesPromosPage from './pages/admin/AdminPricesPromosPage'
 import AdminSectionPage from './pages/admin/AdminSectionPage'
 import AdminSettingsPage from './pages/admin/AdminSettingsPage'
 import AdminStaffSchedulePage from './pages/admin/AdminStaffSchedulePage'
@@ -34,12 +35,14 @@ function App() {
                   <Route path="certificates" element={<AdminCertificatesPage />} />
                   <Route path="staff-schedule" element={<AdminStaffSchedulePage />} />
                   <Route path="waiting-room" element={<AdminWaitingRoomPage />} />
+                  <Route path="prices-promos" element={<AdminPricesPromosPage />} />
                   {ADMIN_NAV_MAIN.filter(
                     (item) =>
                       item.to !== '/admin' &&
                       item.to !== '/admin/certificates' &&
                       item.to !== '/admin/staff-schedule' &&
-                      item.to !== '/admin/waiting-room',
+                      item.to !== '/admin/waiting-room' &&
+                      item.to !== '/admin/prices-promos',
                   ).map((item) => (
                     <Route
                       key={item.to}

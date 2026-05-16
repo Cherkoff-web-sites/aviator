@@ -295,7 +295,7 @@ export default function AdminStaffSchedulePage() {
 
   return (
     <div className="flex w-full min-w-0 flex-col gap-4">
-      <div className="flex flex-col items-center gap-3 sm:flex-row sm:justify-center sm:gap-6">
+      <div className="flex w-full min-w-0 items-center gap-2 sm:gap-6">
         <Button
           type="button"
           variant="outline"
@@ -306,7 +306,7 @@ export default function AdminStaffSchedulePage() {
         >
           <ChevronRight className="size-4 rotate-180" />
         </Button>
-        <h2 className="text-center text-lg font-semibold capitalize text-foreground sm:min-w-[200px]">
+        <h2 className="min-w-0 flex-1 truncate text-center text-base font-semibold capitalize leading-tight text-foreground sm:text-lg">
           {titleCased}
         </h2>
         <Button
