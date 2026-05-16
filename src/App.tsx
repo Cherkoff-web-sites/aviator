@@ -5,6 +5,7 @@ import ScrollToTop from './components/ScrollToTop'
 import { BookingModalProvider } from './contexts/BookingModalContext'
 import { GiftCertificateModalProvider } from './contexts/GiftCertificateModalContext'
 import AdminLayout from './pages/admin/AdminLayout'
+import AdminAccountsPage from './pages/admin/AdminAccountsPage'
 import AdminCertificatesPage from './pages/admin/AdminCertificatesPage'
 import AdminDashboardPage from './pages/admin/AdminDashboardPage'
 import AdminPricesPromosPage from './pages/admin/AdminPricesPromosPage'
@@ -38,6 +39,7 @@ function App() {
                   <Route path="waiting-room" element={<AdminWaitingRoomPage />} />
                   <Route path="schedule-settings" element={<AdminScheduleSettingsPage />} />
                   <Route path="prices-promos" element={<AdminPricesPromosPage />} />
+                  <Route path="accounts" element={<AdminAccountsPage />} />
                   {ADMIN_NAV_MAIN.filter(
                     (item) =>
                       item.to !== '/admin' &&
@@ -45,7 +47,8 @@ function App() {
                       item.to !== '/admin/staff-schedule' &&
                       item.to !== '/admin/waiting-room' &&
                       item.to !== '/admin/schedule-settings' &&
-                      item.to !== '/admin/prices-promos',
+                      item.to !== '/admin/prices-promos' &&
+                      item.to !== '/admin/accounts',
                   ).map((item) => (
                     <Route
                       key={item.to}
