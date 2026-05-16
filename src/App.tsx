@@ -10,6 +10,7 @@ import AdminDashboardPage from './pages/admin/AdminDashboardPage'
 import AdminSectionPage from './pages/admin/AdminSectionPage'
 import AdminSettingsPage from './pages/admin/AdminSettingsPage'
 import AdminStaffSchedulePage from './pages/admin/AdminStaffSchedulePage'
+import AdminWaitingRoomPage from './pages/admin/AdminWaitingRoomPage'
 import { ADMIN_NAV_MAIN } from './data/adminNav'
 import ContactsPage from './pages/ContactsPage'
 import FaqPage from './pages/FaqPage'
@@ -32,11 +33,13 @@ function App() {
                   <Route path="settings" element={<AdminSettingsPage />} />
                   <Route path="certificates" element={<AdminCertificatesPage />} />
                   <Route path="staff-schedule" element={<AdminStaffSchedulePage />} />
+                  <Route path="waiting-room" element={<AdminWaitingRoomPage />} />
                   {ADMIN_NAV_MAIN.filter(
                     (item) =>
                       item.to !== '/admin' &&
                       item.to !== '/admin/certificates' &&
-                      item.to !== '/admin/staff-schedule',
+                      item.to !== '/admin/staff-schedule' &&
+                      item.to !== '/admin/waiting-room',
                   ).map((item) => (
                     <Route
                       key={item.to}
