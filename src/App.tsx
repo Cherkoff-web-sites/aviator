@@ -9,6 +9,7 @@ import AdminCertificatesPage from './pages/admin/AdminCertificatesPage'
 import AdminDashboardPage from './pages/admin/AdminDashboardPage'
 import AdminSectionPage from './pages/admin/AdminSectionPage'
 import AdminSettingsPage from './pages/admin/AdminSettingsPage'
+import AdminStaffSchedulePage from './pages/admin/AdminStaffSchedulePage'
 import { ADMIN_NAV_MAIN } from './data/adminNav'
 import ContactsPage from './pages/ContactsPage'
 import FaqPage from './pages/FaqPage'
@@ -30,8 +31,12 @@ function App() {
                   <Route index element={<AdminDashboardPage />} />
                   <Route path="settings" element={<AdminSettingsPage />} />
                   <Route path="certificates" element={<AdminCertificatesPage />} />
+                  <Route path="staff-schedule" element={<AdminStaffSchedulePage />} />
                   {ADMIN_NAV_MAIN.filter(
-                    (item) => item.to !== '/admin' && item.to !== '/admin/certificates',
+                    (item) =>
+                      item.to !== '/admin' &&
+                      item.to !== '/admin/certificates' &&
+                      item.to !== '/admin/staff-schedule',
                   ).map((item) => (
                     <Route
                       key={item.to}
