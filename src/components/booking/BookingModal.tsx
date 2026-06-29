@@ -8,6 +8,7 @@ import 'react-day-picker/style.css'
 
 import type { BookingOpenPayload, BookingSimulatorSlug } from '../../contexts/BookingModalContext'
 import { useBookingModal } from '../../contexts/BookingModalContext'
+import { apiFetch } from '../../lib/api'
 import { getBookingPriceByn } from './bookingPricing'
 import { BOOKING_TIME_SLOTS, type BookingTimeSlot } from './bookingTimeSlots'
 
@@ -134,7 +135,11 @@ function BookingModal() {
   const [dateTimeOpen, setDateTimeOpen] = useState(false)
   const [wizardStep, setWizardStep] = useState<WizardStep>('form')
   const [otpDigits, setOtpDigits] = useState<string[]>(() => OTP_EMPTY())
-  const [resendSec, setResendSec] = useState(19)
+  const [resendSec, setResendSec] = useState(60)
+  const [bookingId, setBookingId] = useState<string | null>(null)
+  const [phone, setPhone] = useState('+375 (12) 1234567')
+  const [email, setEmail] = useState('')
+  const [bookingError, setBookingError] = useState('')
   const otpRefs = useRef<(HTMLInputElement | null)[]>([])
 
   const [giftCertificateOrder, setGiftCertificateOrder] = useState(false)
@@ -157,7 +162,9 @@ function BookingModal() {
       setDateTimeOpen(false)
       setWizardStep('form')
       setOtpDigits(OTP_EMPTY())
-      setResendSec(19)
+      setResendSec(60)
+      setBookingId(null)
+      setBookingError('')
       return
     }
     const { aircraft: ac, durationMin: d } = applyOpenPayload(payload)
@@ -193,9 +200,15 @@ function BookingModal() {
   useEffect(() => {
     if (wizardStep !== 'otp') return
     if (!otpDigits.every((d) => d.length === 1)) return
-    const t = window.setTimeout(() => setWizardStep('success'), 180)
-    return () => window.clearTimeout(t)
-  }, [otpDigits, wizardStep])
+    if (!bookingId) return
+    const code = otpDigits.join('')
+    void apiFetch(`/api/public/bookings/${bookingId}/confirm`, {
+      method: 'POST',
+      body: JSON.stringify({ code }),
+    })
+      .then(() => setWizardStep('success'))
+      .catch(() => setBookingError('Неверный или просроченный код'))
+  }, [otpDigits, wizardStep, bookingId])
 
   useEffect(() => {
     if (wizardStep !== 'otp') return
@@ -467,6 +480,32 @@ function BookingModal() {
                     </div>
 
                     <div className="min-w-0">
+                      <label className={labelClass()} htmlFor="booking-phone">
+                        Телефон
+                      </label>
+                      <input
+                        id="booking-phone"
+                        className={inputClass()}
+                        value={phone}
+                        onChange={(e) => setPhone(e.target.value)}
+                      />
+                    </div>
+
+                    <div className="min-w-0">
+                      <label className={labelClass()} htmlFor="booking-email">
+                        Email
+                      </label>
+                      <input
+                        id="booking-email"
+                        type="email"
+                        className={inputClass()}
+                        value={email}
+                        onChange={(e) => setEmail(e.target.value)}
+                        placeholder="для кода подтверждения"
+                      />
+                    </div>
+
+                    <div className="min-w-0">
                       <label className={labelClass()} htmlFor="booking-confirm">
                         Способ подтверждения
                       </label>
@@ -535,16 +574,49 @@ function BookingModal() {
                     </span>
                   </label>
 
+                  {bookingError ? (
+                    <p className="text-sm font-medium text-red-600">{bookingError}</p>
+                  ) : null}
+
                   <button
                     type="button"
-                    disabled={!consent}
+                    disabled={!consent || !email.trim()}
                     className="mt-1 w-full rounded-xl bg-[linear-gradient(180deg,#4da3ff_0%,#0075ff_48%,#0050b3_100%)] py-3.5 text-[16px] font-semibold text-white shadow-[0_8px_24px_rgba(0,117,255,0.35)] transition-opacity disabled:cursor-not-allowed disabled:opacity-40 min-[990px]:py-4 min-[990px]:text-[17px]"
                     onClick={() => {
-                      setOtpDigits(OTP_EMPTY())
-                      setWizardStep('otp')
+                      setBookingError('')
+                      void (async () => {
+                        try {
+                          const result = await apiFetch<{ bookingId: string }>(
+                            '/api/public/bookings',
+                            {
+                              method: 'POST',
+                              body: JSON.stringify({
+                                date: format(selectedDate, 'yyyy-MM-dd'),
+                                startTime: selectedTime,
+                                durationMin,
+                                simulatorSlug: aircraft,
+                                name,
+                                phone,
+                                email,
+                                paymentMethod: payment === 'now' ? 'ONLINE' : 'OFFLINE',
+                                comment: note,
+                                isBirthdayPromo: birthdayDiscount,
+                                birthdayDate: birthdayDate || undefined,
+                                certificateNumber: hasGiftCert ? giftCertNumber : undefined,
+                              }),
+                            },
+                          )
+                          setBookingId(result.bookingId)
+                          setOtpDigits(OTP_EMPTY())
+                          setWizardStep('otp')
+                          setResendSec(60)
+                        } catch {
+                          setBookingError('Не удалось создать бронь. Проверьте данные.')
+                        }
+                      })()
                     }}
                   >
-                    Забронировать полет
+                    {payment === 'now' ? 'Забронировать и оплатить' : 'Забронировать полет'}
                   </button>
                 </div>
               </div>

@@ -2,9 +2,11 @@ import { BrowserRouter, Route, Routes } from 'react-router-dom'
 import BookingModal from './components/booking/BookingModal'
 import GiftCertificateModal from './components/giftCertificate/GiftCertificateModal'
 import ScrollToTop from './components/ScrollToTop'
+import { AdminAuthProvider } from './contexts/AdminAuthContext'
 import { BookingModalProvider } from './contexts/BookingModalContext'
 import { GiftCertificateModalProvider } from './contexts/GiftCertificateModalContext'
 import AdminLayout from './pages/admin/AdminLayout'
+import AdminLoginPage from './pages/admin/AdminLoginPage'
 import AdminAccountsPage from './pages/admin/AdminAccountsPage'
 import AdminCertificatesPage from './pages/admin/AdminCertificatesPage'
 import AdminDashboardPage from './pages/admin/AdminDashboardPage'
@@ -28,11 +30,13 @@ function App() {
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <BrowserRouter>
+        <AdminAuthProvider>
         <BookingModalProvider>
           <GiftCertificateModalProvider>
             <ScrollToTop />
             <div className="flex min-h-0 flex-1 flex-col">
               <Routes>
+                <Route path="/admin/login" element={<AdminLoginPage />} />
                 <Route path="/admin" element={<AdminLayout />}>
                   <Route index element={<AdminDashboardPage />} />
                   <Route path="settings" element={<AdminSettingsPage />} />
@@ -75,6 +79,7 @@ function App() {
             <GiftCertificateModal />
           </GiftCertificateModalProvider>
         </BookingModalProvider>
+        </AdminAuthProvider>
       </BrowserRouter>
     </div>
   )

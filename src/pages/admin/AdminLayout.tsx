@@ -1,8 +1,9 @@
 import { useEffect, useMemo } from 'react'
-import { Outlet, useLocation } from 'react-router-dom'
+import { Navigate, Outlet, useLocation } from 'react-router-dom'
 
 import { AppSidebar } from '@/components/app-sidebar'
 import { ADMIN_NAV_MAIN } from '@/data/adminNav'
+import { useAdminAuth } from '@/contexts/AdminAuthContext'
 import {
   SidebarInset,
   SidebarProvider,
@@ -24,12 +25,26 @@ function CloseMobileSidebarOnNavigate() {
 
 export default function AdminLayout() {
   const { pathname } = useLocation()
+  const { user, loading } = useAdminAuth()
+
   const pageTitle = useMemo(() => {
     if (pathname === '/admin' || pathname === '/admin/') return 'Домашняя страница'
     if (pathname.startsWith('/admin/settings')) return 'Настройки'
     const hit = ADMIN_NAV_MAIN.find((i) => i.to === pathname)
     return hit?.title ?? 'Раздел'
   }, [pathname])
+
+  if (loading) {
+    return (
+      <div className="flex min-h-svh items-center justify-center bg-muted/30">
+        <p className="text-sm text-muted-foreground">Загрузка…</p>
+      </div>
+    )
+  }
+
+  if (!user) {
+    return <Navigate to="/admin/login" replace />
+  }
 
   return (
     <SidebarProvider className="min-h-svh">

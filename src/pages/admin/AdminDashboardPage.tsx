@@ -19,6 +19,9 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { useIsMobile } from '@/hooks/use-mobile'
+import { useAdminSocket } from '@/hooks/useAdminSocket'
+import { useAdminAuth } from '@/contexts/AdminAuthContext'
+import { apiFetch, type ApiBooking } from '@/lib/api'
 import { cn } from '@/lib/utils'
 
 /** UTF-8 в репозитории, JSON и Vercel; для MySQL в БД — utf8mb4. */
@@ -72,56 +75,36 @@ type BookingRow = {
   muted: boolean
 }
 
-const BOOKING_ROWS: BookingRow[] = [
-  {
-    id: '1',
-    name: 'Арсений',
-    phone: '+375 (12) 1234567',
-    simulator: 'plane',
-    status: 'in_progress',
-    paid: true,
-    time: '12.00 - 12.30',
-    method: 'online',
-    comment: 'Будем с ребенком',
-    muted: false,
-  },
-  {
-    id: '2',
-    name: 'Никита',
-    phone: '+375 (12) 1234567',
-    simulator: 'helicopter',
-    status: 'done',
-    paid: false,
-    time: '13.00 - 13.45',
-    method: 'offline',
-    comment: 'Будем с ребенком и...',
-    muted: true,
-  },
-  {
-    id: '3',
-    name: 'Владимир',
-    phone: '+375 (12) 1234567',
-    simulator: 'both',
-    status: 'waiting',
-    paid: false,
-    time: '14.00 - 14.25',
-    method: 'online',
-    comment: 'Могут опоздать',
-    muted: false,
-  },
-  {
-    id: '4',
-    name: 'Никита',
-    phone: '+375 (12) 1234567',
-    simulator: 'helicopter',
-    status: 'canceled',
-    paid: true,
-    time: '14.40 - 14.55',
-    method: 'offline',
-    comment: '',
-    muted: true,
-  },
-]
+
+function mapApiBooking(row: ApiBooking): BookingRow {
+  const simulator: SimulatorType =
+    row.simulatorSlug === 'mi-2'
+      ? 'helicopter'
+      : row.simulatorSlug === 'boeing-737'
+        ? 'plane'
+        : 'both'
+  const statusMap: Record<string, BookingStatus> = {
+    IN_PROGRESS: 'in_progress',
+    DONE: 'done',
+    WAITING: 'waiting',
+    CANCELLED: 'canceled',
+    CONFIRMED: 'waiting',
+    PENDING_CONFIRMATION: 'in_progress',
+    EXPIRED: 'canceled',
+  }
+  return {
+    id: row.id,
+    name: row.name,
+    phone: row.phone,
+    simulator,
+    status: statusMap[row.status] ?? 'waiting',
+    paid: row.paid,
+    time: `${row.startTime} - ${row.endTime}`,
+    method: row.paymentMethod === 'ONLINE' ? 'online' : 'offline',
+    comment: row.comment,
+    muted: row.status === 'CANCELLED' || row.status === 'EXPIRED',
+  }
+}
 
 function formatTableHeaderDate(d: Date) {
   const raw = format(d, "d MMMM yyyy 'г.'", { locale: ru })
@@ -212,8 +195,32 @@ function MethodIcon({ method }: { method: MethodKind }) {
 
 export default function AdminDashboardPage() {
   const [date, setDate] = React.useState<Date | undefined>(new Date())
+  const [rows, setRows] = React.useState<BookingRow[]>([])
+  const { token, user } = useAdminAuth()
   const isMobile = useIsMobile()
   const headerDate = date ?? new Date()
+  const canEdit = user?.role === 'ADMIN' || user?.role === 'MANAGER'
+
+  const loadBookings = React.useCallback(async () => {
+    if (!token || !date) return
+    const dateKey = format(date, 'yyyy-MM-dd')
+    const data = await apiFetch<ApiBooking[]>(`/api/admin/bookings?date=${dateKey}`, { token })
+    setRows(data.map(mapApiBooking))
+  }, [token, date])
+
+  React.useEffect(() => {
+    void loadBookings()
+  }, [loadBookings])
+
+  useAdminSocket(() => {
+    void loadBookings()
+  })
+
+  const deleteBooking = async (id: string) => {
+    if (!token || !canEdit) return
+    await apiFetch(`/api/admin/bookings/${id}`, { method: 'DELETE', token })
+    void loadBookings()
+  }
 
   return (
     <div className="flex w-full min-w-0 flex-col gap-6">
@@ -242,6 +249,7 @@ export default function AdminDashboardPage() {
           </Button>
         </div>
 
+          {rows.length > 0 ? (
         <div className="-mx-4 max-w-[calc(100vw-2rem)] overflow-x-auto sm:mx-0 sm:max-w-none">
           <Table>
             <TableHeader>
@@ -254,11 +262,11 @@ export default function AdminDashboardPage() {
                 <TableHead className="min-w-[110px] whitespace-nowrap">Время</TableHead>
                 <TableHead className="w-12 text-center">Способ</TableHead>
                 <TableHead className="min-w-[160px]">Комментарий</TableHead>
-                <TableHead className="w-[52px] text-right pr-2" />
+                {canEdit ? <TableHead className="w-[52px] text-right pr-2" /> : null}
               </TableRow>
             </TableHeader>
             <TableBody>
-              {BOOKING_ROWS.map((row) => (
+              {rows.map((row) => (
                 <TableRow
                   key={row.id}
                   className={cn(row.muted && 'text-muted-foreground')}
@@ -292,6 +300,7 @@ export default function AdminDashboardPage() {
                   <TableCell className="max-w-[220px] text-sm leading-snug">
                     {row.comment}
                   </TableCell>
+                  {canEdit ? (
                   <TableCell className="pr-2 text-right">
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
@@ -304,17 +313,22 @@ export default function AdminDashboardPage() {
                         <DropdownMenuItem>Редактировать</DropdownMenuItem>
                         <DropdownMenuItem
                           className="text-destructive focus:bg-destructive/10 focus:text-destructive"
+                          onClick={() => void deleteBooking(row.id)}
                         >
                           Удалить
                         </DropdownMenuItem>
                       </DropdownMenuContent>
                     </DropdownMenu>
                   </TableCell>
+                  ) : null}
                 </TableRow>
               ))}
             </TableBody>
           </Table>
         </div>
+          ) : (
+            <p className="text-sm text-muted-foreground">Записей на выбранную дату пока нет.</p>
+          )}
       </div>
     </div>
   )
