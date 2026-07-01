@@ -1,11 +1,20 @@
-FROM node:22-alpine
+FROM node:20-alpine AS build
 WORKDIR /app
-COPY package.json package-lock.json* ./
-RUN npm install
-COPY . .
+COPY package.json package-lock.json ./
+RUN npm ci
+COPY tsconfig.json ./
+COPY src ./src
 RUN npm run build
-RUN mkdir -p data
-VOLUME /app/data
+
+FROM node:20-alpine
+WORKDIR /app
+ENV NODE_ENV=production
+ENV PORT=3001
 ENV STORE_PATH=/app/data/store.json
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev
+COPY --from=build /app/dist ./dist
+RUN mkdir -p /app/data
+VOLUME /app/data
 EXPOSE 3001
 CMD ["node", "dist/index.js"]

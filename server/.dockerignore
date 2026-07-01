@@ -1,0 +1,17 @@
+node_modules
+dist
+data
+.git
+.env
+.env.*
+*.log
+prisma
+src/routes/admin.routes.ts
+src/routes/public.routes.ts
+src/services
+src/middleware
+src/lib/prisma.ts
+src/lib/jwt.ts
+src/lib/auth-utils.ts
+src/lib/mailer.ts
+.DS_Store

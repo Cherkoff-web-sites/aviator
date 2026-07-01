@@ -1,24 +1,28 @@
 services:
   server:
-    build: ./server
+    build:
+      context: ./server
+      dockerfile: Dockerfile
     environment:
-      PORT: 3001
+      PORT: "3001"
       STORE_PATH: /app/data/store.json
     volumes:
       - store_data:/app/data
-    ports:
-      - '3001:3001'
+    expose:
+      - "3001"
+    restart: unless-stopped
 
   web:
     build:
       context: ./prod
       dockerfile: Dockerfile
       args:
-        VITE_API_URL: ''
+        VITE_API_URL: ""
     ports:
-      - '8080:80'
+      - "80:80"
     depends_on:
       - server
+    restart: unless-stopped
 
 volumes:
   store_data:
