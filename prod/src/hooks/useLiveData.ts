@@ -17,6 +17,9 @@ export function useStoreSocket(onUpdate: () => void) {
     socket.on('booking:deleted', handler)
     return () => {
       socket.off('store:updated', handler)
+      socket.off('booking:created', handler)
+      socket.off('booking:updated', handler)
+      socket.off('booking:deleted', handler)
       socket.disconnect()
     }
   }, [])

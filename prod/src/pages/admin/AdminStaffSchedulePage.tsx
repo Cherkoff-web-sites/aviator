@@ -237,6 +237,20 @@ export default function AdminStaffSchedulePage() {
     [isManager],
   )
   const pilots = pilotsData ?? []
+  const selectedPilot = pilots.find((p) => p.id === (pilotId || pilots[0]?.id))
+  const simulatorOptions = React.useMemo(
+    () =>
+      isManager
+        ? (selectedPilot?.pilotSimulators.length ? selectedPilot.pilotSimulators : ['boeing-737', 'mi-2'])
+        : (session?.user.pilotSimulators.length ? session.user.pilotSimulators : ['boeing-737']),
+    [isManager, selectedPilot, session?.user.pilotSimulators],
+  )
+
+  React.useEffect(() => {
+    if (!simulatorOptions.includes(simulatorSlug)) {
+      setSimulatorSlug(simulatorOptions[0] ?? 'boeing-737')
+    }
+  }, [simulatorOptions, simulatorSlug])
 
   const shiftsByDate = React.useMemo(() => {
     const map = new Map<string, StaffShiftUi[]>()
@@ -316,8 +330,11 @@ export default function AdminStaffSchedulePage() {
             value={simulatorSlug}
             onChange={(e) => setSimulatorSlug(e.target.value)}
           >
-            <option value="boeing-737">Boeing 737</option>
-            <option value="mi-2">Ми-2</option>
+            {simulatorOptions.map((slug) => (
+              <option key={slug} value={slug}>
+                {slug === 'boeing-737' ? 'Boeing 737' : slug === 'mi-2' ? 'Ми-2' : slug}
+              </option>
+            ))}
           </select>
           <Button type="button" onClick={() => void submitShift()}>
             Сохранить

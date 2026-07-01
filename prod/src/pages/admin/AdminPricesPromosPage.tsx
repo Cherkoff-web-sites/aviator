@@ -206,6 +206,8 @@ export default function AdminPricesPromosPage() {
                 <th className="py-2 text-left">Скидка %</th>
                 <th className="py-2 text-left">Период</th>
                 <th className="py-2 text-left">Продукт</th>
+                <th className="py-2 text-left">Тип</th>
+                <th className="py-2 text-left">Активна</th>
               </tr>
             </thead>
             <tbody>
@@ -226,11 +228,95 @@ export default function AdminPricesPromosPage() {
                       p.name
                     )}
                   </td>
-                  <td className="py-2">{p.discountPercent}%</td>
                   <td className="py-2">
-                    {p.startDate} — {p.endDate}
+                    {canEdit ? (
+                      <Input
+                        type="number"
+                        className="h-8 w-20"
+                        value={p.discountPercent}
+                        onChange={(e) => {
+                          const n = [...promoLocal]
+                          n[i] = { ...p, discountPercent: Number(e.target.value) }
+                          setPromoLocal(n)
+                        }}
+                      />
+                    ) : (
+                      `${p.discountPercent}%`
+                    )}
                   </td>
-                  <td className="py-2">{p.productType}</td>
+                  <td className="py-2">
+                    {canEdit ? (
+                      <div className="flex gap-2">
+                        <Input
+                          className="h-8 w-32"
+                          value={p.startDate}
+                          onChange={(e) => {
+                            const n = [...promoLocal]
+                            n[i] = { ...p, startDate: e.target.value }
+                            setPromoLocal(n)
+                          }}
+                        />
+                        <Input
+                          className="h-8 w-32"
+                          value={p.endDate}
+                          onChange={(e) => {
+                            const n = [...promoLocal]
+                            n[i] = { ...p, endDate: e.target.value }
+                            setPromoLocal(n)
+                          }}
+                        />
+                      </div>
+                    ) : (
+                      `${p.startDate} — ${p.endDate}`
+                    )}
+                  </td>
+                  <td className="py-2">
+                    {canEdit ? (
+                      <Input
+                        className="h-8"
+                        value={p.productType}
+                        onChange={(e) => {
+                          const n = [...promoLocal]
+                          n[i] = { ...p, productType: e.target.value }
+                          setPromoLocal(n)
+                        }}
+                      />
+                    ) : (
+                      p.productType
+                    )}
+                  </td>
+                  <td className="py-2">
+                    {canEdit ? (
+                      <Input
+                        className="h-8"
+                        value={p.promoType}
+                        onChange={(e) => {
+                          const n = [...promoLocal]
+                          n[i] = { ...p, promoType: e.target.value }
+                          setPromoLocal(n)
+                        }}
+                      />
+                    ) : (
+                      p.promoType
+                    )}
+                  </td>
+                  <td className="py-2">
+                    {canEdit ? (
+                      <input
+                        type="checkbox"
+                        checked={p.active}
+                        onChange={(e) => {
+                          const n = [...promoLocal]
+                          n[i] = { ...p, active: e.target.checked }
+                          setPromoLocal(n)
+                        }}
+                      />
+                    ) : p.active ? (
+                      'Да'
+                    ) : (
+                      'Нет'
+                    )}
+                  </td>
                 </tr>
               ))}
             </tbody>

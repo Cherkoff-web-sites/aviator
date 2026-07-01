@@ -87,6 +87,7 @@ const EMPTY_FORM = {
   comment: '',
   paymentMethod: 'OFFLINE' as 'OFFLINE' | 'ONLINE',
   paid: false,
+  status: 'CONFIRMED',
 }
 
 function mapApiBooking(row: ApiBooking): BookingRow {
@@ -114,7 +115,16 @@ function mapApiBooking(row: ApiBooking): BookingRow {
     paid: row.paid,
     time: `${row.startTime} - ${row.endTime}`,
     method: row.paymentMethod === 'ONLINE' ? 'online' : 'offline',
-    comment: row.comment,
+    comment: [
+      row.comment,
+      row.email ? `Email: ${row.email}` : '',
+      row.promoNote ? `Акция: ${row.promoNote}` : '',
+      row.birthdayDate ? `ДР: ${row.birthdayDate}` : '',
+      row.certificateNumber ? `Сертификат: ${row.certificateNumber}` : '',
+      row.holdExpiresAt ? `Резерв до: ${row.holdExpiresAt.slice(11, 16)}` : '',
+    ]
+      .filter(Boolean)
+      .join(' · '),
     muted: row.status === 'CANCELLED' || row.status === 'EXPIRED',
     raw: row,
   }
@@ -259,6 +269,7 @@ export default function AdminDashboardPage() {
       comment: row.raw.comment,
       paymentMethod: row.raw.paymentMethod,
       paid: row.raw.paid,
+      status: row.raw.status,
     }
     setEditId(row.id)
     setForm(next)
@@ -279,7 +290,7 @@ export default function AdminDashboardPage() {
     } else {
       await apiFetch('/api/admin/bookings', {
         method: 'POST',
-        body: JSON.stringify({ ...form, date: dateKey, status: 'CONFIRMED' }),
+        body: JSON.stringify({ ...form, date: dateKey }),
       })
     }
     setFormOpen(false)
@@ -345,6 +356,7 @@ export default function AdminDashboardPage() {
                 ['startTime', 'Время начала'],
                 ['simulatorSlug', 'Тренажёр'],
                 ['comment', 'Комментарий'],
+                ['status', 'Статус'],
               ] as const
             ).map(([key, label]) => (
               <label key={key} className="text-sm">
@@ -364,6 +376,27 @@ export default function AdminDashboardPage() {
                 value={form.durationMin}
                 onChange={(e) => setForm((f) => ({ ...f, durationMin: Number(e.target.value) }))}
               />
+            </label>
+            <label className="text-sm">
+              <span className="text-muted-foreground">Способ оплаты</span>
+              <select
+                className="mt-1 h-9 w-full rounded-md border bg-background px-2 text-sm"
+                value={form.paymentMethod}
+                onChange={(e) =>
+                  setForm((f) => ({ ...f, paymentMethod: e.target.value as 'OFFLINE' | 'ONLINE' }))
+                }
+              >
+                <option value="OFFLINE">При посещении</option>
+                <option value="ONLINE">Онлайн</option>
+              </select>
+            </label>
+            <label className="flex items-center gap-2 pt-6 text-sm">
+              <input
+                type="checkbox"
+                checked={form.paid}
+                onChange={(e) => setForm((f) => ({ ...f, paid: e.target.checked }))}
+              />
+              <span>Оплачено</span>
             </label>
             <div className="flex flex-wrap gap-2 sm:col-span-2">
               {formDirty ? (

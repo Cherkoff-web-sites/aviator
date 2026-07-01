@@ -85,7 +85,12 @@ export type ApiBooking = {
   paymentMethod: 'OFFLINE' | 'ONLINE'
   comment: string
   isBirthdayPromo: boolean
+  birthdayDate?: string
+  certificateNumber?: string
   promoNote?: string | null
+  holdExpiresAt?: string
+  createdAt?: string
+  updatedAt?: string
 }
 
 export type ApiCertificate = {

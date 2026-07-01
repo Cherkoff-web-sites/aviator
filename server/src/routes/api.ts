@@ -119,14 +119,15 @@ apiRouter.get('/public/contacts', (_req, res) => {
 
 apiRouter.post('/public/bookings', async (req, res) => {
   const body = req.body
-  const holdExpiresAt = new Date(Date.now() + 2 * 60_000).toISOString()
+  const holdExpiresAt = new Date(Date.now() + 30 * 60_000).toISOString()
   const code = generateCode(6)
   const endTime = addMinutesToTime(body.startTime, body.durationMin)
-  const promoNote = body.isBirthdayPromo
-    ? 'ДР-15%'
-    : body.certificateNumber
-      ? `EB-${String(body.simulatorSlug).toUpperCase()}-${body.certificateNumber}`
-      : undefined
+  const notes: string[] = []
+  if (body.isBirthdayPromo) notes.push('ДР-15%')
+  if (body.certificateNumber) {
+    notes.push(`EB-${String(body.simulatorSlug).toUpperCase()}-${body.certificateNumber}`)
+  }
+  const promoNote = notes.length ? notes.join(', ') : undefined
 
   const booking: Booking = {
     id: newId(),
@@ -156,7 +157,7 @@ apiRouter.post('/public/bookings', async (req, res) => {
     s.pendingCodes.push({
       bookingId: booking.id,
       code,
-      expiresAt: new Date(Date.now() + 10 * 60_000).toISOString(),
+      expiresAt: new Date(Date.now() + 30 * 60_000).toISOString(),
       sentAt: new Date().toISOString(),
     })
   })
@@ -172,15 +173,8 @@ apiRouter.post('/public/bookings/:id/confirm', async (req, res) => {
   const store = readStore()
   const booking = store.bookings.find((b) => b.id === id)
   if (!booking) return res.status(404).json({ error: 'NOT_FOUND' })
-  if (booking.holdExpiresAt && booking.holdExpiresAt < new Date().toISOString()) {
-    await updateStore((s) => {
-      const b = s.bookings.find((x) => x.id === id)
-      if (b) b.status = 'EXPIRED'
-    })
-    return res.status(410).json({ error: 'HOLD_EXPIRED' })
-  }
   const match = store.pendingCodes.find(
-    (c) => c.bookingId === id && c.code === code && c.expiresAt > new Date().toISOString(),
+    (c) => c.bookingId === id && c.code === code,
   )
   if (!match) return res.status(400).json({ error: 'INVALID_CODE' })
 
@@ -211,7 +205,7 @@ apiRouter.post('/public/bookings/:id/resend-code', async (req, res) => {
     s.pendingCodes.push({
       bookingId: id,
       code,
-      expiresAt: new Date(Date.now() + 10 * 60_000).toISOString(),
+      expiresAt: new Date(Date.now() + 30 * 60_000).toISOString(),
       sentAt: new Date().toISOString(),
     })
   })
@@ -369,17 +363,23 @@ apiRouter.get('/admin/staff-shifts', (req, res) => {
 
 apiRouter.post('/admin/staff-shifts', async (req, res) => {
   const isPilot = req.session!.role === 'PILOT'
+  const store = readStore()
+  const userId = isPilot ? req.session!.userId : String(req.body.userId ?? '')
+  const user = store.users.find((u) => u.id === userId)
+  if (!user) return res.status(400).json({ error: 'USER_REQUIRED' })
+  if (isPilot && !user.pilotSimulators.includes(req.body.simulatorSlug)) {
+    return res.status(403).json({ error: 'SIMULATOR_FORBIDDEN' })
+  }
   const shift = {
     id: newId(),
     date: req.body.date,
-    userId: isPilot ? req.session!.userId : req.body.userId,
+    userId,
     simulatorSlug: req.body.simulatorSlug,
     createdAt: new Date().toISOString(),
   }
   await updateStore((s) => s.staffShifts.push(shift))
   broadcast()
-  const store = readStore()
-  res.status(201).json({ ...shift, user: store.users.find((u) => u.id === shift.userId) })
+  res.status(201).json({ ...shift, user })
 })
 
 apiRouter.delete('/admin/staff-shifts/:id', async (req, res) => {

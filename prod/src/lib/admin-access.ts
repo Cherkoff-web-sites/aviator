@@ -41,10 +41,11 @@ export function canEditStaffShift(role: UserRole, shiftUserId: string, currentUs
   return false
 }
 
-const ALL_HIDDEN = new Set([...PILOT_HIDDEN, ...MANAGER_HIDDEN, '/admin/login'])
-
 export function canAccessRoute(role: UserRole, pathname: string) {
+  if (pathname === '/admin' || pathname === '/admin/') return true
+  if (pathname === '/admin/login') return false
+
   const hidden = role === 'PILOT' ? PILOT_HIDDEN : role === 'MANAGER' ? MANAGER_HIDDEN : new Set<string>()
   if (pathname.startsWith('/admin/settings') && role !== 'ADMIN') return false
-  return !hidden.has(pathname) && !ALL_HIDDEN.has(pathname)
+  return !hidden.has(pathname)
 }
