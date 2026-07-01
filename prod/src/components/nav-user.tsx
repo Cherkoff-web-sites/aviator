@@ -1,5 +1,5 @@
 import { Bell, ChevronsUpDown, ExternalLink, LogOut, User } from 'lucide-react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 
 import {
   Avatar,
@@ -21,6 +21,7 @@ import {
   SidebarMenuItem,
   useSidebar,
 } from "@/components/ui/sidebar"
+import { useAdminAuth } from '@/contexts/AdminAuthContext'
 
 export function NavUser({
   user,
@@ -32,6 +33,13 @@ export function NavUser({
   }
 }) {
   const { isMobile } = useSidebar()
+  const { logout } = useAdminAuth()
+  const navigate = useNavigate()
+
+  const handleLogout = () => {
+    logout()
+    navigate('/admin/login', { replace: true })
+  }
 
   return (
     <SidebarMenu>
@@ -94,7 +102,7 @@ export function NavUser({
               </Link>
             </DropdownMenuItem>
             <DropdownMenuSeparator />
-            <DropdownMenuItem>
+            <DropdownMenuItem onClick={handleLogout}>
               <LogOut />
               Выйти
             </DropdownMenuItem>

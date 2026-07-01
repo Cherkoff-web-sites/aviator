@@ -11,15 +11,15 @@ const ROLES: { role: UserRole; title: string; desc: string }[] = [
 ]
 
 export default function AdminLoginPage() {
-  const { enterAs, loading, session } = useAdminAuth()
+  const { enterAs, loading, logout } = useAdminAuth()
   const navigate = useNavigate()
   const [pilotSim, setPilotSim] = React.useState<'boeing-737' | 'mi-2'>('boeing-737')
   const [busy, setBusy] = React.useState(false)
   const [error, setError] = React.useState('')
 
   React.useEffect(() => {
-    if (session) navigate('/admin', { replace: true })
-  }, [session, navigate])
+    logout()
+  }, [logout])
 
   const pick = async (role: UserRole) => {
     setError('')

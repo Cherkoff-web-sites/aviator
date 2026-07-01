@@ -1,5 +1,5 @@
 import * as React from 'react'
-import { apiFetch, clearSession, getSession, setSession, type AdminUser, type Session, type UserRole } from '@/lib/api'
+import { apiFetch, clearSession, setSession, type AdminUser, type Session, type UserRole } from '@/lib/api'
 
 type AuthState = {
   session: Session | null
@@ -22,27 +22,17 @@ const PILOT_VARIANT: Record<'boeing-737' | 'mi-2', string> = {
 const AdminAuthContext = React.createContext<AuthState | null>(null)
 
 export function AdminAuthProvider({ children }: { children: React.ReactNode }) {
-  const [session, setSessionState] = React.useState<Session | null>(() => getSession())
-  const [loading, setLoading] = React.useState(!!getSession())
+  const [session, setSessionState] = React.useState<Session | null>(null)
+  const loading = false
 
   React.useEffect(() => {
-    const s = getSession()
-    if (!s) {
-      setLoading(false)
-      return
-    }
-    apiFetch<AdminUser>('/api/auth/me')
-      .then((user) => setSessionState({ ...s, user }))
-      .catch(() => {
-        clearSession()
-        setSessionState(null)
-      })
-      .finally(() => setLoading(false))
+    clearSession()
   }, [])
 
   const enterAs = React.useCallback(async (role: UserRole, pilotVariant?: 'boeing-737' | 'mi-2') => {
     const userId =
       role === 'PILOT' && pilotVariant ? PILOT_VARIANT[pilotVariant] : ROLE_USERS[role]
+    clearSession()
     const user = await apiFetch<AdminUser>('/api/auth/me', {
       headers: { 'X-Role': role, 'X-User-Id': userId },
     })
