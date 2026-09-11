@@ -3,6 +3,8 @@ import { FreeMode, Thumbs } from 'swiper/modules'
 import { Swiper, SwiperSlide } from 'swiper/react'
 import type { Swiper as SwiperType } from 'swiper'
 
+import GalleryLightbox from './GalleryLightbox'
+
 import 'swiper/css'
 import 'swiper/css/free-mode'
 import 'swiper/css/thumbs'
@@ -16,7 +18,7 @@ export type GallerySlideItem = {
 
 export type GalleryMediaPanelProps = {
   slides: GallerySlideItem[]
-  /** Светлый блок (#e9e9e9) или тёмный градиент — меняются рамки миниатюр и точки пагинации */
+  /** Светлый блок или тёмный градиент — меняются рамки миниатюр и точки пагинации */
   theme?: 'light' | 'dark'
   className?: string
 }
@@ -25,11 +27,24 @@ function GalleryMediaPanel({ slides, theme = 'dark', className = '' }: GalleryMe
   const [thumbsSwiper, setThumbsSwiper] = useState<SwiperType | null>(null)
   const mainRef = useRef<SwiperType | null>(null)
   const [activeIndex, setActiveIndex] = useState(0)
+  const [lightboxOpen, setLightboxOpen] = useState(false)
+  const [lightboxIndex, setLightboxIndex] = useState(0)
 
   const thumbsSwiperSafe = thumbsSwiper && !thumbsSwiper.destroyed ? thumbsSwiper : null
 
   const onMainSwiper = useCallback((swiper: SwiperType) => {
     mainRef.current = swiper
+  }, [])
+
+  const openLightbox = useCallback((index: number) => {
+    setLightboxIndex(index)
+    setLightboxOpen(true)
+  }, [])
+
+  const onLightboxIndexChange = useCallback((next: number) => {
+    setLightboxIndex(next)
+    setActiveIndex(next)
+    mainRef.current?.slideTo(next)
   }, [])
 
   if (slides.length === 0) {
@@ -51,11 +66,14 @@ function GalleryMediaPanel({ slides, theme = 'dark', className = '' }: GalleryMe
       >
         {slides.map((slide, index) => (
           <SwiperSlide key={`${slide.src}-${index}`}>
-            <div
+            <button
+              type="button"
+              onClick={() => openLightbox(index)}
+              aria-label={`Открыть фото: ${slide.alt || index + 1}`}
               className={
                 theme === 'dark'
-                  ? 'overflow-hidden rounded-[20px] shadow-[0_16px_48px_rgba(0,0,0,0.35)] min-[990px]:rounded-[24px]'
-                  : 'overflow-hidden rounded-[20px] shadow-[0_12px_40px_rgba(0,45,98,0.12)] min-[990px]:rounded-[24px]'
+                  ? 'block w-full cursor-zoom-in overflow-hidden rounded-[20px] shadow-[0_16px_48px_rgba(0,0,0,0.35)] outline-none transition-opacity hover:opacity-95 focus-visible:ring-2 focus-visible:ring-white/50 min-[990px]:rounded-[24px]'
+                  : 'block w-full cursor-zoom-in overflow-hidden rounded-[20px] shadow-[0_12px_40px_rgba(0,45,98,0.12)] outline-none transition-opacity hover:opacity-95 focus-visible:ring-2 focus-visible:ring-[#0075FF]/50 min-[990px]:rounded-[24px]'
               }
             >
               <img
@@ -63,7 +81,7 @@ function GalleryMediaPanel({ slides, theme = 'dark', className = '' }: GalleryMe
                 alt={slide.alt}
                 className="aspect-[16/10] w-full object-cover min-[990px]:min-h-[300px] min-[990px]:max-h-[420px]"
               />
-            </div>
+            </button>
           </SwiperSlide>
         ))}
       </Swiper>
@@ -133,6 +151,14 @@ function GalleryMediaPanel({ slides, theme = 'dark', className = '' }: GalleryMe
           />
         ))}
       </div>
+
+      <GalleryLightbox
+        open={lightboxOpen}
+        slides={slides}
+        index={lightboxIndex}
+        onIndexChange={onLightboxIndexChange}
+        onClose={() => setLightboxOpen(false)}
+      />
     </div>
   )
 }

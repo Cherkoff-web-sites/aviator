@@ -127,14 +127,14 @@ h6 {
     --pricing-gs2: 142.79%;
   }
   33% {
-    --pricing-ga: 208deg;
-    --pricing-gs1: 18%;
-    --pricing-gs2: 118%;
+    --pricing-ga: 215deg;
+    --pricing-gs1: 16%;
+    --pricing-gs2: 115%;
   }
   66% {
-    --pricing-ga: 162deg;
-    --pricing-gs1: 42%;
-    --pricing-gs2: 168%;
+    --pricing-ga: 155deg;
+    --pricing-gs1: 44%;
+    --pricing-gs2: 172%;
   }
 }
 
@@ -224,11 +224,29 @@ h6 {
 
   /** Обёртка тарифов (одна «карточка» на все планы) */
   .pricing-plans-shell {
+    width: 100%;
     background: rgba(0, 45, 98, 0.5);
     border: 1px solid rgba(255, 255, 255, 0.54);
     backdrop-filter: blur(4.95px);
     -webkit-backdrop-filter: blur(4.95px);
     border-radius: 12px;
+  }
+
+  .pricing-plans-shell__grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    align-items: stretch;
+  }
+
+  /** На ПК каждая колонка = 1/4 ширины ряда; оболочка = N/4 и по центру */
+  @media (min-width: 990px) {
+    .pricing-plans-shell {
+      width: min(100%, calc(var(--plan-count, 4) * 25%));
+    }
+
+    .pricing-plans-shell__grid {
+      grid-template-columns: repeat(var(--plan-count, 4), minmax(0, 1fr));
+    }
   }
 
   /** Выбранный тариф: градиент с переливанием */

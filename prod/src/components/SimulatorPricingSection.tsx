@@ -71,9 +71,10 @@ function PricingPlanCard({
       const nx = Math.min(1, Math.max(0, e.clientX / window.innerWidth))
       const ny = Math.min(1, Math.max(0, e.clientY / window.innerHeight))
 
-      el.style.setProperty('--pricing-ga', `${162 + nx * 46}deg`)
-      el.style.setProperty('--pricing-gs1', `${16 + ny * 32}%`)
-      el.style.setProperty('--pricing-gs2', `${112 + nx * 56}%`)
+      // Как раньше — мягкий 2-стопный градиент; диапазон чуть шире исходного
+      el.style.setProperty('--pricing-ga', `${155 + nx * 58}deg`)
+      el.style.setProperty('--pricing-gs1', `${14 + ny * 34}%`)
+      el.style.setProperty('--pricing-gs2', `${108 + nx * 62}%`)
     }
 
     window.addEventListener('mousemove', onMove, { passive: true })
@@ -87,8 +88,8 @@ function PricingPlanCard({
       className={
         hi
           ? [
-              'pricing-plan-featured relative z-10 flex h-full min-h-0 flex-col px-5 py-7 text-white',
-              'my-0 min-[990px]:-my-4 min-[990px]:px-6 min-[990px]:py-9',
+              'pricing-plan-featured relative z-10 flex min-h-0 flex-col px-5 py-7 text-white',
+              'my-0 min-[990px]:h-[calc(100%+2.5rem)] min-[990px]:self-center min-[990px]:px-6 min-[990px]:py-9',
             ].join(' ')
           : [
               'relative flex h-full min-h-0 flex-col px-5 py-6 text-white min-[990px]:px-5 min-[990px]:py-7',
@@ -188,7 +189,10 @@ function SimulatorPricingSection({ block, layout = 'fullBleed', bookingSimulator
 
   const inner = (
     <>
-      <div className="pointer-events-none absolute inset-0 overflow-hidden" aria-hidden>
+      <div
+        className={`pointer-events-none absolute inset-0 overflow-hidden ${isContained ? 'rounded-[40px]' : ''}`}
+        aria-hidden
+      >
         <div
           className="absolute inset-0 bg-cover bg-center"
           style={{ backgroundImage: `url(${block.backgroundImage})` }}
@@ -227,17 +231,26 @@ function SimulatorPricingSection({ block, layout = 'fullBleed', bookingSimulator
           ) : null}
         </header>
 
-        <div className="pricing-plans-shell relative min-[990px]:my-4">
-          <div className="grid grid-cols-1 items-stretch min-[990px]:auto-cols-fr min-[990px]:grid-flow-col">
-            {block.plans.map((plan, index) => (
-              <PricingPlanCard
-                key={plan.durationLabel}
-                plan={plan}
-                features={block.features}
-                isFirst={index === 0}
-                onBook={() => handleBookPlan(plan)}
-              />
-            ))}
+        <div className="relative flex min-[990px]:my-5 min-[990px]:justify-center">
+          <div
+            className="pricing-plans-shell relative"
+            style={{
+              ['--plan-count' as string]: String(
+                Math.min(4, Math.max(1, block.plans.length)),
+              ),
+            }}
+          >
+            <div className="pricing-plans-shell__grid">
+              {block.plans.map((plan, index) => (
+                <PricingPlanCard
+                  key={plan.durationLabel}
+                  plan={plan}
+                  features={block.features}
+                  isFirst={index === 0}
+                  onBook={() => handleBookPlan(plan)}
+                />
+              ))}
+            </div>
           </div>
         </div>
       </div>
@@ -248,7 +261,7 @@ function SimulatorPricingSection({ block, layout = 'fullBleed', bookingSimulator
     return (
       <section
         data-sim-reveal="pricing"
-        className="relative isolate w-full overflow-visible rounded-[24px] py-10 min-[990px]:rounded-[32px] min-[990px]:py-12"
+        className="relative isolate w-full overflow-visible rounded-[40px] py-10 min-[990px]:py-12"
       >
         {inner}
       </section>

@@ -39,11 +39,14 @@ function Pill({
   )
 }
 
-function fieldClass() {
+function fieldClass(invalid = false) {
   return [
-    'w-full rounded-lg border border-[#d1d5db] bg-[#eef0f6] px-3 py-2.5 text-[14px] font-medium text-[#002D62]',
-    'placeholder:text-[#8b95a8] outline-none focus:border-[#1D56BE] focus:ring-1 focus:ring-[#1D56BE]/25',
+    'w-full rounded-lg border bg-[#eef0f6] px-3 py-2.5 text-[14px] font-medium text-[#002D62]',
+    'placeholder:text-[#8b95a8] outline-none focus:ring-1',
     'min-[990px]:px-4 min-[990px]:py-3 min-[990px]:text-[15px]',
+    invalid
+      ? 'border-red-500 focus:border-red-500 focus:ring-red-500/30'
+      : 'border-[#d1d5db] focus:border-[#1D56BE] focus:ring-[#1D56BE]/25',
   ].join(' ')
 }
 
@@ -63,6 +66,7 @@ function GiftCertificateModal() {
   const [phone, setPhone] = useState('')
   const [note, setNote] = useState('')
   const [consent, setConsent] = useState(false)
+  const [submitted, setSubmitted] = useState(false)
   const [certNumber, setCertNumber] = useState<string | null>(null)
   const [submitError, setSubmitError] = useState('')
 
@@ -83,6 +87,7 @@ function GiftCertificateModal() {
     setPhone('')
     setNote('')
     setConsent(false)
+    setSubmitted(false)
     setCertNumber(null)
     setSubmitError('')
   }, [isOpen, payload])
@@ -90,6 +95,16 @@ function GiftCertificateModal() {
   const priceByn = useMemo(
     () => getCertPriceByn(certPrices, product, durationMin),
     [certPrices, durationMin, product],
+  )
+
+  const fieldErrors = useMemo(
+    () => ({
+      firstName: !firstName.trim(),
+      lastName: !lastName.trim(),
+      phone: !phone.trim(),
+      consent: !consent,
+    }),
+    [firstName, lastName, phone, consent],
   )
 
   const durationOptions =
@@ -213,7 +228,7 @@ function GiftCertificateModal() {
                       </label>
                       <input
                         id="gc-first"
-                        className={fieldClass()}
+                        className={fieldClass(submitted && fieldErrors.firstName)}
                         value={firstName}
                         onChange={(e) => setFirstName(e.target.value)}
                       />
@@ -225,7 +240,7 @@ function GiftCertificateModal() {
                       </label>
                       <input
                         id="gc-last"
-                        className={fieldClass()}
+                        className={fieldClass(submitted && fieldErrors.lastName)}
                         value={lastName}
                         onChange={(e) => setLastName(e.target.value)}
                       />
@@ -248,7 +263,7 @@ function GiftCertificateModal() {
                     <input
                       id="gc-phone"
                       type="tel"
-                      className={fieldClass()}
+                      className={fieldClass(submitted && fieldErrors.phone)}
                       placeholder="+7 800 800 80 80"
                       value={phone}
                       onChange={(e) => setPhone(e.target.value)}
@@ -272,62 +287,91 @@ function GiftCertificateModal() {
                     Стоимость: {priceByn} BYN
                   </p>
 
-                  <label className="flex cursor-pointer gap-3 text-left text-[13px] font-medium leading-snug text-[#5a6578] min-[990px]:text-[14px]">
-                    <input
-                      type="checkbox"
-                      checked={consent}
-                      onChange={(e) => setConsent(e.target.checked)}
-                      className="mt-0.5 h-4 w-4 shrink-0 rounded border-[#002D62] text-[#1D56BE] focus:ring-[#1D56BE]"
-                    />
-                    <span>
-                      Настоящим подтверждаю согласие с{' '}
-                      <a href="#" className="text-[#1D56BE] underline" onClick={(e) => e.preventDefault()}>
-                        Правилами по обработке персональных данных
-                      </a>{' '}
-                      и{' '}
-                      <a href="#" className="text-[#1D56BE] underline" onClick={(e) => e.preventDefault()}>
-                        Офертой
-                      </a>
-                      .
-                    </span>
-                  </label>
-
                   {submitError ? <p className="text-sm font-medium text-red-600">{submitError}</p> : null}
 
-                  <button
-                    type="button"
-                    disabled={!consent || !phone.trim()}
-                    className="mt-1 w-full rounded-xl py-3.5 text-[16px] font-semibold text-white shadow-[0_8px_24px_rgba(29,86,190,0.35)] transition-opacity disabled:cursor-not-allowed disabled:opacity-40 min-[990px]:py-4 min-[990px]:text-[17px]"
-                    style={{
-                      background: 'linear-gradient(90deg, #3d7ad8 0%, #1D56BE 50%, #153d8a 100%)',
-                    }}
-                    onClick={() => {
-                      setSubmitError('')
-                      void (async () => {
-                        try {
-                          const slug =
-                            product === 'both' ? 'combo' : product === 'mi-2' ? 'mi-2' : 'boeing-737'
-                          const cert = await apiFetch<{ number: string }>('/api/public/certificates', {
-                            method: 'POST',
-                            body: JSON.stringify({
-                              firstName,
-                              lastName,
-                              phone,
-                              durationMin,
-                              simulatorSlug: slug,
-                              comment: note,
-                            }),
-                          })
-                          setCertNumber(cert.number)
-                          setStep('success')
-                        } catch {
-                          setSubmitError('Не удалось оформить сертификат. Проверьте данные.')
+                  <div className="flex flex-col gap-[10px]">
+                    <button
+                      type="button"
+                      className="w-full rounded-xl py-3.5 text-[16px] font-semibold text-white shadow-[0_8px_24px_rgba(29,86,190,0.35)] transition-opacity hover:opacity-95 min-[990px]:py-4 min-[990px]:text-[17px]"
+                      style={{
+                        background: 'linear-gradient(90deg, #3d7ad8 0%, #1D56BE 50%, #153d8a 100%)',
+                      }}
+                      onClick={() => {
+                        setSubmitted(true)
+                        setSubmitError('')
+                        if (
+                          fieldErrors.firstName ||
+                          fieldErrors.lastName ||
+                          fieldErrors.phone ||
+                          fieldErrors.consent
+                        ) {
+                          setSubmitError('Заполните все обязательные поля корректно')
+                          return
                         }
-                      })()
-                    }}
-                  >
-                    Оплатить сертификат
-                  </button>
+                        void (async () => {
+                          try {
+                            const slug =
+                              product === 'both' ? 'combo' : product === 'mi-2' ? 'mi-2' : 'boeing-737'
+                            const cert = await apiFetch<{ number: string }>('/api/public/certificates', {
+                              method: 'POST',
+                              body: JSON.stringify({
+                                firstName,
+                                lastName,
+                                phone,
+                                durationMin,
+                                simulatorSlug: slug,
+                                comment: note,
+                              }),
+                            })
+                            setCertNumber(cert.number)
+                            setStep('success')
+                          } catch {
+                            setSubmitError('Не удалось оформить сертификат. Проверьте данные.')
+                          }
+                        })()
+                      }}
+                    >
+                      Оплатить сертификат
+                    </button>
+
+                    <label
+                      className={[
+                        'flex cursor-pointer gap-3 text-left text-[13px] font-medium leading-snug min-[990px]:text-[14px]',
+                        submitted && fieldErrors.consent ? 'text-red-600' : 'text-[#5a6578]',
+                      ].join(' ')}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={consent}
+                        onChange={(e) => setConsent(e.target.checked)}
+                        className={[
+                          'mt-0.5 h-4 w-4 shrink-0 rounded text-[#1D56BE] focus:ring-[#1D56BE]',
+                          submitted && fieldErrors.consent
+                            ? 'border-red-500'
+                            : 'border-[#002D62]',
+                        ].join(' ')}
+                      />
+                      <span>
+                        Настоящим подтверждаю согласие с{' '}
+                        <a
+                          href="#"
+                          className="text-[#1D56BE] underline"
+                          onClick={(e) => e.preventDefault()}
+                        >
+                          Правилами по обработке персональных данных
+                        </a>{' '}
+                        и{' '}
+                        <a
+                          href="#"
+                          className="text-[#1D56BE] underline"
+                          onClick={(e) => e.preventDefault()}
+                        >
+                          Офертой
+                        </a>
+                        .
+                      </span>
+                    </label>
+                  </div>
                 </div>
               </div>
             )}

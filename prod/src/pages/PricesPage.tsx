@@ -40,7 +40,7 @@ function PricesPage() {
             bookingSimulatorSlug="mi-2"
           />
         </div>
-        <section className="py-8 min-[990px]:py-12">
+        <section className="pt-16 pb-8 min-[990px]:pt-24 min-[990px]:pb-12">
           <div className="container-app grid grid-cols-1 gap-6 min-[990px]:grid-cols-2 min-[990px]:gap-8">
             <PricesPromoCard
               headerBackground="linear-gradient(93.39deg, #0075FF -38.83%, #004699 123.25%)"

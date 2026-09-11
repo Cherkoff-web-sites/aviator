@@ -19,9 +19,11 @@ function GalleryGradientSplitSection({
     <section className="py-10 min-[990px]:py-16">
       <div className="container-app">
         <div
-          className="rounded-[40px] px-5 py-8 text-white min-[990px]:px-10 min-[990px]:py-10"
+          className="overflow-hidden rounded-[40px] px-5 py-8 text-white min-[990px]:px-10 min-[990px]:py-10"
           style={{
-            background: 'radial-gradient(98.31% 98.31% at 50% 50%, #0075FF 0%, #322E67 100%)',
+            background:
+              'radial-gradient(98.31% 98.31% at 50% 50%, #0075FF 0%, #322E67 100%)',
+            borderRadius: 40,
           }}
         >
           <div className="flex flex-col gap-8 min-[990px]:flex-row min-[990px]:items-stretch min-[990px]:gap-12">

@@ -19,7 +19,7 @@ function SiteFooter() {
   const { openGiftCertificate } = useGiftCertificateModal()
 
   return (
-    <footer className="bg-[#1b1c20] text-white">
+    <footer className="bg-[#090c0e] text-white">
       <div className="container-app">
         <div className="hidden py-12 min-[990px]:block">
           <div className="flex items-stretch justify-between gap-12">

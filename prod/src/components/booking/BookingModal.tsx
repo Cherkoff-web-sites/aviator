@@ -107,11 +107,14 @@ function SwitchRow({
   )
 }
 
-function inputClass() {
+function inputClass(invalid = false) {
   return [
-    'w-full rounded-lg border border-[#d1d5db] bg-[#f0f1f3] px-3 py-2.5 text-[14px] font-medium text-[#002D62]',
-    'placeholder:text-[#8b95a8] outline-none focus:border-[#0075FF] focus:ring-1 focus:ring-[#0075FF]/30',
+    'w-full rounded-lg border bg-[#f0f1f3] px-3 py-2.5 text-[14px] font-medium text-[#002D62]',
+    'placeholder:text-[#8b95a8] outline-none focus:ring-1',
     'min-[990px]:px-4 min-[990px]:py-3 min-[990px]:text-[15px]',
+    invalid
+      ? 'border-red-500 focus:border-red-500 focus:ring-red-500/30'
+      : 'border-[#d1d5db] focus:border-[#0075FF] focus:ring-[#0075FF]/30',
   ].join(' ')
 }
 
@@ -166,6 +169,7 @@ function BookingModal() {
   const [note, setNote] = useState('')
   const [payment, setPayment] = useState<'now' | 'visit'>('visit')
   const [consent, setConsent] = useState(false)
+  const [submitted, setSubmitted] = useState(false)
   const [flightPrices, setFlightPrices] = useState<ApiPriceRow[]>([])
   const [calendarMap, setCalendarMap] = useState<Record<string, CalendarStatus>>({})
   const [bookingWindowMonths, setBookingWindowMonths] = useState(3)
@@ -195,6 +199,7 @@ function BookingModal() {
     setNote('')
     setPayment('visit')
     setConsent(false)
+    setSubmitted(false)
     setWizardStep('form')
     setDateTimeOpen(false)
     setOtpDigits(OTP_EMPTY())
@@ -286,6 +291,28 @@ function BookingModal() {
     () => formatSlotDisplay(selectedDate, selectedTime),
     [selectedDate, selectedTime],
   )
+
+  const fieldErrors = useMemo(() => {
+    const emailOk = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())
+    return {
+      name: !name.trim(),
+      phone: !phone.trim(),
+      email: !email.trim() || !emailOk,
+      giftCert: hasGiftCert && (!giftCertNumber.trim() || certValid !== true),
+      birthday: birthdayDiscount && !birthdayDate.trim(),
+      consent: !consent,
+    }
+  }, [
+    name,
+    phone,
+    email,
+    hasGiftCert,
+    giftCertNumber,
+    certValid,
+    birthdayDiscount,
+    birthdayDate,
+    consent,
+  ])
 
   const onDialogOpenChange = useCallback(
     (open: boolean) => {
@@ -508,7 +535,7 @@ function BookingModal() {
                         />
                         {hasGiftCert ? (
                           <input
-                            className={inputClass()}
+                            className={inputClass(submitted && fieldErrors.giftCert)}
                             placeholder="Введите номер вашего сертификата"
                             value={giftCertNumber}
                             onChange={(e) => setGiftCertNumber(e.target.value)}
@@ -523,7 +550,7 @@ function BookingModal() {
                         />
                         {birthdayDiscount ? (
                           <input
-                            className={inputClass()}
+                            className={inputClass(submitted && fieldErrors.birthday)}
                             placeholder="Введите дату вашего дня рождения 12.02"
                             value={birthdayDate}
                             onChange={(e) => setBirthdayDate(e.target.value)}
@@ -573,7 +600,7 @@ function BookingModal() {
                       </label>
                       <input
                         id="booking-name"
-                        className={inputClass()}
+                        className={inputClass(submitted && fieldErrors.name)}
                         value={name}
                         onChange={(e) => setName(e.target.value)}
                       />
@@ -585,7 +612,7 @@ function BookingModal() {
                       </label>
                       <input
                         id="booking-phone"
-                        className={inputClass()}
+                        className={inputClass(submitted && fieldErrors.phone)}
                         value={phone}
                         onChange={(e) => setPhone(e.target.value)}
                       />
@@ -613,7 +640,7 @@ function BookingModal() {
                       <input
                         id="booking-email"
                         type="email"
-                        className={inputClass()}
+                        className={inputClass(submitted && fieldErrors.email)}
                         value={email}
                         onChange={(e) => setEmail(e.target.value)}
                         placeholder="для кода подтверждения"
@@ -646,70 +673,93 @@ function BookingModal() {
                     Стоимость: {priceByn} BYN
                   </p>
 
-                  <label className="flex cursor-pointer gap-3 text-left text-[13px] font-medium leading-snug text-[#5a6578] min-[990px]:text-[14px]">
-                    <input
-                      type="checkbox"
-                      checked={consent}
-                      onChange={(e) => setConsent(e.target.checked)}
-                      className="mt-0.5 h-4 w-4 shrink-0 rounded border-[#002D62] text-[#0075FF] focus:ring-[#0075FF]"
-                    />
-                    <span>
-                      Настоящим подтверждаю согласие с{' '}
-                      <a href="#" className="text-[#0075FF] underline">
-                        Правилами по обработке персональных данных
-                      </a>{' '}
-                      и{' '}
-                      <a href="#" className="text-[#0075FF] underline">
-                        Офертой
-                      </a>
-                      .
-                    </span>
-                  </label>
-
                   {bookingError ? (
                     <p className="text-sm font-medium text-red-600">{bookingError}</p>
                   ) : null}
 
-                  <button
-                    type="button"
-                    disabled={!consent || !email.trim() || (hasGiftCert && !!giftCertNumber.trim() && certValid === false) || (birthdayDiscount && !birthdayDate.trim())}
-                    className="mt-1 w-full rounded-xl bg-[linear-gradient(180deg,#4da3ff_0%,#0075ff_48%,#0050b3_100%)] py-3.5 text-[16px] font-semibold text-white shadow-[0_8px_24px_rgba(0,117,255,0.35)] transition-opacity disabled:cursor-not-allowed disabled:opacity-40 min-[990px]:py-4 min-[990px]:text-[17px]"
-                    onClick={() => {
-                      setBookingError('')
-                      void (async () => {
-                        try {
-                          const result = await apiFetch<{ bookingId: string }>(
-                            '/api/public/bookings',
-                            {
-                              method: 'POST',
-                              body: JSON.stringify({
-                                date: format(selectedDate, 'yyyy-MM-dd'),
-                                startTime: selectedTime,
-                                durationMin,
-                                simulatorSlug: aircraft,
-                                name,
-                                phone,
-                                email,
-                                paymentMethod: payment === 'now' ? 'ONLINE' : 'OFFLINE',
-                                comment: note,
-                                isBirthdayPromo: birthdayDiscount,
-                                birthdayDate: birthdayDate || undefined,
-                                certificateNumber: hasGiftCert ? giftCertNumber : undefined,
-                              }),
-                            },
-                          )
-                          setBookingId(result.bookingId)
-                          setOtpDigits(OTP_EMPTY())
-                          setWizardStep('otp')
-                          setResendSec(60)
-                        } catch {
-                          setBookingError('Не удалось создать бронь. Проверьте данные.')
+                  <div className="flex flex-col gap-[10px]">
+                    <button
+                      type="button"
+                      className="w-full rounded-xl bg-[linear-gradient(180deg,#4da3ff_0%,#0075ff_48%,#0050b3_100%)] py-3.5 text-[16px] font-semibold text-white shadow-[0_8px_24px_rgba(0,117,255,0.35)] transition-opacity hover:opacity-95 min-[990px]:py-4 min-[990px]:text-[17px]"
+                      onClick={() => {
+                        setSubmitted(true)
+                        setBookingError('')
+                        if (
+                          fieldErrors.name ||
+                          fieldErrors.phone ||
+                          fieldErrors.email ||
+                          fieldErrors.giftCert ||
+                          fieldErrors.birthday ||
+                          fieldErrors.consent
+                        ) {
+                          setBookingError('Заполните все обязательные поля корректно')
+                          return
                         }
-                      })()
-                    }}
-                  >
-                    {payment === 'now' ? 'Забронировать и оплатить' : 'Забронировать полет'}
-                  </button>
+                        void (async () => {
+                          try {
+                            const result = await apiFetch<{ bookingId: string }>(
+                              '/api/public/bookings',
+                              {
+                                method: 'POST',
+                                body: JSON.stringify({
+                                  date: format(selectedDate, 'yyyy-MM-dd'),
+                                  startTime: selectedTime,
+                                  durationMin,
+                                  simulatorSlug: aircraft,
+                                  name,
+                                  phone,
+                                  email,
+                                  paymentMethod: payment === 'now' ? 'ONLINE' : 'OFFLINE',
+                                  comment: note,
+                                  isBirthdayPromo: birthdayDiscount,
+                                  birthdayDate: birthdayDate || undefined,
+                                  certificateNumber: hasGiftCert ? giftCertNumber : undefined,
+                                }),
+                              },
+                            )
+                            setBookingId(result.bookingId)
+                            setOtpDigits(OTP_EMPTY())
+                            setWizardStep('otp')
+                            setResendSec(60)
+                          } catch {
+                            setBookingError('Не удалось создать бронь. Проверьте данные.')
+                          }
+                        })()
+                      }}
+                    >
+                      {payment === 'now' ? 'Забронировать и оплатить' : 'Забронировать полет'}
+                    </button>
+
+                    <label
+                      className={[
+                        'flex cursor-pointer gap-3 text-left text-[13px] font-medium leading-snug min-[990px]:text-[14px]',
+                        submitted && fieldErrors.consent ? 'text-red-600' : 'text-[#5a6578]',
+                      ].join(' ')}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={consent}
+                        onChange={(e) => setConsent(e.target.checked)}
+                        className={[
+                          'mt-0.5 h-4 w-4 shrink-0 rounded text-[#0075FF] focus:ring-[#0075FF]',
+                          submitted && fieldErrors.consent
+                            ? 'border-red-500'
+                            : 'border-[#002D62]',
+                        ].join(' ')}
+                      />
+                      <span>
+                        Настоящим подтверждаю согласие с{' '}
+                        <a href="#" className="text-[#0075FF] underline">
+                          Правилами по обработке персональных данных
+                        </a>{' '}
+                        и{' '}
+                        <a href="#" className="text-[#0075FF] underline">
+                          Офертой
+                        </a>
+                        .
+                      </span>
+                    </label>
+                  </div>
                 </div>
               </div>
             ) : (
