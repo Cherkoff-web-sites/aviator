@@ -7,6 +7,7 @@ import { useLiveData } from '@/hooks/useLiveData'
 import { apiFetch, type ApiPriceRow, type ApiPromo } from '@/lib/api'
 import { useAdminAuth } from '@/contexts/AdminAuthContext'
 import { canEditBookings } from '@/lib/admin-access'
+import { durationsForSimulator, FLIGHT_DURATIONS, MI2_MAX_DURATION_MIN } from '@/lib/flight-durations'
 
 function EditablePriceTable({
   title,
@@ -68,31 +69,50 @@ function EditablePriceTable({
               <tr key={r.id} className="border-b last:border-0">
                 <td className="py-2">
                   {canEdit ? (
-                    <Input
-                      type="number"
-                      className="h-8 w-20"
+                    <select
+                      className="h-8 rounded-md border bg-background px-2 text-sm"
                       value={r.durationMin}
                       onChange={(e) => {
                         const next = [...local]
                         next[i] = { ...r, durationMin: Number(e.target.value) }
                         setLocal(next)
                       }}
-                    />
+                    >
+                      {(r.simulatorSlug === 'mi-2'
+                        ? durationsForSimulator('mi-2')
+                        : FLIGHT_DURATIONS
+                      ).map((d) => (
+                        <option key={d} value={d}>
+                          {d}
+                        </option>
+                      ))}
+                    </select>
                   ) : (
                     r.durationMin
                   )}
                 </td>
                 <td className="py-2">
                   {canEdit ? (
-                    <Input
-                      className="h-8"
+                    <select
+                      className="h-8 w-full rounded-md border bg-background px-2 text-sm"
                       value={r.simulatorSlug}
                       onChange={(e) => {
+                        const simulatorSlug = e.target.value
                         const next = [...local]
-                        next[i] = { ...r, simulatorSlug: e.target.value }
+                        let durationMin = r.durationMin
+                        if (simulatorSlug === 'mi-2' && durationMin > MI2_MAX_DURATION_MIN) {
+                          durationMin = MI2_MAX_DURATION_MIN
+                        }
+                        next[i] = { ...r, simulatorSlug, durationMin }
                         setLocal(next)
                       }}
-                    />
+                    >
+                      <option value="boeing-737">boeing-737</option>
+                      <option value="mi-2">mi-2</option>
+                      {title.toLowerCase().includes('сертификат') ? (
+                        <option value="combo">combo</option>
+                      ) : null}
+                    </select>
                   ) : (
                     r.simulatorSlug
                   )}

@@ -7,9 +7,17 @@ import {
   type ReactNode,
 } from 'react'
 
+import type { GiftCertProductChoice } from '../components/booking/bookingPricing'
+
+export type GiftCertificateOpenPayload = {
+  /** Предвыбор тренажёра в модалке */
+  product?: GiftCertProductChoice
+}
+
 type GiftCertificateModalContextValue = {
   isOpen: boolean
-  openGiftCertificate: () => void
+  payload: GiftCertificateOpenPayload | null
+  openGiftCertificate: (payload?: GiftCertificateOpenPayload) => void
   closeGiftCertificate: () => void
 }
 
@@ -17,17 +25,26 @@ const GiftCertificateModalContext = createContext<GiftCertificateModalContextVal
 
 export function GiftCertificateModalProvider({ children }: { children: ReactNode }) {
   const [isOpen, setIsOpen] = useState(false)
+  const [payload, setPayload] = useState<GiftCertificateOpenPayload | null>(null)
 
-  const openGiftCertificate = useCallback(() => setIsOpen(true), [])
-  const closeGiftCertificate = useCallback(() => setIsOpen(false), [])
+  const openGiftCertificate = useCallback((next?: GiftCertificateOpenPayload) => {
+    setPayload(next ?? {})
+    setIsOpen(true)
+  }, [])
+
+  const closeGiftCertificate = useCallback(() => {
+    setIsOpen(false)
+    setPayload(null)
+  }, [])
 
   const value = useMemo(
     () => ({
       isOpen,
+      payload,
       openGiftCertificate,
       closeGiftCertificate,
     }),
-    [closeGiftCertificate, isOpen, openGiftCertificate],
+    [closeGiftCertificate, isOpen, openGiftCertificate, payload],
   )
 
   return (

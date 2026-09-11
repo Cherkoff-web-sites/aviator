@@ -41,19 +41,19 @@ function FaqAccordion({ items, defaultOpenId, className = '' }: FaqAccordionProp
       className={className}
     >
       {items.map((item) => (
-        <Accordion.Item key={item.id} value={item.id} className="border-b border-[#002D62]/25">
+        <Accordion.Item key={item.id} value={item.id} className="border-b border-white/20">
           <Accordion.Header className="flex">
             <Accordion.Trigger
-              className="group flex w-full cursor-pointer items-center justify-between gap-4 py-4 text-left outline-none min-[990px]:py-5 [&:focus-visible]:ring-2 [&:focus-visible]:ring-[#0075FF]/50 [&:focus-visible]:ring-offset-2 [&:focus-visible]:ring-offset-[#e9e9e9]"
+              className="group flex w-full cursor-pointer items-center justify-between gap-4 py-4 text-left outline-none min-[990px]:py-5 [&:focus-visible]:ring-2 [&:focus-visible]:ring-[#0075FF]/50 [&:focus-visible]:ring-offset-2 [&:focus-visible]:ring-offset-[#090c0e]"
             >
-              <span className="text-[15px] font-semibold leading-snug text-[#002D62] min-[990px]:text-[17px]">
+              <span className="text-[15px] font-semibold leading-snug text-white min-[990px]:text-[17px]">
                 {item.question}
               </span>
-              <ChevronIcon className="shrink-0 text-[#002D62] transition-transform duration-200 ease-out group-data-[state=open]:-rotate-180" />
+              <ChevronIcon className="shrink-0 text-white transition-transform duration-200 ease-out group-data-[state=open]:-rotate-180" />
             </Accordion.Trigger>
           </Accordion.Header>
           <Accordion.Content className="overflow-hidden data-[state=closed]:animate-accordion-up data-[state=open]:animate-accordion-down">
-            <div className="space-y-3 pb-4 pr-10 text-[14px] font-medium leading-relaxed text-[#5a6578] min-[990px]:pb-5 min-[990px]:text-[15px] min-[990px]:leading-relaxed">
+            <div className="space-y-3 pb-4 pr-10 text-[14px] font-medium leading-relaxed text-white/70 min-[990px]:pb-5 min-[990px]:text-[15px] min-[990px]:leading-relaxed">
               {item.answer
                 .split(/\n\n+/)
                 .map((p) => p.trim())

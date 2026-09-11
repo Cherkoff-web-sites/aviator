@@ -31,7 +31,7 @@ function YandexConstructorMap({ className = '' }: Props) {
   return (
     <div
       ref={hostRef}
-      className={`w-full min-h-[400px] overflow-hidden rounded-[24px] bg-[#e8eaed] min-[990px]:rounded-[28px] ${className}`.trim()}
+      className={`w-full min-h-[400px] overflow-hidden rounded-[24px] bg-[#151824] min-[990px]:rounded-[28px] ${className}`.trim()}
       aria-label="Карта"
     />
   )

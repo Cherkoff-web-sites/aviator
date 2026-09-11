@@ -1,12 +1,16 @@
 import { useEffect, useState } from 'react'
-import { Link, NavLink } from 'react-router-dom'
+import { Link, NavLink, useLocation } from 'react-router-dom'
 
 import { useBookingModal } from '../contexts/BookingModalContext'
-import { SOCIAL_ASSETS } from '../data/socialAssets'
+import { HEADER_MOBILE_SOCIAL_ICONS } from '../data/socialAssets'
+
+function isSimulatorsNavActive(pathname: string) {
+  return pathname === '/simulators' || pathname.startsWith('/simulator/')
+}
 
 const desktopNavItems: ({ label: string } & ({ to: string } | { href: string }))[] = [
-  { label: 'Авиатренажеры', to: '/' },
-  { label: 'Школа', to: '/simulator/avia-school' },
+  { label: 'Авиатренажеры', to: '/simulators' },
+  // { label: 'Школа', to: '/simulator/avia-school' }, // временно скрыто
   { label: 'Цены', to: '/prices' },
   { label: 'Галерея', to: '/gallery' },
   { label: 'Частые вопросы', to: '/faq' },
@@ -14,20 +18,14 @@ const desktopNavItems: ({ label: string } & ({ to: string } | { href: string }))
 ]
 
 const mobileNavItems: { label: string; to?: string }[] = [
+  { label: 'Авиатренажеры', to: '/simulators' },
   { label: 'Boing 737', to: '/simulator/boeing-737' },
   { label: 'Ми-2', to: '/simulator/mi-2' },
-  { label: 'Летная школа', to: '/simulator/avia-school' },
+  // { label: 'Летная школа', to: '/simulator/avia-school' }, // временно скрыто
   { label: 'Цены и акции', to: '/prices' },
   { label: 'Галерея', to: '/gallery' },
   { label: 'Контакты', to: '/contacts' },
   { label: 'Вопросы и ответы', to: '/faq' },
-]
-
-const mobileSocialIcons = [
-  { src: SOCIAL_ASSETS.instagram, label: 'Instagram' },
-  { src: SOCIAL_ASSETS.vk, label: 'VK' },
-  { src: SOCIAL_ASSETS.whatsapp, label: 'WhatsApp' },
-  { src: SOCIAL_ASSETS.telegram, label: 'Telegram' },
 ]
 
 const logoPath = '/assets/header/logo.svg'
@@ -36,8 +34,11 @@ const menuIconPath = '/assets/icons/menu.svg'
 const closeIconPath = '/assets/icons/close.svg'
 
 function SiteHeader() {
+  const { pathname } = useLocation()
   const [isMenuOpen, setIsMenuOpen] = useState(false)
+  const [headerVisible, setHeaderVisible] = useState(true)
   const { openBooking } = useBookingModal()
+  const headerHasBg = pathname === '/' || pathname === '/simulators'
 
   useEffect(() => {
     document.body.style.overflow = isMenuOpen ? 'hidden' : ''
@@ -46,9 +47,53 @@ function SiteHeader() {
     }
   }, [isMenuOpen])
 
+  useEffect(() => {
+    let lastY = window.scrollY
+
+    const onScroll = () => {
+      if (isMenuOpen) {
+        setHeaderVisible(true)
+        lastY = window.scrollY
+        return
+      }
+
+      const y = window.scrollY
+      const delta = y - lastY
+
+      if (y < 24) {
+        setHeaderVisible(true)
+      } else if (delta > 6) {
+        setHeaderVisible(false)
+      } else if (delta < -6) {
+        setHeaderVisible(true)
+      }
+
+      lastY = y
+    }
+
+    window.addEventListener('scroll', onScroll, { passive: true })
+    return () => window.removeEventListener('scroll', onScroll)
+  }, [isMenuOpen])
+
   return (
     <>
-      <header className="absolute inset-x-0 top-0 z-30 border-b border-white/10 bg-[#6f6287]/65 bg-[radial-gradient(180.9%_348.86%_at_-43.33%_-142.05%,rgba(3,72,155,0.2)_0%,rgba(3,72,155,0)_100%)] backdrop-blur-[23.1px]">
+      <header
+        className={[
+          'fixed inset-x-0 top-0 z-30 transition-transform duration-300 ease-out',
+          headerHasBg ? 'border-b border-white/10' : 'border-b border-transparent',
+          headerVisible ? 'translate-y-0' : '-translate-y-full',
+        ].join(' ')}
+        style={
+          headerHasBg
+            ? {
+                background:
+                  'radial-gradient(145.17% 312.16% at 22.07% 0%, #03489B 0%, rgba(3, 72, 155, 0) 100%)',
+                backdropFilter: 'blur(21px)',
+                WebkitBackdropFilter: 'blur(21px)',
+              }
+            : undefined
+        }
+      >
         <div className="container-app flex h-[64px] items-center justify-between gap-6 min-[990px]:h-[76px] min-[990px]:gap-8">
           <Link
             to="/"
@@ -68,12 +113,16 @@ function SiteHeader() {
                   key={item.label}
                   to={item.to}
                   end={item.to === '/'}
-                  className={({ isActive }) =>
-                    [
-                      'whitespace-nowrap border-b-2 border-transparent pb-0.5 text-base font-medium no-underline transition-opacity hover:opacity-80',
-                      isActive ? 'border-white text-white' : 'text-[#f5f6fa]',
+                  className={({ isActive }) => {
+                    const active =
+                      item.to === '/simulators'
+                        ? isSimulatorsNavActive(pathname)
+                        : isActive
+                    return [
+                      'whitespace-nowrap text-base font-medium no-underline transition-colors duration-200',
+                      active ? 'text-white' : 'text-white/65 hover:text-white',
                     ].join(' ')
-                  }
+                  }}
                 >
                   {item.label}
                 </NavLink>
@@ -81,7 +130,7 @@ function SiteHeader() {
                 <a
                   key={item.label}
                   href={item.href}
-                  className="whitespace-nowrap border-b-2 border-transparent pb-0.5 text-base font-medium text-[#f5f6fa] no-underline transition-opacity hover:opacity-80"
+                  className="whitespace-nowrap text-base font-medium text-white/65 no-underline transition-colors duration-200 hover:text-white"
                 >
                   {item.label}
                 </a>
@@ -92,7 +141,7 @@ function SiteHeader() {
           <button
             type="button"
             onClick={() => openBooking()}
-            className="hidden cursor-pointer items-center gap-[6px] rounded-full border-0 bg-white px-[34px] py-[12px] text-[16px] font-semibold text-[#1f2430] min-[990px]:inline-flex"
+            className="btn-solid-light hidden px-[34px] py-[12px] text-[16px] font-semibold min-[990px]:inline-flex"
           >
             Забронировать
             <img src={arrowIconPath} alt="" aria-hidden="true" className="h-6 w-6" />
@@ -160,22 +209,29 @@ function SiteHeader() {
                 openBooking()
                 setIsMenuOpen(false)
               }}
-              className="mt-9 inline-flex h-12 items-center justify-center self-start rounded-full bg-white px-7 text-base font-semibold text-[#002D62]"
+              className="btn-solid-light mt-9 h-12 self-start px-7 text-base font-semibold"
             >
               Забронировать полет
             </button>
 
             <div className="mt-auto pt-9">
-              <a href="tel:+375297131001" className="block text-lg no-underline">
+              <a
+                href="tel:+375297131001"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="block text-lg no-underline"
+              >
                 +375 29 713 10 01
               </a>
               <div className="mt-4 flex items-center gap-3">
-                {mobileSocialIcons.map((s) => (
+                {HEADER_MOBILE_SOCIAL_ICONS.map((s) => (
                   <a
                     key={s.label}
-                    href="#"
+                    href={s.href}
+                    target="_blank"
+                    rel="noopener noreferrer"
                     aria-label={s.label}
-                    className="inline-flex items-center justify-center"
+                    className="inline-flex items-center justify-center transition-opacity hover:opacity-80"
                   >
                     <img src={s.src} alt="" aria-hidden="true" className="h-8 w-8" />
                   </a>

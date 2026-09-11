@@ -26,7 +26,11 @@ function SimulatorSplitSection({
   const isImageLeft = variant === 'image-left'
 
   return (
-    <section className="bg-[#002D62] py-12 text-white min-[990px]:py-16">
+    <section
+      data-sim-reveal="split"
+      data-sim-from={isImageLeft ? 'right' : 'left'}
+      className="bg-[#002D62] py-12 text-white min-[990px]:py-16"
+    >
       <div className="container-app">
         <div
           className={[
@@ -34,7 +38,10 @@ function SimulatorSplitSection({
             isImageLeft ? 'flex-col-reverse min-[990px]:flex-row-reverse' : '',
           ].join(' ')}
         >
-          <div className="flex min-w-0 flex-1 flex-col justify-center">
+          <div
+            data-sim-reveal-copy
+            className="flex min-w-0 flex-1 flex-col justify-center will-change-transform"
+          >
             {iconSrc ? (
               <img
                 src={iconSrc}
@@ -59,7 +66,11 @@ function SimulatorSplitSection({
             {bulletPoints && bulletPoints.length > 0 ? (
               <ul className="mt-4 flex list-none flex-col gap-4 p-0">
                 {bulletPoints.map((item, i) => (
-                  <li key={i} className="flex items-start gap-3">
+                  <li
+                    key={i}
+                    data-sim-reveal-bullet
+                    className="flex items-start gap-3 will-change-transform"
+                  >
                     <img
                       src={OK_MARKER_SRC}
                       alt=""
@@ -75,11 +86,14 @@ function SimulatorSplitSection({
             ) : null}
           </div>
 
-          <div className="min-w-0 flex-1 min-[990px]:min-h-[320px]">
+          <div
+            data-sim-reveal-media
+            className="min-w-0 flex-1 overflow-hidden rounded-[24px] min-[990px]:min-h-[320px]"
+          >
             <img
               src={imageSrc}
               alt={imageAlt}
-              className="h-full min-h-[220px] w-full rounded-[24px] object-cover min-[990px]:min-h-[320px]"
+              className="h-full min-h-[220px] w-full object-cover will-change-transform min-[990px]:min-h-[320px]"
             />
           </div>
         </div>

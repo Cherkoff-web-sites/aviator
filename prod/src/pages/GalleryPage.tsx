@@ -2,6 +2,7 @@ import ContentSplitSectionLight from '../components/ContentSplitSectionLight'
 import GalleryGradientSplitSection from '../components/GalleryGradientSplitSection'
 import GalleryMediaPanel from '../components/GalleryMediaPanel'
 import PageGradientTitle from '../components/PageGradientTitle'
+import SiteCtaBanner from '../components/SiteCtaBanner'
 import SiteFooter from '../components/SiteFooter'
 import SiteHeader from '../components/SiteHeader'
 
@@ -43,6 +44,7 @@ const MI2_GALLERY_SLIDES = [
   },
 ] as const
 
+/* Авиашкола — временно скрыто
 const GALLERY_SCHOOL_COPY = [
   'Профессиональная подготовка пилотов на современных авиатренажёрах — от первых шагов до уверенного управления воздушным судном.',
   'Вы занимаетесь на оборудовании, максимально приближённом к реальным кабинам: те же приборы, сценарии и логика работы систем, что и в настоящем полёте.',
@@ -56,12 +58,13 @@ const SCHOOL_GALLERY_SLIDES = [
   { src: '/assets/simulator/sm_3.webp', alt: 'Занятие на тренажёре' },
   { src: '/assets/simulator/school.webp', alt: 'Авиашкола' },
 ] as const
+*/
 
 function GalleryPage() {
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <SiteHeader />
-      <main className="flex min-h-0 flex-1 flex-col bg-[#e9e9e9] pb-12 pt-[72px] min-[990px]:pb-16 min-[990px]:pt-[84px]">
+      <main className="flex min-h-0 flex-1 flex-col pb-12 pt-[72px] min-[990px]:pb-16 min-[990px]:pt-[84px]">
         <PageGradientTitle title="Галерея" className="pb-6 min-[990px]:pb-10" />
         <ContentSplitSectionLight
           variant="text-left"
@@ -74,6 +77,7 @@ function GalleryPage() {
           paragraphs={[...GALLERY_MI2_COPY]}
           media={<GalleryMediaPanel theme="dark" slides={[...MI2_GALLERY_SLIDES]} />}
         />
+        {/* Авиашкола — временно скрыто
         <ContentSplitSectionLight
           variant="text-left"
           title="Авиашкола"
@@ -81,7 +85,9 @@ function GalleryPage() {
           paragraphs={[...GALLERY_SCHOOL_COPY]}
           media={<GalleryMediaPanel slides={[...SCHOOL_GALLERY_SLIDES]} />}
         />
+        */}
       </main>
+      <SiteCtaBanner />
       <SiteFooter />
     </div>
   )

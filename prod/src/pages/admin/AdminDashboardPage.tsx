@@ -24,6 +24,7 @@ import { useLiveData } from '@/hooks/useLiveData'
 import { useAdminAuth } from '@/contexts/AdminAuthContext'
 import { apiFetch, type ApiBooking } from '@/lib/api'
 import { canEditBookings } from '@/lib/admin-access'
+import { clampDurationForSimulator, durationsForSimulator } from '@/lib/flight-durations'
 import { cn } from '@/lib/utils'
 
 const SIM_PLANE = '✈️'
@@ -264,7 +265,7 @@ export default function AdminDashboardPage() {
       phone: row.raw.phone,
       email: row.raw.email,
       startTime: row.raw.startTime,
-      durationMin: row.raw.durationMin,
+      durationMin: clampDurationForSimulator(row.raw.simulatorSlug, row.raw.durationMin),
       simulatorSlug: row.raw.simulatorSlug,
       comment: row.raw.comment,
       paymentMethod: row.raw.paymentMethod,
@@ -354,7 +355,6 @@ export default function AdminDashboardPage() {
                 ['phone', 'Телефон'],
                 ['email', 'Email'],
                 ['startTime', 'Время начала'],
-                ['simulatorSlug', 'Тренажёр'],
                 ['comment', 'Комментарий'],
                 ['status', 'Статус'],
               ] as const
@@ -369,13 +369,36 @@ export default function AdminDashboardPage() {
               </label>
             ))}
             <label className="text-sm">
+              <span className="text-muted-foreground">Тренажёр</span>
+              <select
+                className="mt-1 h-9 w-full rounded-md border bg-background px-2 text-sm"
+                value={form.simulatorSlug}
+                onChange={(e) => {
+                  const simulatorSlug = e.target.value
+                  setForm((f) => ({
+                    ...f,
+                    simulatorSlug,
+                    durationMin: clampDurationForSimulator(simulatorSlug, f.durationMin),
+                  }))
+                }}
+              >
+                <option value="boeing-737">Boeing 737</option>
+                <option value="mi-2">Ми-2</option>
+              </select>
+            </label>
+            <label className="text-sm">
               <span className="text-muted-foreground">Минуты</span>
-              <Input
-                type="number"
-                className="mt-1 h-9"
+              <select
+                className="mt-1 h-9 w-full rounded-md border bg-background px-2 text-sm"
                 value={form.durationMin}
                 onChange={(e) => setForm((f) => ({ ...f, durationMin: Number(e.target.value) }))}
-              />
+              >
+                {durationsForSimulator(form.simulatorSlug).map((d) => (
+                  <option key={d} value={d}>
+                    {d}
+                  </option>
+                ))}
+              </select>
             </label>
             <label className="text-sm">
               <span className="text-muted-foreground">Способ оплаты</span>

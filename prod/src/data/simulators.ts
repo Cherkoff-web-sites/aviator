@@ -39,10 +39,12 @@ export interface Simulator {
   image: string
   pageHeading: string
   pageDescription: string
-  /** Блок с галереей photo_sm_1–3 (тексты свои, фото общие) */
+  /** Блок «Профессиональная запись…» — свои тексты и 3 фото */
   photoSlider: {
     title: string
     description: string
+    /** Три кадра слайдера (пути из public) */
+    images: [string, string, string]
     /** Ссылка «Посмотреть больше в Галерее» (после долистывания слайдера) */
     galleryTo: string
   }
@@ -101,6 +103,11 @@ export const simulators: Simulator[] = [
       title: 'Профессиональная запись полета',
       description:
         'HD-видео вашего полёта, включая работу приборов и ваши действия на органах управления — чтобы пересматривать, анализировать и делиться этой эмоцией.',
+      images: [
+        '/assets/simulator/photo_sm_mi2_1.png',
+        '/assets/simulator/photo_sm_mi2_2.png',
+        '/assets/simulator/photo_sm_mi2_3.png',
+      ],
       galleryTo: '/gallery',
     },
     pricingBlock: {
@@ -111,9 +118,7 @@ export const simulators: Simulator[] = [
       features: [...MI2_PRICING_FEATURES],
       plans: [
         { durationLabel: '30 минут', priceDisplay: 'Б 170 BYN', ribbon: 'Базовый минимум' },
-        { durationLabel: '60 минут', priceDisplay: 'Б 300 BYN', ribbon: 'Базовый минимум' },
-        { durationLabel: '90 минут', priceDisplay: 'Б 400 BYN', highlighted: true, ribbon: 'Базовый минимум' },
-        { durationLabel: '120 минут', priceDisplay: 'Б 450 BYN', ribbon: 'Базовый минимум' },
+        { durationLabel: '60 минут', priceDisplay: 'Б 300 BYN', highlighted: true, ribbon: 'Базовый минимум' },
       ],
     },
     sections: [
@@ -169,6 +174,11 @@ export const simulators: Simulator[] = [
     photoSlider: {
       title: 'Погрузитесь в атмосферу Boeing 737NG',
       description: 'Посмотрите фото, видео и панораму кабины Boeing 737NG',
+      images: [
+        '/assets/simulator/photo_sm_1.webp',
+        '/assets/simulator/photo_sm_2.webp',
+        '/assets/simulator/photo_sm_3.webp',
+      ],
       galleryTo: '/gallery',
     },
     pricingBlock: {
@@ -240,6 +250,11 @@ export const simulators: Simulator[] = [
       title: 'Видеозапись занятий на тренажёре',
       description:
         'Сохраняем ключевые фрагменты практики: положение приборов, манёвры и комментарии инструктора — чтобы возвращаться к разбору и видеть прогресс.',
+      images: [
+        '/assets/simulator/photo_sm_1.webp',
+        '/assets/simulator/photo_sm_2.webp',
+        '/assets/simulator/photo_sm_3.webp',
+      ],
       galleryTo: '/gallery',
     },
     pricingBlock: {

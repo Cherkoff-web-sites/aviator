@@ -16,8 +16,11 @@ import {
   type CalendarStatus,
 } from '../../lib/pricing'
 import { BOOKING_TIME_SLOTS, type BookingTimeSlot } from './bookingTimeSlots'
-
-const DURATIONS = [30, 60, 90, 120] as const
+import {
+  clampDurationForSimulator,
+  durationsForSimulator,
+  type FlightDurationMin,
+} from '../../lib/flight-durations'
 
 function capitalizeRu(s: string) {
   if (!s) return s
@@ -120,14 +123,18 @@ function applyOpenPayload(
   payload: BookingOpenPayload | null,
 ): {
   aircraft: 'boeing-737' | 'mi-2'
-  durationMin: (typeof DURATIONS)[number]
+  durationMin: FlightDurationMin
   pageSlug: BookingSimulatorSlug | null
 } {
   const pageSlug = payload?.simulatorSlug ?? null
-  const durationRaw = payload?.durationMin
-  const durationMin =
-    durationRaw === 30 || durationRaw === 60 || durationRaw === 90 || durationRaw === 120 ? durationRaw : 30
   const aircraft = defaultAircraftFromSlug(pageSlug)
+  const durationRaw = payload?.durationMin
+  const durationMin = clampDurationForSimulator(
+    aircraft,
+    durationRaw === 30 || durationRaw === 60 || durationRaw === 90 || durationRaw === 120
+      ? durationRaw
+      : 30,
+  )
   return { aircraft, durationMin, pageSlug }
 }
 
@@ -147,9 +154,8 @@ function BookingModal() {
   const [bookingError, setBookingError] = useState('')
   const otpRefs = useRef<(HTMLInputElement | null)[]>([])
 
-  const [giftCertificateOrder, setGiftCertificateOrder] = useState(false)
   const [aircraft, setAircraft] = useState<'boeing-737' | 'mi-2'>('boeing-737')
-  const [durationMin, setDurationMin] = useState<(typeof DURATIONS)[number]>(30)
+  const [durationMin, setDurationMin] = useState<FlightDurationMin>(30)
   const [hasGiftCert, setHasGiftCert] = useState(true)
   const [giftCertNumber, setGiftCertNumber] = useState('')
   const [birthdayDiscount, setBirthdayDiscount] = useState(true)
@@ -179,7 +185,6 @@ function BookingModal() {
     const { aircraft: ac, durationMin: d } = applyOpenPayload(payload)
     setAircraft(ac)
     setDurationMin(d)
-    setGiftCertificateOrder(false)
     setHasGiftCert(false)
     setGiftCertNumber('')
     setBirthdayDiscount(false)
@@ -300,12 +305,12 @@ function BookingModal() {
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-[100] bg-black/45" />
         <Dialog.Content
-          className="fixed left-1/2 top-1/2 z-[101] flex max-h-[min(92dvh,900px)] w-[min(calc(100vw-20px),960px)] max-w-[960px] -translate-x-1/2 -translate-y-1/2 flex-col rounded-2xl bg-white p-4 shadow-[0_24px_80px_rgba(0,45,98,0.22)] focus:outline-none min-[480px]:p-5 min-[990px]:rounded-[24px] min-[990px]:p-8"
+          className="fixed left-1/2 top-1/2 z-[101] flex max-h-[90vh] w-[min(calc(100vw-20px),960px)] max-w-[960px] -translate-x-1/2 -translate-y-1/2 flex-col rounded-2xl bg-white p-4 shadow-[0_24px_80px_rgba(0,45,98,0.22)] focus:outline-none min-[480px]:p-5 min-[990px]:rounded-[24px] min-[990px]:p-8"
           onOpenAutoFocus={(e) => {
             if (wizardStep === 'form' && dateTimeOpen) e.preventDefault()
           }}
         >
-          <div className="relative flex min-h-0 flex-1 flex-col">
+          <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
             <div className="mb-4 flex shrink-0 items-start justify-between gap-3">
               {wizardStep === 'form' ? (
                 <Dialog.Title className="flex-1 pr-10 text-center text-[20px] font-bold leading-tight text-[#002D62] min-[990px]:text-[22px]">
@@ -411,32 +416,24 @@ function BookingModal() {
                 </p>
               </div>
             ) : !dateTimeOpen ? (
-              <div className="min-h-0 flex-1 overflow-y-auto pr-1">
+              <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain pr-1">
                 <div className="flex flex-col gap-5 min-[990px]:gap-6">
-                  <div className="grid grid-cols-1 gap-2 min-[520px]:grid-cols-3 min-[520px]:gap-3">
+                  <div className="grid grid-cols-1 gap-2 min-[520px]:grid-cols-2 min-[520px]:gap-3">
                     <Pill
-                      selected={giftCertificateOrder}
-                      className="w-full py-3"
-                      onClick={() => setGiftCertificateOrder(true)}
-                    >
-                      Подарочный сертификат
-                    </Pill>
-                    <Pill
-                      selected={!giftCertificateOrder && aircraft === 'boeing-737'}
+                      selected={aircraft === 'boeing-737'}
                       className="w-full py-3"
                       onClick={() => {
-                        setGiftCertificateOrder(false)
                         setAircraft('boeing-737')
                       }}
                     >
                       Boeing 737NG
                     </Pill>
                     <Pill
-                      selected={!giftCertificateOrder && aircraft === 'mi-2'}
+                      selected={aircraft === 'mi-2'}
                       className="w-full py-3"
                       onClick={() => {
-                        setGiftCertificateOrder(false)
                         setAircraft('mi-2')
+                        setDurationMin((d) => clampDurationForSimulator('mi-2', d))
                       }}
                     >
                       Ми-2
@@ -447,8 +444,15 @@ function BookingModal() {
                     <p className="mb-2 text-center text-[14px] font-semibold text-[#002D62] min-[990px]:text-[15px]">
                       Выберите продолжительность полета
                     </p>
-                    <div className="grid grid-cols-2 gap-2 min-[640px]:grid-cols-4 min-[640px]:gap-3">
-                      {DURATIONS.map((d) => (
+                    <div
+                      className={[
+                        'grid gap-2 min-[640px]:gap-3',
+                        durationsForSimulator(aircraft).length <= 2
+                          ? 'grid-cols-2'
+                          : 'grid-cols-2 min-[640px]:grid-cols-4',
+                      ].join(' ')}
+                    >
+                      {durationsForSimulator(aircraft).map((d) => (
                         <Pill
                           key={d}
                           selected={durationMin === d}
@@ -461,9 +465,44 @@ function BookingModal() {
                     </div>
                   </div>
 
-                  <div className="flex flex-col gap-4">
-                    <div className="grid grid-cols-1 gap-4 min-[640px]:grid-cols-2 min-[640px]:gap-6 min-[640px]:items-start">
-                      <div className="flex min-w-0 flex-col gap-2">
+                  <div className="grid grid-cols-1 gap-4 min-[700px]:grid-cols-2 min-[700px]:items-start min-[700px]:gap-6">
+                    <div className="min-w-0">
+                      <span className={labelClass()}>Дата и время бронирования</span>
+                      <button
+                        type="button"
+                        onClick={() => setDateTimeOpen(true)}
+                        className="flex w-full items-center justify-between gap-2 rounded-lg border border-[#d1d5db] bg-[#f0f1f3] px-3 py-2.5 text-left min-[990px]:px-4 min-[990px]:py-3"
+                      >
+                        <span className="text-[14px] font-medium text-[#002D62] min-[990px]:text-[15px]">
+                          {dateTimeLabel}
+                        </span>
+                        <svg
+                          className="h-5 w-5 shrink-0 text-[#002D62]"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          aria-hidden
+                        >
+                          <rect
+                            x="3"
+                            y="5"
+                            width="18"
+                            height="16"
+                            rx="2"
+                            stroke="currentColor"
+                            strokeWidth="1.75"
+                          />
+                          <path
+                            d="M3 10h18M8 3v4M16 3v4"
+                            stroke="currentColor"
+                            strokeWidth="1.75"
+                            strokeLinecap="round"
+                          />
+                        </svg>
+                      </button>
+                    </div>
+
+                    <div className="flex min-w-0 flex-col gap-3">
+                      <div className="flex flex-col gap-2">
                         <SwitchRow
                           label="Есть подарочный сертификат"
                           checked={hasGiftCert}
@@ -478,7 +517,7 @@ function BookingModal() {
                           />
                         ) : null}
                       </div>
-                      <div className="flex min-w-0 flex-col gap-2">
+                      <div className="flex flex-col gap-2">
                         <SwitchRow
                           label="Хочу скидку в день рождения"
                           checked={birthdayDiscount}
@@ -493,58 +532,40 @@ function BookingModal() {
                           />
                         ) : null}
                       </div>
-                    </div>
-                    {hasGiftCert || birthdayDiscount ? (
-                      <div className="rounded-lg bg-[#eceef2] px-3 py-2.5 text-[13px] font-medium leading-relaxed text-[#5a6578] min-[990px]:px-4 min-[990px]:py-3 min-[990px]:text-[14px]">
-                        {birthdayDiscount ? (
-                          <p className="mb-0">
-                            Скидка в день рождения действует ±3 дня от даты; необходим документ.
-                          </p>
-                        ) : null}
-                        {hasGiftCert ? (
-                          <>
-                            <p className={birthdayDiscount ? 'mb-0 mt-2' : 'mb-0'}>
-                              Номер проверяется автоматически при оформлении.
+                      {hasGiftCert || birthdayDiscount ? (
+                        <div className="rounded-lg bg-[#eceef2] px-3 py-2.5 text-[13px] font-medium leading-relaxed text-[#5a6578] min-[990px]:px-4 min-[990px]:py-3 min-[990px]:text-[14px]">
+                          {birthdayDiscount ? (
+                            <p className="mb-0">
+                              Скидка в день рождения действует ±3 дня от даты; необходим документ.
                             </p>
-                            {giftCertNumber.trim() ? (
-                              <p
-                                className={`mb-0 mt-2 text-sm font-medium ${
-                                  certValid ? 'text-green-700' : certValid === false ? 'text-red-600' : 'text-[#5a6578]'
-                                }`}
-                              >
-                                {certValid === null
-                                  ? 'Проверяем сертификат…'
-                                  : certValid
-                                    ? 'Сертификат найден'
-                                    : 'Сертификат не найден или недействителен'}
+                          ) : null}
+                          {hasGiftCert ? (
+                            <>
+                              <p className={birthdayDiscount ? 'mb-0 mt-2' : 'mb-0'}>
+                                Номер проверяется автоматически при оформлении.
                               </p>
-                            ) : null}
-                          </>
-                        ) : null}
-                      </div>
-                    ) : null}
-                  </div>
-
-                  <div>
-                    <span className={labelClass()}>Дата и время бронирования</span>
-                    <button
-                      type="button"
-                      onClick={() => setDateTimeOpen(true)}
-                      className="flex w-full items-center justify-between gap-2 rounded-lg border border-[#d1d5db] bg-[#f0f1f3] px-3 py-2.5 text-left min-[990px]:px-4 min-[990px]:py-3"
-                    >
-                      <span className="text-[14px] font-medium text-[#002D62] min-[990px]:text-[15px]">
-                        {dateTimeLabel}
-                      </span>
-                      <svg
-                        className="h-5 w-5 shrink-0 text-[#002D62]"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        aria-hidden
-                      >
-                        <rect x="3" y="5" width="18" height="16" rx="2" stroke="currentColor" strokeWidth="1.75" />
-                        <path d="M3 10h18M8 3v4M16 3v4" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" />
-                      </svg>
-                    </button>
+                              {giftCertNumber.trim() ? (
+                                <p
+                                  className={`mb-0 mt-2 text-sm font-medium ${
+                                    certValid
+                                      ? 'text-green-700'
+                                      : certValid === false
+                                        ? 'text-red-600'
+                                        : 'text-[#5a6578]'
+                                  }`}
+                                >
+                                  {certValid === null
+                                    ? 'Проверяем сертификат…'
+                                    : certValid
+                                      ? 'Сертификат найден'
+                                      : 'Сертификат не найден или недействителен'}
+                                </p>
+                              ) : null}
+                            </>
+                          ) : null}
+                        </div>
+                      ) : null}
+                    </div>
                   </div>
 
                   <div className="grid grid-cols-1 gap-4 min-[700px]:grid-cols-2 min-[700px]:gap-6">
@@ -571,10 +592,25 @@ function BookingModal() {
                         onChange={(e) => setPhone(e.target.value)}
                       />
                     </div>
+                  </div>
 
+                  <div>
+                    <label className={labelClass()} htmlFor="booking-note">
+                      Примечание
+                    </label>
+                    <input
+                      id="booking-note"
+                      className={inputClass()}
+                      placeholder="Есть какая то просьба?"
+                      value={note}
+                      onChange={(e) => setNote(e.target.value)}
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-1 gap-4 min-[700px]:grid-cols-2 min-[700px]:gap-6">
                     <div className="min-w-0">
                       <label className={labelClass()} htmlFor="booking-email">
-                        Email
+                        Email для подтверждения
                       </label>
                       <input
                         id="booking-email"
@@ -587,49 +623,26 @@ function BookingModal() {
                     </div>
 
                     <div className="min-w-0">
-                      <label className={labelClass()} htmlFor="booking-confirm">
-                        Способ подтверждения
-                      </label>
+                      <span className={labelClass()}>Оплата</span>
                       <select
-                        id="booking-confirm"
-                        className={inputClass() + ' cursor-pointer appearance-none bg-[#f0f1f3]'}
-                        value={confirmMethod}
-                        onChange={(e) => setConfirmMethod(e.target.value)}
+                        className={inputClass() + ' cursor-pointer'}
+                        value={payment}
+                        onChange={(e) => setPayment(e.target.value as 'now' | 'visit')}
                       >
-                        <option value="">Выберите способ подтверждения</option>
-                        <option value="phone">Телефон</option>
-                        <option value="whatsapp">WhatsApp</option>
-                        <option value="telegram">Telegram</option>
-                        <option value="email">Электронная почта</option>
+                        <option value="visit">При посещении</option>
+                        <option value="now">Сейчас на сайте</option>
                       </select>
                     </div>
                   </div>
 
-                  <div>
-                    <label className={labelClass()} htmlFor="booking-note">
-                      Примечание
+                  {/* Способ подтверждения — временно скрыт
+                  <div className="min-w-0">
+                    <label className={labelClass()} htmlFor="booking-confirm">
+                      Способ подтверждения
                     </label>
-                    <textarea
-                      id="booking-note"
-                      rows={3}
-                      className={inputClass() + ' resize-none'}
-                      placeholder="Есть какая то просьба?"
-                      value={note}
-                      onChange={(e) => setNote(e.target.value)}
-                    />
+                    <select ... />
                   </div>
-
-                  <div>
-                    <span className={labelClass()}>Оплата</span>
-                    <select
-                      className={inputClass() + ' cursor-pointer'}
-                      value={payment}
-                      onChange={(e) => setPayment(e.target.value as 'now' | 'visit')}
-                    >
-                      <option value="visit">При посещении</option>
-                      <option value="now">Сейчас на сайте</option>
-                    </select>
-                  </div>
+                  */}
 
                   <p className="text-[16px] font-bold text-[#002D62] min-[990px]:text-[17px]">
                     Стоимость: {priceByn} BYN

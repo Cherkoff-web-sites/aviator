@@ -21,7 +21,7 @@ export type GalleryMediaPanelProps = {
   className?: string
 }
 
-function GalleryMediaPanel({ slides, theme = 'light', className = '' }: GalleryMediaPanelProps) {
+function GalleryMediaPanel({ slides, theme = 'dark', className = '' }: GalleryMediaPanelProps) {
   const [thumbsSwiper, setThumbsSwiper] = useState<SwiperType | null>(null)
   const mainRef = useRef<SwiperType | null>(null)
   const [activeIndex, setActiveIndex] = useState(0)

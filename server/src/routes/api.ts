@@ -119,6 +119,10 @@ apiRouter.get('/public/contacts', (_req, res) => {
 
 apiRouter.post('/public/bookings', async (req, res) => {
   const body = req.body
+  if (body.simulatorSlug === 'mi-2' && Number(body.durationMin) > 60) {
+    res.status(400).json({ error: 'Для Ми-2 максимальная длительность — 60 минут' })
+    return
+  }
   const holdExpiresAt = new Date(Date.now() + 30 * 60_000).toISOString()
   const code = generateCode(6)
   const endTime = addMinutesToTime(body.startTime, body.durationMin)
@@ -261,6 +265,10 @@ apiRouter.get('/admin/bookings', (req, res) => {
 
 apiRouter.post('/admin/bookings', requireRoles('ADMIN', 'MANAGER'), async (req, res) => {
   const body = req.body
+  if (body.simulatorSlug === 'mi-2' && Number(body.durationMin) > 60) {
+    res.status(400).json({ error: 'Для Ми-2 максимальная длительность — 60 минут' })
+    return
+  }
   const booking: Booking = {
     id: newId(),
     date: body.date,
@@ -287,12 +295,25 @@ apiRouter.post('/admin/bookings', requireRoles('ADMIN', 'MANAGER'), async (req, 
 
 apiRouter.patch('/admin/bookings/:id', requireRoles('ADMIN', 'MANAGER'), async (req, res) => {
   const id = String(req.params.id)
+  const body = req.body
   let updated: Booking | undefined
+  let rejected = false
   await updateStore((s) => {
     const b = s.bookings.find((x) => x.id === id)
-    if (b) Object.assign(b, req.body, { updatedAt: new Date().toISOString() })
+    if (!b) return
+    const nextSlug = body.simulatorSlug ?? b.simulatorSlug
+    const nextDur = body.durationMin ?? b.durationMin
+    if (nextSlug === 'mi-2' && Number(nextDur) > 60) {
+      rejected = true
+      return
+    }
+    Object.assign(b, body, { updatedAt: new Date().toISOString() })
     updated = b
   })
+  if (rejected) {
+    res.status(400).json({ error: 'Для Ми-2 максимальная длительность — 60 минут' })
+    return
+  }
   broadcast()
   res.json(updated)
 })

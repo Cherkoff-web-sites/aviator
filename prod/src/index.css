@@ -8,24 +8,24 @@
 
 @layer base {
   :root {
-    --background: 0 0% 100%;
-    --foreground: 240 10% 3.9%;
-    --card: 0 0% 100%;
-    --card-foreground: 240 10% 3.9%;
-    --popover: 0 0% 100%;
-    --popover-foreground: 240 10% 3.9%;
+    --background: 210 14% 5%;
+    --foreground: 0 0% 100%;
+    --card: 210 14% 8%;
+    --card-foreground: 0 0% 100%;
+    --popover: 210 14% 8%;
+    --popover-foreground: 0 0% 100%;
     --primary: 221 83% 53%;
     --primary-foreground: 210 40% 98%;
-    --secondary: 240 4.8% 95.9%;
-    --secondary-foreground: 240 5.9% 10%;
-    --muted: 240 4.8% 95.9%;
-    --muted-foreground: 240 3.8% 46.1%;
-    --accent: 240 4.8% 95.9%;
-    --accent-foreground: 240 5.9% 10%;
+    --secondary: 217 19% 16%;
+    --secondary-foreground: 0 0% 98%;
+    --muted: 217 19% 16%;
+    --muted-foreground: 215 15% 70%;
+    --accent: 217 19% 16%;
+    --accent-foreground: 0 0% 98%;
     --destructive: 0 84.2% 60.2%;
     --destructive-foreground: 0 0% 98%;
-    --border: 240 5.9% 90%;
-    --input: 240 5.9% 90%;
+    --border: 215 15% 22%;
+    --input: 215 15% 22%;
     --ring: 221 83% 53%;
     --radius: 0.5rem;
     --sidebar-background: 0 0% 98%;
@@ -71,7 +71,8 @@ body {
 body {
   font-family: "Inter", sans-serif;
   font-weight: 500;
-  background-color: #e9e9e9;
+  background-color: #090c0e;
+  color: #ffffff;
 }
 
 button {
@@ -89,8 +90,176 @@ h6 {
   font-weight: 700;
 }
 
+@keyframes fadeUp {
+  from {
+    opacity: 0;
+    transform: translateY(18px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@property --pricing-ga {
+  syntax: '<angle>';
+  inherits: false;
+  initial-value: 185.43deg;
+}
+
+@property --pricing-gs1 {
+  syntax: '<percentage>';
+  inherits: false;
+  initial-value: 29.56%;
+}
+
+@property --pricing-gs2 {
+  syntax: '<percentage>';
+  inherits: false;
+  initial-value: 142.79%;
+}
+
+@keyframes pricing-grad-shift {
+  0%,
+  100% {
+    --pricing-ga: 185.43deg;
+    --pricing-gs1: 29.56%;
+    --pricing-gs2: 142.79%;
+  }
+  33% {
+    --pricing-ga: 208deg;
+    --pricing-gs1: 18%;
+    --pricing-gs2: 118%;
+  }
+  66% {
+    --pricing-ga: 162deg;
+    --pricing-gs1: 42%;
+    --pricing-gs2: 168%;
+  }
+}
+
 @layer components {
   .container-app {
     @apply mx-auto w-full max-w-[1404px] px-3;
+  }
+
+  /** Синие CTA «Забронировать полет» */
+  .btn-book-flight {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    border-radius: 35px;
+    border: 0;
+    background: radial-gradient(98.31% 98.31% at 50% 50%, #0075ff 0%, #322e67 100%);
+    color: #fff;
+    box-shadow: none;
+    filter: none;
+    text-decoration: none;
+    cursor: pointer;
+    transition: filter 0.2s ease, transform 0.2s ease;
+  }
+
+  .btn-book-flight:hover {
+    filter: brightness(1.14);
+    transform: translateY(-1px);
+  }
+
+  .btn-book-flight:active {
+    filter: brightness(0.96);
+    transform: translateY(0);
+  }
+
+  /** Вторичная кнопка на тёмном фоне (обводка) */
+  .btn-outline-light {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    border-radius: 35px;
+    border: 1px solid rgba(255, 255, 255, 0.7);
+    background: transparent;
+    color: #fff;
+    text-decoration: none;
+    cursor: pointer;
+    transition: background-color 0.2s ease, border-color 0.2s ease, transform 0.2s ease;
+  }
+
+  .btn-outline-light:hover {
+    background: rgba(255, 255, 255, 0.12);
+    border-color: #fff;
+    transform: translateY(-1px);
+  }
+
+  .btn-outline-light:active {
+    background: rgba(255, 255, 255, 0.18);
+    transform: translateY(0);
+  }
+
+  /** Белая кнопка на цветном фоне */
+  .btn-solid-light {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    border-radius: 35px;
+    border: 0;
+    background: #fff;
+    color: #002d62;
+    text-decoration: none;
+    cursor: pointer;
+    transition: background-color 0.2s ease, color 0.2s ease, transform 0.2s ease;
+  }
+
+  .btn-solid-light:hover {
+    background: #eef4ff;
+    color: #001a3d;
+    transform: translateY(-1px);
+  }
+
+  .btn-solid-light:active {
+    background: #e2ebf8;
+    transform: translateY(0);
+  }
+
+  /** Обёртка тарифов (одна «карточка» на все планы) */
+  .pricing-plans-shell {
+    background: rgba(0, 45, 98, 0.5);
+    border: 1px solid rgba(255, 255, 255, 0.54);
+    backdrop-filter: blur(4.95px);
+    -webkit-backdrop-filter: blur(4.95px);
+    border-radius: 12px;
+  }
+
+  /** Выбранный тариф: градиент с переливанием */
+  .pricing-plan-featured {
+    --pricing-ga: 185.43deg;
+    --pricing-gs1: 29.56%;
+    --pricing-gs2: 142.79%;
+    border: 1px solid rgba(255, 255, 255, 0.54);
+    border-radius: 12px;
+    background: linear-gradient(
+      var(--pricing-ga),
+      #085dc1 var(--pricing-gs1),
+      #042c5b var(--pricing-gs2)
+    );
+    animation: pricing-grad-shift 7s ease-in-out infinite;
+  }
+
+  @media (hover: hover) and (pointer: fine) {
+    .pricing-plan-featured {
+      animation: none;
+      transition:
+        --pricing-ga 0.35s ease-out,
+        --pricing-gs1 0.35s ease-out,
+        --pricing-gs2 0.35s ease-out;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .pricing-plan-featured {
+      animation: none;
+      transition: none;
+    }
   }
 }

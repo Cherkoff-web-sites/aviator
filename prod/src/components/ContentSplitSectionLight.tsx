@@ -22,7 +22,7 @@ function ContentSplitSectionLight({
   const isImageLeft = variant === 'image-left'
 
   return (
-    <section className="bg-[#e9e9e9] py-10 min-[990px]:py-16">
+    <section className="py-10 text-white min-[990px]:py-16">
       <div className="container-app">
         <div
           className={[
@@ -32,11 +32,11 @@ function ContentSplitSectionLight({
         >
           <div className="flex min-w-0 flex-1 flex-col justify-center">
             <h2
-              className={`mb-4 text-[22px] font-bold leading-tight tracking-tight text-[#002D62] min-[990px]:text-[28px] ${titleUppercase ? 'uppercase' : ''}`}
+              className={`mb-4 text-[22px] font-bold leading-tight tracking-tight text-white min-[990px]:text-[28px] ${titleUppercase ? 'uppercase' : ''}`}
             >
               {title}
             </h2>
-            <div className="flex flex-col gap-4 text-[15px] font-medium leading-relaxed text-[#5c6570] min-[990px]:text-[17px]">
+            <div className="flex flex-col gap-4 text-[15px] font-medium leading-relaxed text-white/75 min-[990px]:text-[17px]">
               {paragraphs.map((p, i) => (
                 <p key={i}>{p}</p>
               ))}

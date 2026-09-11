@@ -16,7 +16,7 @@ function GalleryGradientSplitSection({
   media,
 }: GalleryGradientSplitSectionProps) {
   return (
-    <section className="bg-[#e9e9e9] py-10 min-[990px]:py-16">
+    <section className="py-10 min-[990px]:py-16">
       <div className="container-app">
         <div
           className="rounded-[40px] px-5 py-8 text-white min-[990px]:px-10 min-[990px]:py-10"

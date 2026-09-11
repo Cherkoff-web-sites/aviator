@@ -1,7 +1,9 @@
+import { useEffect, useRef } from 'react'
 import { useParams } from 'react-router-dom'
 
 import type { BookingSimulatorSlug } from '../contexts/BookingModalContext'
 import { useBookingModal } from '../contexts/BookingModalContext'
+import { useGiftCertificateModal } from '../contexts/GiftCertificateModalContext'
 import type { SimulatorPricingBlock, SimulatorPricingPlan } from '../data/simulators'
 
 const ARROW_RIGHT_SRC = '/assets/icons/arrow_right.svg'
@@ -27,23 +29,71 @@ function CheckIcon({ className }: { className?: string }) {
   )
 }
 
+function useFinePointer() {
+  const fineRef = useRef(false)
+
+  useEffect(() => {
+    const mq = window.matchMedia('(hover: hover) and (pointer: fine)')
+    fineRef.current = mq.matches
+    const onChange = () => {
+      fineRef.current = mq.matches
+    }
+    mq.addEventListener('change', onChange)
+    return () => mq.removeEventListener('change', onChange)
+  }, [])
+
+  return fineRef
+}
+
 function PricingPlanCard({
   plan,
   features,
   onBook,
+  isFirst,
 }: {
   plan: SimulatorPricingPlan
   features: string[]
   onBook: () => void
+  isFirst: boolean
 }) {
   const hi = Boolean(plan.highlighted)
+  const cardRef = useRef<HTMLElement>(null)
+  const finePointer = useFinePointer()
+
+  useEffect(() => {
+    if (!hi) return
+
+    const onMove = (e: MouseEvent) => {
+      if (!finePointer.current) return
+      const el = cardRef.current
+      if (!el) return
+
+      const nx = Math.min(1, Math.max(0, e.clientX / window.innerWidth))
+      const ny = Math.min(1, Math.max(0, e.clientY / window.innerHeight))
+
+      el.style.setProperty('--pricing-ga', `${162 + nx * 46}deg`)
+      el.style.setProperty('--pricing-gs1', `${16 + ny * 32}%`)
+      el.style.setProperty('--pricing-gs2', `${112 + nx * 56}%`)
+    }
+
+    window.addEventListener('mousemove', onMove, { passive: true })
+    return () => window.removeEventListener('mousemove', onMove)
+  }, [finePointer, hi])
 
   return (
     <article
+      ref={cardRef}
+      data-sim-reveal-item
       className={
         hi
-          ? 'relative flex min-h-0 flex-col rounded-2xl bg-[#0075FF] px-5 pb-6 pt-6 text-white shadow-[0_12px_40px_rgba(0,117,255,0.35)] min-[990px]:z-10 min-[990px]:scale-[1.03] min-[990px]:px-6 min-[990px]:pb-8 min-[990px]:pt-8'
-          : 'flex min-h-0 flex-col rounded-2xl border border-white/30 bg-[rgba(15,35,70,0.45)] px-5 pb-6 pt-6 text-white backdrop-blur-md min-[990px]:px-5 min-[990px]:pb-7 min-[990px]:pt-7'
+          ? [
+              'pricing-plan-featured relative z-10 flex h-full min-h-0 flex-col px-5 py-7 text-white',
+              'my-0 min-[990px]:-my-4 min-[990px]:px-6 min-[990px]:py-9',
+            ].join(' ')
+          : [
+              'relative flex h-full min-h-0 flex-col px-5 py-6 text-white min-[990px]:px-5 min-[990px]:py-7',
+              !isFirst ? 'border-t border-white/25 min-[990px]:border-t-0 min-[990px]:border-l' : '',
+            ].join(' ')
       }
     >
       <h3 className="text-[22px] font-bold leading-tight tracking-tight min-[990px]:text-[24px]">
@@ -52,16 +102,12 @@ function PricingPlanCard({
       <p className="mt-2 text-[17px] font-semibold leading-tight min-[990px]:text-[18px]">{plan.priceDisplay}</p>
 
       {plan.ribbon ? (
-        <>
-          <div className={`my-4 h-px w-full ${hi ? 'bg-white/35' : 'bg-white/25'}`} />
-          <p className="text-center text-[14px] font-semibold leading-snug text-white/95 min-[990px]:text-[15px]">
-            {plan.ribbon}
-          </p>
-          <div className={`my-4 h-px w-full ${hi ? 'bg-white/35' : 'bg-white/25'}`} />
-        </>
-      ) : (
-        <div className={`my-4 h-px w-full ${hi ? 'bg-white/35' : 'bg-white/25'}`} />
-      )}
+        <p className="mt-3 text-[14px] font-semibold leading-snug text-white/95 min-[990px]:text-[15px]">
+          {plan.ribbon}
+        </p>
+      ) : null}
+
+      <div className={`my-4 h-px w-full ${hi ? 'bg-white/40' : 'bg-white/25'}`} />
 
       <ul className="flex flex-1 flex-col gap-2.5 text-[14px] font-medium leading-snug min-[990px]:gap-3 min-[990px]:text-[15px]">
         {features.map((line) => (
@@ -77,8 +123,8 @@ function PricingPlanCard({
         onClick={onBook}
         className={
           hi
-            ? 'mt-6 inline-flex w-full items-center justify-center gap-2 rounded-full bg-white px-4 py-2.5 text-[14px] font-semibold text-[#0075FF] min-[990px]:mt-8 min-[990px]:py-3 min-[990px]:text-[15px]'
-            : 'mt-6 inline-flex w-full items-center justify-center gap-2 rounded-full bg-[radial-gradient(98.31%_98.31%_at_50%_50%,#0075FF_0%,#322E67_100%)] px-4 py-2.5 text-[14px] font-semibold text-white shadow-[0_0_20px_rgba(0,117,255,0.35)] min-[990px]:mt-8 min-[990px]:py-3 min-[990px]:text-[15px]'
+            ? 'btn-solid-light mt-6 w-full px-4 py-2.5 text-[14px] font-semibold text-[#085DC1] min-[990px]:mt-8 min-[990px]:py-3 min-[990px]:text-[15px]'
+            : 'btn-book-flight mt-6 w-full px-4 py-2.5 text-[14px] font-semibold min-[990px]:mt-8 min-[990px]:py-3 min-[990px]:text-[15px]'
         }
       >
         Летим
@@ -99,7 +145,11 @@ function PricingPlanCard({
   )
 }
 
-export type SimulatorPricingSectionLayout = /** фон и контент на всю ширину вьюпорта, контент в `container-app` */ 'fullBleed' | /** один визуальный блок по ширине родителя (обычно уже в `container-app`) */ 'contained'
+export type SimulatorPricingSectionLayout =
+  /** фон и контент на всю ширину вьюпорта, контент в `container-app` */
+  | 'fullBleed'
+  /** один визуальный блок по ширине родителя (обычно уже в `container-app`) */
+  | 'contained'
 
 type Props = {
   block: SimulatorPricingBlock
@@ -111,11 +161,15 @@ type Props = {
 function SimulatorPricingSection({ block, layout = 'fullBleed', bookingSimulatorSlug }: Props) {
   const isContained = layout === 'contained'
   const { openBooking } = useBookingModal()
+  const { openGiftCertificate } = useGiftCertificateModal()
   const { slug } = useParams()
 
   const simulatorSlug: BookingSimulatorSlug | null =
     bookingSimulatorSlug ??
     (slug === 'mi-2' || slug === 'boeing-737' || slug === 'avia-school' ? slug : null)
+
+  const giftProduct =
+    simulatorSlug === 'boeing-737' || simulatorSlug === 'mi-2' ? simulatorSlug : null
 
   const handleBookPlan = (plan: SimulatorPricingPlan) => {
     const m = plan.durationLabel.match(/(\d+)\s*минут/)
@@ -134,40 +188,57 @@ function SimulatorPricingSection({ block, layout = 'fullBleed', bookingSimulator
 
   const inner = (
     <>
-      <div
-        className="absolute inset-0 bg-cover bg-center"
-        style={{ backgroundImage: `url(${block.backgroundImage})` }}
-        aria-hidden
-      />
+      <div className="pointer-events-none absolute inset-0 overflow-hidden" aria-hidden>
+        <div
+          className="absolute inset-0 bg-cover bg-center"
+          style={{ backgroundImage: `url(${block.backgroundImage})` }}
+        />
+      </div>
 
       <div className={`relative z-[1] ${isContained ? 'px-4 min-[990px]:px-8' : 'container-app'}`}>
-        <header className="mb-8 flex max-w-[640px] gap-4 min-[990px]:mb-12 min-[990px]:gap-5">
-          <img
-            src={block.headingIcon}
-            alt=""
-            className="h-[52px] w-[52px] shrink-0 object-contain min-[990px]:h-14 min-[990px]:w-14"
-            width={56}
-            height={56}
-          />
-          <div className="min-w-0 pt-0.5">
-            <h2 className="text-[22px] font-bold leading-tight tracking-tight text-white drop-shadow-[0_2px_12px_rgba(0,0,0,0.55)] min-[990px]:text-[32px]">
-              {block.headingTitle}
-            </h2>
-            <p className="mt-1.5 text-[14px] font-medium leading-relaxed text-white/95 drop-shadow-[0_1px_8px_rgba(0,0,0,0.5)] min-[990px]:mt-2 min-[990px]:text-[17px]">
-              {block.headingSubtitle}
-            </p>
+        <header className="mb-8 flex flex-col gap-4 min-[640px]:mb-12 min-[640px]:flex-row min-[640px]:items-start min-[640px]:justify-between min-[640px]:gap-6">
+          <div data-sim-reveal-head className="flex min-w-0 max-w-[640px] gap-4 min-[990px]:gap-5">
+            <img
+              src={block.headingIcon}
+              alt=""
+              className="h-[52px] w-[52px] shrink-0 object-contain min-[990px]:h-14 min-[990px]:w-14"
+              width={56}
+              height={56}
+            />
+            <div className="min-w-0 pt-0.5">
+              <h2 className="text-[22px] font-bold leading-tight tracking-tight text-white drop-shadow-[0_2px_12px_rgba(0,0,0,0.55)] min-[990px]:text-[32px]">
+                {block.headingTitle}
+              </h2>
+              <p className="mt-1.5 text-[14px] font-medium leading-relaxed text-white/95 drop-shadow-[0_1px_8px_rgba(0,0,0,0.5)] min-[990px]:mt-2 min-[990px]:text-[17px]">
+                {block.headingSubtitle}
+              </p>
+            </div>
           </div>
+
+          {giftProduct ? (
+            <button
+              data-sim-reveal-head
+              type="button"
+              onClick={() => openGiftCertificate({ product: giftProduct })}
+              className="btn-solid-light shrink-0 self-start px-5 py-2.5 text-[14px] font-semibold min-[990px]:px-6 min-[990px]:py-3 min-[990px]:text-[15px]"
+            >
+              Подарить полет
+            </button>
+          ) : null}
         </header>
 
-        <div className="flex flex-col gap-4 min-[990px]:grid min-[990px]:grid-cols-4 min-[990px]:items-stretch min-[990px]:gap-5">
-          {block.plans.map((plan) => (
-            <PricingPlanCard
-              key={plan.durationLabel}
-              plan={plan}
-              features={block.features}
-              onBook={() => handleBookPlan(plan)}
-            />
-          ))}
+        <div className="pricing-plans-shell relative min-[990px]:my-4">
+          <div className="grid grid-cols-1 items-stretch min-[990px]:auto-cols-fr min-[990px]:grid-flow-col">
+            {block.plans.map((plan, index) => (
+              <PricingPlanCard
+                key={plan.durationLabel}
+                plan={plan}
+                features={block.features}
+                isFirst={index === 0}
+                onBook={() => handleBookPlan(plan)}
+              />
+            ))}
+          </div>
         </div>
       </div>
     </>
@@ -175,14 +246,20 @@ function SimulatorPricingSection({ block, layout = 'fullBleed', bookingSimulator
 
   if (isContained) {
     return (
-      <section className="relative isolate w-full overflow-hidden rounded-[24px] py-10 min-[990px]:rounded-[32px] min-[990px]:py-12">
+      <section
+        data-sim-reveal="pricing"
+        className="relative isolate w-full overflow-visible rounded-[24px] py-10 min-[990px]:rounded-[32px] min-[990px]:py-12"
+      >
         {inner}
       </section>
     )
   }
 
   return (
-    <section className="relative isolate overflow-hidden py-12 min-[990px]:py-[4.5rem]">
+    <section
+      data-sim-reveal="pricing"
+      className="relative isolate overflow-visible py-12 min-[990px]:py-[4.5rem]"
+    >
       {inner}
     </section>
   )

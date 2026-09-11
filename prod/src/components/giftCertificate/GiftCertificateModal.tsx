@@ -5,8 +5,11 @@ import { getCertPriceByn } from '../../lib/pricing'
 import type { GiftCertProductChoice } from '../booking/bookingPricing'
 import { apiFetch, type ApiPriceRow } from '../../lib/api'
 import { useGiftCertificateModal } from '../../contexts/GiftCertificateModalContext'
-
-const DURATIONS = [30, 60, 90, 120] as const
+import {
+  clampDurationForSimulator,
+  durationsForSimulator,
+  type FlightDurationMin,
+} from '../../lib/flight-durations'
 
 function Pill({
   selected,
@@ -51,10 +54,10 @@ function labelClass() {
 type Step = 'form' | 'success'
 
 function GiftCertificateModal() {
-  const { isOpen, closeGiftCertificate } = useGiftCertificateModal()
+  const { isOpen, payload, closeGiftCertificate } = useGiftCertificateModal()
   const [step, setStep] = useState<Step>('form')
   const [product, setProduct] = useState<GiftCertProductChoice>('boeing-737')
-  const [durationMin, setDurationMin] = useState<(typeof DURATIONS)[number]>(30)
+  const [durationMin, setDurationMin] = useState<FlightDurationMin>(30)
   const [firstName, setFirstName] = useState('Иван')
   const [lastName, setLastName] = useState('Иванов')
   const [confirmMethod, setConfirmMethod] = useState('')
@@ -74,7 +77,7 @@ function GiftCertificateModal() {
   useEffect(() => {
     if (!isOpen) return
     setStep('form')
-    setProduct('boeing-737')
+    setProduct(payload?.product ?? 'boeing-737')
     setDurationMin(30)
     setFirstName('Иван')
     setLastName('Иванов')
@@ -84,17 +87,28 @@ function GiftCertificateModal() {
     setConsent(false)
     setCertNumber(null)
     setSubmitError('')
-  }, [isOpen])
+  }, [isOpen, payload])
 
   const priceByn = useMemo(
     () => getCertPriceByn(certPrices, product, durationMin),
     [certPrices, durationMin, product],
   )
 
-  const durationOptions = product === 'both' ? ([60] as const) : DURATIONS
+  const durationOptions =
+    product === 'both'
+      ? ([60] as const)
+      : product === 'mi-2'
+        ? durationsForSimulator('mi-2')
+        : durationsForSimulator('boeing-737')
 
   useEffect(() => {
-    if (product === 'both') setDurationMin(60)
+    if (product === 'both') {
+      setDurationMin(60)
+      return
+    }
+    setDurationMin((d) =>
+      clampDurationForSimulator(product === 'mi-2' ? 'mi-2' : 'boeing-737', d),
+    )
   }, [product])
 
   const onOpenChange = useCallback(
@@ -220,26 +234,14 @@ function GiftCertificateModal() {
                     </div>
                   </div>
 
+                  {/* Способ подтверждения — временно скрыт
                   <div>
                     <label className={labelClass()} htmlFor="gc-confirm">
                       Способ подтверждения
                     </label>
-                    <select
-                      id="gc-confirm"
-                      className={fieldClass() + ' cursor-pointer appearance-none bg-[#eef0f6]'}
-                      value={confirmMethod}
-                      onChange={(e) => setConfirmMethod(e.target.value)}
-                    >
-                      <option value="">Выберите способ связи</option>
-                      <option value="phone">Телефон</option>
-                      <option value="whatsapp">WhatsApp</option>
-                      <option value="telegram">Telegram</option>
-                      <option value="email">Электронная почта</option>
-                    </select>
-                    <p className="mt-1.5 text-[12px] font-medium leading-snug text-[#6b7289] min-[990px]:text-[13px]">
-                      На указанный способ связи будет отправлен сертификат
-                    </p>
+                    <select ... />
                   </div>
+                  */}
 
                   <div>
                     <label className={labelClass()} htmlFor="gc-phone">
@@ -259,10 +261,9 @@ function GiftCertificateModal() {
                     <label className={labelClass()} htmlFor="gc-note">
                       Примечания
                     </label>
-                    <textarea
+                    <input
                       id="gc-note"
-                      rows={3}
-                      className={fieldClass() + ' resize-none'}
+                      className={fieldClass()}
                       placeholder="Есть какая то просьба?"
                       value={note}
                       onChange={(e) => setNote(e.target.value)}

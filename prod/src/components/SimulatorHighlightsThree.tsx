@@ -19,13 +19,14 @@ const HIGHLIGHTS = [
 
 function SimulatorHighlightsThree() {
   return (
-    <section className="bg-[#002D62] py-12 text-white min-[990px]:py-16">
+    <section data-sim-reveal="cards" className="bg-[#002D62] py-12 text-white min-[990px]:py-16">
       <div className="container-app">
         <div className="grid grid-cols-1 gap-12 min-[990px]:grid-cols-3 min-[990px]:gap-10">
           {HIGHLIGHTS.map((item) => (
             <div
               key={item.iconSrc}
-              className="flex flex-col items-center text-center min-[990px]:px-4"
+              data-sim-reveal-item
+              className="flex flex-col items-center text-center will-change-transform min-[990px]:px-4"
             >
               <img
                 src={item.iconSrc}

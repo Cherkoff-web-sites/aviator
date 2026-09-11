@@ -26,6 +26,7 @@ import GalleryPage from './pages/GalleryPage'
 import HomePage from './pages/HomePage'
 import PricesPage from './pages/PricesPage'
 import SimulatorPage from './pages/SimulatorPage'
+import SimulatorsPage from './pages/SimulatorsPage'
 
 function App() {
   return (
@@ -69,6 +70,7 @@ function App() {
                   ))}
                 </Route>
                 <Route path="/" element={<HomePage />} />
+                <Route path="/simulators" element={<SimulatorsPage />} />
                 <Route path="/gallery" element={<GalleryPage />} />
                 <Route path="/prices" element={<PricesPage />} />
                 <Route path="/contacts" element={<ContactsPage />} />

@@ -7,11 +7,9 @@ const BOEING: Record<30 | 60 | 90 | 120, number> = {
   120: 450,
 }
 
-const MI2: Record<30 | 60 | 90 | 120, number> = {
+const MI2: Partial<Record<30 | 60 | 90 | 120, number>> = {
   30: 200,
   60: 350,
-  90: 480,
-  120: 600,
 }
 
 export function getBookingPriceByn(
@@ -20,7 +18,7 @@ export function getBookingPriceByn(
   pageSlug?: BookingSimulatorSlug | null,
 ): number {
   if (pageSlug === 'mi-2' || aircraft === 'mi-2') {
-    return MI2[durationMin]
+    return MI2[durationMin] ?? MI2[60] ?? 0
   }
   return BOEING[durationMin]
 }
@@ -31,7 +29,7 @@ export function getGiftCertificatePriceByn(
   product: GiftCertProductChoice,
   durationMin: 30 | 60 | 90 | 120,
 ): number {
-  if (product === 'mi-2') return MI2[durationMin]
+  if (product === 'mi-2') return MI2[durationMin] ?? MI2[60] ?? 0
   if (product === 'boeing-737') return BOEING[durationMin]
-  return BOEING[durationMin] + MI2[durationMin]
+  return BOEING[durationMin] + (MI2[durationMin] ?? MI2[60] ?? 0)
 }
