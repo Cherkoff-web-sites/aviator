@@ -10,9 +10,13 @@ import {
 /** Слаг страницы тренажёра; для брони полёта в модалке используются Boeing / Ми-2. */
 export type BookingSimulatorSlug = 'boeing-737' | 'mi-2' | 'avia-school'
 
+/** Промо с карточек на странице цен. */
+export type BookingPromo = 'birthday' | 'happy-hours'
+
 export type BookingOpenPayload = {
   simulatorSlug?: BookingSimulatorSlug | null
   durationMin?: 30 | 60 | 90 | 120 | null
+  promo?: BookingPromo | null
 }
 
 type BookingModalContextValue = {

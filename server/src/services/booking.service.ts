@@ -21,6 +21,7 @@ export async function createPublicBooking(input: {
   paymentMethod: PaymentMethod
   comment?: string
   isBirthdayPromo?: boolean
+  isHappyHoursPromo?: boolean
   birthdayDate?: string
   certificateNumber?: string
 }) {
@@ -28,11 +29,21 @@ export async function createPublicBooking(input: {
   const holdExpiresAt = bookingHoldExpiresAt()
   const code = generateCode(6)
 
-  const promoNote = input.isBirthdayPromo
-    ? 'ДР-15%'
-    : input.certificateNumber
-      ? `EB-${input.simulatorSlug.toUpperCase()}-${input.certificateNumber}`
-      : null
+  const promoParts: string[] = []
+  if (input.isBirthdayPromo) promoParts.push('ДР-15%')
+  if (input.isHappyHoursPromo) promoParts.push('Счастливые часы -10%')
+  if (input.certificateNumber) {
+    promoParts.push(`EB-${input.simulatorSlug.toUpperCase()}-${input.certificateNumber}`)
+  }
+  const promoNote = promoParts.length ? promoParts.join(', ') : null
+
+  // Гарантируем метку акции в комментарии для менеджеров
+  let comment = input.comment ?? ''
+  if (input.isHappyHoursPromo && !comment.includes('«Счастливые часы»')) {
+    comment = comment.trim()
+      ? `«Счастливые часы». ${comment.trim()}`
+      : '«Счастливые часы»'
+  }
 
   const booking = await prisma.booking.create({
     data: {
@@ -45,7 +56,7 @@ export async function createPublicBooking(input: {
       phone: input.phone,
       email: input.email,
       paymentMethod: input.paymentMethod,
-      comment: input.comment ?? '',
+      comment,
       isBirthdayPromo: input.isBirthdayPromo ?? false,
       birthdayDate: input.birthdayDate ? new Date(input.birthdayDate) : null,
       certificateNumber: input.certificateNumber,

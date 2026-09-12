@@ -156,5 +156,6 @@ export function createSeedStore(): DataStore {
     settings: { bookingWindowMonths: 3 },
     counters: { certificate: 111112 },
     pendingCodes: [],
+    feedbackRequests: [],
   }
 }

@@ -117,6 +117,14 @@ export type OptionItem = {
   sortOrder: number
 }
 
+export type FeedbackRequest = {
+  id: string
+  name: string
+  phone: string
+  message: string
+  createdAt: string
+}
+
 export type DataStore = {
   version: 1
   users: User[]
@@ -137,4 +145,5 @@ export type DataStore = {
   settings: { bookingWindowMonths: number }
   counters: { certificate: number }
   pendingCodes: { bookingId: string; code: string; expiresAt: string; sentAt: string }[]
+  feedbackRequests?: FeedbackRequest[]
 }

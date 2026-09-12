@@ -1,5 +1,6 @@
 import { BrowserRouter, Route, Routes } from 'react-router-dom'
 import CookieConsent from './components/CookieConsent'
+import FeedbackWidget from './components/FeedbackWidget'
 import BookingModal from './components/booking/BookingModal'
 import GiftCertificateModal from './components/giftCertificate/GiftCertificateModal'
 import ScrollToTop from './components/ScrollToTop'
@@ -80,6 +81,7 @@ function App() {
             </div>
             <BookingModal />
             <GiftCertificateModal />
+            <FeedbackWidget />
             <CookieConsent />
           </GiftCertificateModalProvider>
         </BookingModalProvider>

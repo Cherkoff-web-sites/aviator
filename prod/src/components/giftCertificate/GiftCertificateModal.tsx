@@ -1,10 +1,20 @@
 import * as Dialog from '@radix-ui/react-dialog'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
-import { getCertPriceByn } from '../../lib/pricing'
+import { getCertPriceByn, isPersonNameValid, isPhoneValid } from '../../lib/pricing'
 import type { GiftCertProductChoice } from '../booking/bookingPricing'
 import { apiFetch, type ApiPriceRow } from '../../lib/api'
 import { useGiftCertificateModal } from '../../contexts/GiftCertificateModalContext'
+import {
+  clearGiftDraft,
+  loadGiftDraft,
+  saveGiftDraft,
+} from '../../lib/modalDrafts'
+import {
+  sanitizeNoteInput,
+  sanitizePersonNameInput,
+  sanitizePhoneInput,
+} from '../../lib/fieldInput'
 import {
   clampDurationForSimulator,
   durationsForSimulator,
@@ -58,19 +68,43 @@ type Step = 'form' | 'success'
 
 function GiftCertificateModal() {
   const { isOpen, payload, closeGiftCertificate } = useGiftCertificateModal()
+  const draftRef = useRef(loadGiftDraft())
+  const draft = draftRef.current
+
   const [step, setStep] = useState<Step>('form')
-  const [product, setProduct] = useState<GiftCertProductChoice>('boeing-737')
-  const [durationMin, setDurationMin] = useState<FlightDurationMin>(30)
-  const [firstName, setFirstName] = useState('Иван')
-  const [lastName, setLastName] = useState('Иванов')
-  const [phone, setPhone] = useState('')
-  const [note, setNote] = useState('')
-  const [consent, setConsent] = useState(false)
+  const [product, setProduct] = useState<GiftCertProductChoice>(
+    () => draft?.product ?? 'boeing-737',
+  )
+  const [durationMin, setDurationMin] = useState<FlightDurationMin>(
+    () => draft?.durationMin ?? 30,
+  )
+  const [firstName, setFirstName] = useState(() =>
+    sanitizePersonNameInput(draft?.firstName ?? ''),
+  )
+  const [lastName, setLastName] = useState(() => sanitizePersonNameInput(draft?.lastName ?? ''))
+  const [phone, setPhone] = useState(() => sanitizePhoneInput(draft?.phone ?? ''))
+  const [note, setNote] = useState(() => sanitizeNoteInput(draft?.note ?? ''))
+  const [consent, setConsent] = useState(() => draft?.consent ?? false)
   const [submitted, setSubmitted] = useState(false)
   const [certNumber, setCertNumber] = useState<string | null>(null)
   const [submitError, setSubmitError] = useState('')
 
   const [certPrices, setCertPrices] = useState<ApiPriceRow[]>([])
+
+  const resetDraftFields = useCallback(() => {
+    setStep('form')
+    setProduct('boeing-737')
+    setDurationMin(30)
+    setFirstName('')
+    setLastName('')
+    setPhone('')
+    setNote('')
+    setConsent(false)
+    setSubmitted(false)
+    setCertNumber(null)
+    setSubmitError('')
+    clearGiftDraft()
+  }, [])
 
   useEffect(() => {
     if (!isOpen) return
@@ -79,18 +113,22 @@ function GiftCertificateModal() {
 
   useEffect(() => {
     if (!isOpen) return
-    setStep('form')
-    setProduct(payload?.product ?? 'boeing-737')
-    setDurationMin(30)
-    setFirstName('Иван')
-    setLastName('Иванов')
-    setPhone('')
-    setNote('')
-    setConsent(false)
-    setSubmitted(false)
-    setCertNumber(null)
-    setSubmitError('')
+    if (payload?.product != null) {
+      setProduct(payload.product)
+    }
   }, [isOpen, payload])
+
+  useEffect(() => {
+    saveGiftDraft({
+      product,
+      durationMin,
+      firstName,
+      lastName,
+      phone,
+      note,
+      consent,
+    })
+  }, [product, durationMin, firstName, lastName, phone, note, consent])
 
   const priceByn = useMemo(
     () => getCertPriceByn(certPrices, product, durationMin),
@@ -99,9 +137,9 @@ function GiftCertificateModal() {
 
   const fieldErrors = useMemo(
     () => ({
-      firstName: !firstName.trim(),
-      lastName: !lastName.trim(),
-      phone: !phone.trim(),
+      firstName: !isPersonNameValid(firstName),
+      lastName: !isPersonNameValid(lastName),
+      phone: !isPhoneValid(phone),
       consent: !consent,
     }),
     [firstName, lastName, phone, consent],
@@ -126,9 +164,14 @@ function GiftCertificateModal() {
 
   const onOpenChange = useCallback(
     (open: boolean) => {
-      if (!open) closeGiftCertificate()
+      if (!open) {
+        if (step === 'success') {
+          resetDraftFields()
+        }
+        closeGiftCertificate()
+      }
     },
-    [closeGiftCertificate],
+    [closeGiftCertificate, resetDraftFields, step],
   )
 
   return (
@@ -230,7 +273,8 @@ function GiftCertificateModal() {
                         id="gc-first"
                         className={fieldClass(submitted && fieldErrors.firstName)}
                         value={firstName}
-                        onChange={(e) => setFirstName(e.target.value)}
+                        onChange={(e) => setFirstName(sanitizePersonNameInput(e.target.value))}
+                        autoComplete="given-name"
                       />
                     </div>
 
@@ -242,7 +286,8 @@ function GiftCertificateModal() {
                         id="gc-last"
                         className={fieldClass(submitted && fieldErrors.lastName)}
                         value={lastName}
-                        onChange={(e) => setLastName(e.target.value)}
+                        onChange={(e) => setLastName(sanitizePersonNameInput(e.target.value))}
+                        autoComplete="family-name"
                       />
                     </div>
                   </div>
@@ -264,9 +309,11 @@ function GiftCertificateModal() {
                       id="gc-phone"
                       type="tel"
                       className={fieldClass(submitted && fieldErrors.phone)}
-                      placeholder="+7 800 800 80 80"
+                      placeholder="+375 29 123-45-67"
                       value={phone}
-                      onChange={(e) => setPhone(e.target.value)}
+                      onChange={(e) => setPhone(sanitizePhoneInput(e.target.value))}
+                      autoComplete="tel"
+                      inputMode="tel"
                     />
                   </div>
 
@@ -279,7 +326,8 @@ function GiftCertificateModal() {
                       className={fieldClass()}
                       placeholder="Есть какая то просьба?"
                       value={note}
-                      onChange={(e) => setNote(e.target.value)}
+                      onChange={(e) => setNote(sanitizeNoteInput(e.target.value))}
+                      maxLength={500}
                     />
                   </div>
 

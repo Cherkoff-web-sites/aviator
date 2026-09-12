@@ -40,6 +40,7 @@ export type PricesPromoCardProps = {
   lead: string
   terms: string[]
   documentLine: string
+  bookingPromo?: 'birthday' | 'happy-hours'
 }
 
 function PricesPromoCard({
@@ -50,6 +51,7 @@ function PricesPromoCard({
   lead,
   terms,
   documentLine,
+  bookingPromo,
 }: PricesPromoCardProps) {
   const { openBooking } = useBookingModal()
   return (
@@ -98,7 +100,7 @@ function PricesPromoCard({
 
           <button
             type="button"
-            onClick={() => openBooking()}
+            onClick={() => openBooking(bookingPromo ? { promo: bookingPromo } : undefined)}
             className="btn-book-flight w-full px-6 py-3.5 text-[15px] font-semibold min-[990px]:py-4 min-[990px]:text-[17px]"
           >
             Забронировать полет

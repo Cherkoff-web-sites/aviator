@@ -40,6 +40,36 @@ publicRouter.get('/contacts', async (_req, res) => {
   res.json(contact)
 })
 
+publicRouter.post('/feedback', async (req, res) => {
+  try {
+    const body = z
+      .object({
+        name: z.string().trim().min(2).max(60),
+        phone: z.string().trim().min(5).max(30),
+        message: z.string().trim().max(500).optional(),
+      })
+      .parse(req.body)
+    const digits = body.phone.replace(/\D/g, '')
+    if (digits.length < 9 || digits.length > 15) {
+      res.status(400).json({ error: 'Некорректный телефон' })
+      return
+    }
+    const contact = await prisma.settingContact.findFirst()
+    const to = contact?.email
+    if (to) {
+      const { sendEmail } = await import('../lib/mailer.js')
+      await sendEmail(
+        to,
+        `Обратная связь: ${body.name}`,
+        `Имя: ${body.name}\nТелефон: ${body.phone}\nСообщение: ${body.message || '— (перезвон)'}`,
+      ).catch(() => undefined)
+    }
+    res.status(201).json({ ok: true })
+  } catch (e) {
+    res.status(400).json({ error: String(e) })
+  }
+})
+
 publicRouter.get('/gallery/:serviceSlug', async (req, res) => {
   const photos = await prisma.galleryPhoto.findMany({
     where: { serviceSlug: req.params.serviceSlug },
@@ -59,6 +89,7 @@ const bookingSchema = z.object({
   paymentMethod: z.enum(['OFFLINE', 'ONLINE']).default('OFFLINE'),
   comment: z.string().optional(),
   isBirthdayPromo: z.boolean().optional(),
+  isHappyHoursPromo: z.boolean().optional(),
   birthdayDate: z.string().optional(),
   certificateNumber: z.string().optional(),
 })

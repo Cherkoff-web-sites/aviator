@@ -98,6 +98,8 @@ apiRouter.get('/public/certificates/validate', (req, res) => {
     simulatorSlug: cert.simulatorSlug,
     durationMin: cert.durationMin,
     number: cert.number,
+    validFrom: cert.validFrom,
+    validTo: cert.validTo,
   })
 })
 
@@ -117,6 +119,30 @@ apiRouter.get('/public/contacts', (_req, res) => {
   res.json(readStore().contacts)
 })
 
+apiRouter.post('/public/feedback', async (req, res) => {
+  const name = String(req.body?.name ?? '').trim()
+  const phone = String(req.body?.phone ?? '').trim()
+  const message = String(req.body?.message ?? '').trim().slice(0, 500)
+  const digits = phone.replace(/\D/g, '')
+  if (name.length < 2 || digits.length < 9 || digits.length > 15) {
+    res.status(400).json({ error: 'Укажите корректные имя и телефон' })
+    return
+  }
+  const entry = {
+    id: newId(),
+    name,
+    phone,
+    message,
+    createdAt: new Date().toISOString(),
+  }
+  await updateStore((s) => {
+    if (!Array.isArray(s.feedbackRequests)) s.feedbackRequests = []
+    s.feedbackRequests.unshift(entry)
+  })
+  emitAdmin('feedback:created', entry)
+  res.status(201).json({ ok: true, id: entry.id })
+})
+
 apiRouter.post('/public/bookings', async (req, res) => {
   const body = req.body
   if (body.simulatorSlug === 'mi-2' && Number(body.durationMin) > 60) {
@@ -128,10 +154,18 @@ apiRouter.post('/public/bookings', async (req, res) => {
   const endTime = addMinutesToTime(body.startTime, body.durationMin)
   const notes: string[] = []
   if (body.isBirthdayPromo) notes.push('ДР-15%')
+  if (body.isHappyHoursPromo) notes.push('Счастливые часы -10%')
   if (body.certificateNumber) {
     notes.push(`EB-${String(body.simulatorSlug).toUpperCase()}-${body.certificateNumber}`)
   }
   const promoNote = notes.length ? notes.join(', ') : undefined
+
+  let comment = String(body.comment ?? '')
+  if (body.isHappyHoursPromo && !comment.includes('«Счастливые часы»')) {
+    comment = comment.trim()
+      ? `«Счастливые часы». ${comment.trim()}`
+      : '«Счастливые часы»'
+  }
 
   const booking: Booking = {
     id: newId(),
@@ -146,7 +180,7 @@ apiRouter.post('/public/bookings', async (req, res) => {
     status: 'PENDING_CONFIRMATION',
     paid: false,
     paymentMethod: body.paymentMethod ?? 'OFFLINE',
-    comment: body.comment ?? '',
+    comment,
     isBirthdayPromo: !!body.isBirthdayPromo,
     birthdayDate: body.birthdayDate,
     certificateNumber: body.certificateNumber,

@@ -10,10 +10,33 @@ import type { BookingOpenPayload, BookingSimulatorSlug } from '../../contexts/Bo
 import { useBookingModal } from '../../contexts/BookingModalContext'
 import { apiFetch, type ApiPriceRow } from '../../lib/api'
 import {
+  clearBookingDraft,
+  loadBookingDraft,
+  saveBookingDraft,
+} from '../../lib/modalDrafts'
+import {
+  sanitizeCertificateNumberInput,
+  sanitizeEmailInput,
+  sanitizeNoteInput,
+  sanitizeOtpDigitInput,
+  sanitizePersonNameInput,
+  sanitizePhoneInput,
+  isCertificateNumberInputValid,
+} from '../../lib/fieldInput'
+import {
   computeBookingPriceByn,
+  findFirstBookableDate,
   getBaseFlightPrice,
   isBookingDateDisabled,
+  isBirthdayInputValid,
+  isEmailValid,
+  isHappyHourTime,
+  isPersonNameValid,
+  isPhoneValid,
+  isTimeSlotPast,
+  parseBirthdayDdMm,
   type CalendarStatus,
+  type CertValidity,
 } from '../../lib/pricing'
 import { BOOKING_TIME_SLOTS, type BookingTimeSlot } from './bookingTimeSlots'
 import {
@@ -122,6 +145,63 @@ function labelClass() {
   return 'mb-1.5 block text-[13px] font-semibold text-[#002D62] min-[990px]:text-[14px]'
 }
 
+function CalendarFieldIcon() {
+  return (
+    <svg
+      className="h-5 w-5 shrink-0 text-[#002D62]"
+      viewBox="0 0 24 24"
+      fill="none"
+      aria-hidden
+    >
+      <rect x="3" y="5" width="18" height="16" rx="2" stroke="currentColor" strokeWidth="1.75" />
+      <path
+        d="M3 10h18M8 3v4M16 3v4"
+        stroke="currentColor"
+        strokeWidth="1.75"
+        strokeLinecap="round"
+      />
+    </svg>
+  )
+}
+
+function calendarFieldShellClass(invalid = false) {
+  return [
+    'flex w-full items-center justify-between gap-2 rounded-lg border bg-[#f0f1f3] px-3 py-2.5 text-left min-[990px]:px-4 min-[990px]:py-3',
+    invalid ? 'border-red-500' : 'border-[#d1d5db]',
+  ].join(' ')
+}
+
+function SwitchReveal({ open, children }: { open: boolean; children: React.ReactNode }) {
+  return (
+    <div
+      className={[
+        'grid transition-[grid-template-rows,opacity] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]',
+        open ? 'grid-rows-[1fr] opacity-100' : 'pointer-events-none grid-rows-[0fr] opacity-0',
+      ].join(' ')}
+      aria-hidden={!open}
+    >
+      <div className="min-h-0 overflow-hidden">
+        <div
+          className={[
+            'flex flex-col gap-2 transition-transform duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]',
+            open ? 'translate-y-0' : '-translate-y-1',
+          ].join(' ')}
+        >
+          {children}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function PromoTip({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="rounded-lg bg-[#eceef2] px-3 py-2.5 text-[13px] font-medium leading-relaxed text-[#5a6578] min-[990px]:px-4 min-[990px]:py-3 min-[990px]:text-[14px]">
+      {children}
+    </div>
+  )
+}
+
 function applyOpenPayload(
   payload: BookingOpenPayload | null,
 ): {
@@ -145,66 +225,165 @@ type WizardStep = 'form' | 'otp' | 'success'
 
 const OTP_EMPTY = () => ['', '', '', '', '', '']
 
+/** Нестираемая метка акции для менеджеров в примечании. */
+const HAPPY_HOURS_NOTE_TAG = '«Счастливые часы»'
+
+function composeBookingComment(userNote: string, happyHoursOnly: boolean) {
+  const user = userNote.trim()
+  if (!happyHoursOnly) return user
+  return user ? `${HAPPY_HOURS_NOTE_TAG}. ${user}` : HAPPY_HOURS_NOTE_TAG
+}
+
+function parseDraftDate(value: string | null | undefined): Date | null {
+  if (!value) return null
+  const d = new Date(value)
+  return Number.isNaN(d.getTime()) ? null : d
+}
+
 function BookingModal() {
   const { isOpen, closeBooking, payload } = useBookingModal()
+  const draftRef = useRef(loadBookingDraft())
+  const draft = draftRef.current
+
   const [dateTimeOpen, setDateTimeOpen] = useState(false)
+  const [birthdayPickerOpen, setBirthdayPickerOpen] = useState(false)
+  const [birthdayPickerDate, setBirthdayPickerDate] = useState<Date>(() => startOfToday())
   const [wizardStep, setWizardStep] = useState<WizardStep>('form')
   const [otpDigits, setOtpDigits] = useState<string[]>(() => OTP_EMPTY())
   const [resendSec, setResendSec] = useState(60)
   const [bookingId, setBookingId] = useState<string | null>(null)
-  const [phone, setPhone] = useState('+375 (12) 1234567')
-  const [email, setEmail] = useState('')
+  const [phone, setPhone] = useState(() => sanitizePhoneInput(draft?.phone ?? ''))
+  const [email, setEmail] = useState(() => sanitizeEmailInput(draft?.email ?? ''))
   const [bookingError, setBookingError] = useState('')
   const otpRefs = useRef<(HTMLInputElement | null)[]>([])
 
-  const [aircraft, setAircraft] = useState<'boeing-737' | 'mi-2'>('boeing-737')
-  const [durationMin, setDurationMin] = useState<FlightDurationMin>(30)
-  const [hasGiftCert, setHasGiftCert] = useState(true)
-  const [giftCertNumber, setGiftCertNumber] = useState('')
-  const [birthdayDiscount, setBirthdayDiscount] = useState(true)
-  const [birthdayDate, setBirthdayDate] = useState('')
-  const [selectedDate, setSelectedDate] = useState<Date>(() => startOfToday())
-  const [selectedTime, setSelectedTime] = useState<BookingTimeSlot>('12:00')
-  const [name, setName] = useState('Иван')
-  const [note, setNote] = useState('')
-  const [payment, setPayment] = useState<'now' | 'visit'>('visit')
-  const [consent, setConsent] = useState(false)
+  const [aircraft, setAircraft] = useState<'boeing-737' | 'mi-2'>(
+    () => draft?.aircraft ?? 'boeing-737',
+  )
+  const [durationMin, setDurationMin] = useState<FlightDurationMin>(
+    () => draft?.durationMin ?? 30,
+  )
+  const [hasGiftCert, setHasGiftCert] = useState(false)
+  const [giftCertNumber, setGiftCertNumber] = useState(() =>
+    sanitizeCertificateNumberInput(draft?.giftCertNumber ?? ''),
+  )
+  const [birthdayDiscount, setBirthdayDiscount] = useState(false)
+  const [birthdayDate, setBirthdayDate] = useState(() => draft?.birthdayDate ?? '')
+  const [happyHoursOnly, setHappyHoursOnly] = useState(false)
+  const [selectedDate, setSelectedDate] = useState<Date | null>(() =>
+    parseDraftDate(draft?.selectedDate),
+  )
+  const [selectedTime, setSelectedTime] = useState<BookingTimeSlot | null>(() => {
+    const t = draft?.selectedTime
+    return t && (BOOKING_TIME_SLOTS as readonly string[]).includes(t) ? t : null
+  })
+  const [name, setName] = useState(() => sanitizePersonNameInput(draft?.name ?? ''))
+  const [note, setNote] = useState(() => sanitizeNoteInput(draft?.note ?? ''))
+  const [payment, setPayment] = useState<'now' | 'visit'>(() => draft?.payment ?? 'visit')
+  const [consent, setConsent] = useState(() => draft?.consent ?? false)
   const [submitted, setSubmitted] = useState(false)
   const [flightPrices, setFlightPrices] = useState<ApiPriceRow[]>([])
   const [calendarMap, setCalendarMap] = useState<Record<string, CalendarStatus>>({})
   const [bookingWindowMonths, setBookingWindowMonths] = useState(3)
   const [certValid, setCertValid] = useState<boolean | null>(null)
+  const [certInfo, setCertInfo] = useState<CertValidity | null>(null)
 
-  useEffect(() => {
-    if (!isOpen) {
-      setDateTimeOpen(false)
-      setWizardStep('form')
-      setOtpDigits(OTP_EMPTY())
-      setResendSec(60)
-      setBookingId(null)
-      setBookingError('')
-      return
-    }
-    const { aircraft: ac, durationMin: d } = applyOpenPayload(payload)
-    setAircraft(ac)
-    setDurationMin(d)
+  const resetDraftFields = useCallback(() => {
+    setAircraft('boeing-737')
+    setDurationMin(30)
     setHasGiftCert(false)
     setGiftCertNumber('')
     setBirthdayDiscount(false)
     setBirthdayDate('')
+    setHappyHoursOnly(false)
     setCertValid(null)
-    setSelectedDate(startOfToday())
-    setSelectedTime('12:00')
-    setName('Иван')
+    setCertInfo(null)
+    setSelectedDate(null)
+    setSelectedTime(null)
+    setName('')
+    setPhone('')
+    setEmail('')
     setNote('')
     setPayment('visit')
     setConsent(false)
     setSubmitted(false)
     setWizardStep('form')
     setDateTimeOpen(false)
+    setBirthdayPickerOpen(false)
     setOtpDigits(OTP_EMPTY())
     setResendSec(60)
+    setBookingId(null)
+    setBookingError('')
+    clearBookingDraft()
+  }, [])
+
+  useEffect(() => {
+    if (!isOpen) {
+      setDateTimeOpen(false)
+      setBirthdayPickerOpen(false)
+      // Лояльности не тащим между открытиями — только явно из promo-контекста
+      setHasGiftCert(false)
+      setBirthdayDiscount(false)
+      setHappyHoursOnly(false)
+      setCertValid(null)
+      setCertInfo(null)
+      return
+    }
+
+    if (payload?.simulatorSlug != null || payload?.durationMin != null) {
+      const { aircraft: ac, durationMin: d } = applyOpenPayload(payload)
+      if (payload.simulatorSlug != null) setAircraft(ac)
+      if (payload.durationMin != null) {
+        setDurationMin(d)
+      } else if (payload.simulatorSlug != null) {
+        setDurationMin((prev) => clampDurationForSimulator(ac, prev))
+      }
+    }
+
+    // Сбрасываем переключатели, затем включаем только если открыли из промо-карточки
+    setHasGiftCert(false)
+    setBirthdayDiscount(false)
+    setHappyHoursOnly(false)
+    setCertValid(null)
+    setCertInfo(null)
+
+    if (payload?.promo === 'birthday') {
+      setBirthdayDiscount(true)
+    } else if (payload?.promo === 'happy-hours') {
+      setHappyHoursOnly(true)
+      setSelectedTime((t) => (t && isHappyHourTime(t) ? t : null))
+    }
   }, [isOpen, payload])
+
+  useEffect(() => {
+    saveBookingDraft({
+      aircraft,
+      durationMin,
+      giftCertNumber,
+      birthdayDate,
+      selectedDate: selectedDate ? selectedDate.toISOString() : null,
+      selectedTime,
+      name,
+      phone,
+      email,
+      note,
+      payment,
+      consent,
+    })
+  }, [
+    aircraft,
+    durationMin,
+    giftCertNumber,
+    birthdayDate,
+    selectedDate,
+    selectedTime,
+    name,
+    phone,
+    email,
+    note,
+    payment,
+    consent,
+  ])
 
   useEffect(() => {
     if (!isOpen) return
@@ -224,17 +403,107 @@ function BookingModal() {
   useEffect(() => {
     if (!hasGiftCert || !giftCertNumber.trim()) {
       setCertValid(null)
+      setCertInfo(null)
       return
     }
     const timer = window.setTimeout(() => {
-      void apiFetch<{ valid: boolean }>(
-        `/api/public/certificates/validate?number=${encodeURIComponent(giftCertNumber.trim())}`,
-      )
-        .then((r) => setCertValid(r.valid))
-        .catch(() => setCertValid(false))
+      void apiFetch<{
+        valid: boolean
+        simulatorSlug?: string
+        durationMin?: number
+        number?: string
+        validFrom?: string
+        validTo?: string
+      }>(`/api/public/certificates/validate?number=${encodeURIComponent(giftCertNumber.trim())}`)
+        .then((r) => {
+          setCertValid(r.valid)
+          if (r.valid && r.validFrom && r.validTo) {
+            setCertInfo({
+              validFrom: r.validFrom,
+              validTo: r.validTo,
+              simulatorSlug: r.simulatorSlug,
+              durationMin: r.durationMin,
+              number: r.number,
+            })
+            if (r.simulatorSlug === 'mi-2' || r.simulatorSlug === 'boeing-737') {
+              setAircraft(r.simulatorSlug)
+            }
+            if (
+              r.durationMin === 30 ||
+              r.durationMin === 60 ||
+              r.durationMin === 90 ||
+              r.durationMin === 120
+            ) {
+              const slug =
+                r.simulatorSlug === 'mi-2' || r.simulatorSlug === 'boeing-737'
+                  ? r.simulatorSlug
+                  : 'boeing-737'
+              setDurationMin(clampDurationForSimulator(slug, r.durationMin))
+            }
+          } else {
+            setCertInfo(null)
+          }
+        })
+        .catch(() => {
+          setCertValid(false)
+          setCertInfo(null)
+        })
     }, 350)
     return () => window.clearTimeout(timer)
   }, [hasGiftCert, giftCertNumber])
+
+  const dateDisableOpts = useMemo(
+    () => ({
+      birthdayDiscount,
+      birthdayDate,
+      bookingWindowMonths,
+      certificate: hasGiftCert && certValid && certInfo ? certInfo : null,
+      requireValidCertificate: hasGiftCert && !(certValid === true && certInfo),
+      timeSlots: BOOKING_TIME_SLOTS,
+      happyHoursOnly,
+    }),
+    [
+      birthdayDiscount,
+      birthdayDate,
+      bookingWindowMonths,
+      hasGiftCert,
+      certValid,
+      certInfo,
+      happyHoursOnly,
+    ],
+  )
+
+  useEffect(() => {
+    if (!selectedDate) return
+    if (!isBookingDateDisabled(selectedDate, calendarMap, dateDisableOpts)) {
+      return
+    }
+    const next = findFirstBookableDate(calendarMap, dateDisableOpts)
+    setSelectedDate(next)
+    if (!next) setSelectedTime(null)
+  }, [calendarMap, dateDisableOpts, selectedDate])
+
+  const availableTimeSlots = useMemo(() => {
+    let slots: BookingTimeSlot[] = [...BOOKING_TIME_SLOTS]
+    if (happyHoursOnly) {
+      slots = slots.filter((t) => isHappyHourTime(t))
+    }
+    if (selectedDate) {
+      slots = slots.filter((t) => !isTimeSlotPast(selectedDate, t))
+    }
+    return slots
+  }, [selectedDate, happyHoursOnly])
+
+  useEffect(() => {
+    if (selectedTime === null) return
+    if (availableTimeSlots.length === 0) {
+      setSelectedTime(null)
+      return
+    }
+    if (!availableTimeSlots.includes(selectedTime)) {
+      setSelectedTime(null)
+    }
+  }, [availableTimeSlots, selectedTime])
 
   useEffect(() => {
     if (wizardStep !== 'otp') return
@@ -264,9 +533,9 @@ function BookingModal() {
     return () => window.cancelAnimationFrame(id)
   }, [wizardStep])
 
-
   const priceByn = useMemo(() => {
     const base = getBaseFlightPrice(flightPrices, aircraft, durationMin)
+    if (!selectedDate || !selectedTime) return base
     const dateKey = format(selectedDate, 'yyyy-MM-dd')
     return computeBookingPriceByn({
       base,
@@ -287,20 +556,30 @@ function BookingModal() {
     calendarMap,
   ])
 
-  const dateTimeLabel = useMemo(
-    () => formatSlotDisplay(selectedDate, selectedTime),
-    [selectedDate, selectedTime],
-  )
+  const dateTimeLabel = useMemo(() => {
+    if (!selectedDate || !selectedTime) return ''
+    return formatSlotDisplay(selectedDate, selectedTime)
+  }, [selectedDate, selectedTime])
 
   const fieldErrors = useMemo(() => {
-    const emailOk = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())
+    const dateTimeInvalid =
+      !selectedDate ||
+      !selectedTime ||
+      isBookingDateDisabled(selectedDate, calendarMap, dateDisableOpts) ||
+      isTimeSlotPast(selectedDate, selectedTime) ||
+      (happyHoursOnly && !isHappyHourTime(selectedTime))
     return {
-      name: !name.trim(),
-      phone: !phone.trim(),
-      email: !email.trim() || !emailOk,
-      giftCert: hasGiftCert && (!giftCertNumber.trim() || certValid !== true),
-      birthday: birthdayDiscount && !birthdayDate.trim(),
+      name: !isPersonNameValid(name),
+      phone: !isPhoneValid(phone),
+      email: !isEmailValid(email),
+      giftCert:
+        hasGiftCert &&
+        (!giftCertNumber.trim() ||
+          !isCertificateNumberInputValid(giftCertNumber) ||
+          certValid !== true),
+      birthday: birthdayDiscount && !isBirthdayInputValid(birthdayDate),
       consent: !consent,
+      dateTime: dateTimeInvalid,
     }
   }, [
     name,
@@ -312,31 +591,112 @@ function BookingModal() {
     birthdayDiscount,
     birthdayDate,
     consent,
+    selectedDate,
+    selectedTime,
+    calendarMap,
+    dateDisableOpts,
+    happyHoursOnly,
   ])
 
   const onDialogOpenChange = useCallback(
     (open: boolean) => {
-      if (!open) closeBooking()
+      if (!open) {
+        setDateTimeOpen(false)
+        setBirthdayPickerOpen(false)
+        if (wizardStep === 'success') {
+          resetDraftFields()
+        } else if (wizardStep === 'otp') {
+          setWizardStep('form')
+          setOtpDigits(OTP_EMPTY())
+          setBookingId(null)
+          setBookingError('')
+          setResendSec(60)
+        }
+        closeBooking()
+      }
     },
-    [closeBooking],
+    [closeBooking, resetDraftFields, wizardStep],
   )
 
   const confirmDateTime = useCallback(() => {
     setDateTimeOpen(false)
   }, [])
 
+  const openBirthdayPicker = useCallback(() => {
+    const parsed = parseBirthdayDdMm(birthdayDate, new Date().getFullYear())
+    setBirthdayPickerDate(parsed ?? startOfToday())
+    setDateTimeOpen(false)
+    setBirthdayPickerOpen(true)
+  }, [birthdayDate])
+
+  const confirmBirthdayDate = useCallback(() => {
+    setBirthdayDate(format(birthdayPickerDate, 'dd.MM'))
+    setBirthdayPickerOpen(false)
+  }, [birthdayPickerDate])
+
+  const dayPickerClassNames = {
+    [UI.Root]: 'w-full',
+    [UI.Months]: 'flex w-full flex-col gap-2',
+    [UI.Month]: 'w-full',
+    [UI.MonthGrid]: 'w-full table-fixed border-separate border-spacing-1',
+    [UI.MonthCaption]: 'flex items-center justify-between px-1 py-2',
+    [UI.CaptionLabel]: 'text-[15px] font-bold capitalize text-[#002D62] min-[990px]:text-[16px]',
+    [UI.Nav]: 'flex items-center gap-1',
+    [UI.PreviousMonthButton]:
+      'inline-flex h-8 w-8 items-center justify-center rounded-lg border border-[#d1d5db] text-[#002D62] hover:bg-[#f0f1f3]',
+    [UI.NextMonthButton]:
+      'inline-flex h-8 w-8 items-center justify-center rounded-lg border border-[#d1d5db] text-[#002D62] hover:bg-[#f0f1f3]',
+    [UI.Weekdays]: 'w-full',
+    [UI.Weekday]:
+      'px-0 py-1.5 text-center text-[10px] font-semibold uppercase leading-tight text-[#002D62] min-[400px]:py-2 min-[400px]:text-[11px]',
+    [UI.Week]: '',
+    [UI.Day]: 'p-0.5 text-center align-middle',
+    [UI.DayButton]:
+      'mx-auto flex h-10 w-10 items-center justify-center rounded-lg text-[13px] font-medium text-[#002D62] hover:bg-[#e8f2ff] data-[selected-single=true]:rounded-lg data-[selected-single=true]:bg-[#0075FF] data-[selected-single=true]:text-white min-[400px]:h-11 min-[400px]:w-11 min-[400px]:text-[14px] disabled:text-[#9ca3af] disabled:opacity-60',
+  } as const
+
+  const scrollRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!isOpen) return
+    scrollRef.current?.scrollTo({ top: 0 })
+  }, [isOpen, dateTimeOpen, birthdayPickerOpen, wizardStep])
+
   return (
     <Dialog.Root open={isOpen} onOpenChange={onDialogOpenChange}>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-[100] bg-black/45" />
+        {/*
+          Скролл именно на Dialog.Content: иначе react-remove-scroll (Radix)
+          блокирует wheel/touch на внешнем wrapper — скролл «то работает, то нет».
+          my-auto центрирует короткую карточку и не обрезает верх у высокой.
+        */}
         <Dialog.Content
-          className="fixed left-1/2 top-1/2 z-[101] flex max-h-[90vh] w-[min(calc(100vw-20px),960px)] max-w-[960px] -translate-x-1/2 -translate-y-1/2 flex-col rounded-2xl bg-white p-4 shadow-[0_24px_80px_rgba(0,45,98,0.22)] focus:outline-none min-[480px]:p-5 min-[990px]:rounded-[24px] min-[990px]:p-8"
+          ref={scrollRef}
+          className="fixed inset-0 z-[101] overflow-y-auto overscroll-contain bg-transparent p-0 shadow-none outline-none focus:outline-none"
           onOpenAutoFocus={(e) => {
-            if (wizardStep === 'form' && dateTimeOpen) e.preventDefault()
+            if (wizardStep === 'form' && (dateTimeOpen || birthdayPickerOpen)) e.preventDefault()
+          }}
+          onPointerDownOutside={(e) => {
+            // Content на весь экран — «снаружи» почти нет; закрытие через backdrop ниже
+            e.preventDefault()
+          }}
+          onInteractOutside={(e) => {
+            e.preventDefault()
           }}
         >
-          <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
-            <div className="mb-4 flex shrink-0 items-start justify-between gap-3">
+          <div
+            className="flex min-h-full justify-center px-[10px] py-6 min-[480px]:py-8 min-[990px]:py-10"
+            onPointerDown={(e) => {
+              if (e.target === e.currentTarget) onDialogOpenChange(false)
+            }}
+          >
+            <div
+              className="relative my-auto w-[min(calc(100vw-20px),960px)] max-w-[960px] rounded-2xl bg-white p-4 shadow-[0_24px_80px_rgba(0,45,98,0.22)] min-[480px]:p-5 min-[990px]:rounded-[24px] min-[990px]:p-8"
+              onPointerDown={(e) => e.stopPropagation()}
+            >
+          <div className="relative">
+            <div className="mb-4 flex items-start justify-between gap-3">
               {wizardStep === 'form' ? (
                 <Dialog.Title className="flex-1 pr-10 text-center text-[20px] font-bold leading-tight text-[#002D62] min-[990px]:text-[22px]">
                   Бронирование полета
@@ -387,7 +747,7 @@ function BookingModal() {
                       maxLength={1}
                       value={digit}
                       onChange={(e) => {
-                        const v = e.target.value.replace(/\D/g, '').slice(-1)
+                        const v = sanitizeOtpDigitInput(e.target.value)
                         setOtpDigits((prev) => {
                           const next = [...prev]
                           next[i] = v
@@ -440,8 +800,50 @@ function BookingModal() {
                   )}
                 </p>
               </div>
+            ) : birthdayPickerOpen ? (
+              <div className="flex flex-col">
+                <button
+                  type="button"
+                  onClick={() => setBirthdayPickerOpen(false)}
+                  className="mb-3 self-start text-[14px] font-semibold text-[#0075FF] underline-offset-2 hover:underline min-[990px]:text-[15px]"
+                >
+                  ← Назад к форме
+                </button>
+                <div className="min-w-0">
+                  <p className="mb-2 text-[14px] font-semibold text-[#002D62] min-[990px]:text-[15px]">
+                    Дата дня рождения
+                  </p>
+                  <DayPicker
+                    mode="single"
+                    required
+                    selected={birthdayPickerDate}
+                    onSelect={(d) => {
+                      if (d) setBirthdayPickerDate(d)
+                    }}
+                    locale={ruRdp}
+                    showOutsideDays={false}
+                    className="booking-rdp w-full max-w-none [--rdp-accent-color:#0075FF] [--rdp-background-color:#fff]"
+                    classNames={dayPickerClassNames}
+                  />
+                </div>
+
+                <div className="mt-4 border-t border-dotted border-[#0075FF] pt-4 min-[990px]:mt-5 min-[990px]:pt-5">
+                  <div className="flex flex-col gap-3 min-[990px]:flex-row min-[990px]:items-center min-[990px]:justify-between">
+                    <p className="text-[14px] font-semibold text-[#002D62] min-[990px]:text-[15px]">
+                      {capitalizeRu(format(birthdayPickerDate, 'd MMMM', { locale: ru }))}
+                    </p>
+                    <button
+                      type="button"
+                      onClick={confirmBirthdayDate}
+                      className="w-full rounded-xl bg-[linear-gradient(180deg,#4da3ff_0%,#0075ff_48%,#0050b3_100%)] px-8 py-2.5 text-[15px] font-semibold text-white shadow-[0_6px_20px_rgba(0,117,255,0.35)] min-[990px]:w-auto min-[990px]:py-3"
+                    >
+                      Продолжить
+                    </button>
+                  </div>
+                </div>
+              </div>
             ) : !dateTimeOpen ? (
-              <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain pr-1">
+              <div>
                 <div className="flex flex-col gap-5 min-[990px]:gap-6">
                   <div className="grid grid-cols-1 gap-2 min-[520px]:grid-cols-2 min-[520px]:gap-3">
                     <Pill
@@ -491,105 +893,181 @@ function BookingModal() {
                   </div>
 
                   <div className="grid grid-cols-1 gap-4 min-[700px]:grid-cols-2 min-[700px]:items-start min-[700px]:gap-6">
-                    <div className="min-w-0">
-                      <span className={labelClass()}>Дата и время бронирования</span>
-                      <button
-                        type="button"
-                        onClick={() => setDateTimeOpen(true)}
-                        className="flex w-full items-center justify-between gap-2 rounded-lg border border-[#d1d5db] bg-[#f0f1f3] px-3 py-2.5 text-left min-[990px]:px-4 min-[990px]:py-3"
-                      >
-                        <span className="text-[14px] font-medium text-[#002D62] min-[990px]:text-[15px]">
-                          {dateTimeLabel}
-                        </span>
-                        <svg
-                          className="h-5 w-5 shrink-0 text-[#002D62]"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          aria-hidden
-                        >
-                          <rect
-                            x="3"
-                            y="5"
-                            width="18"
-                            height="16"
-                            rx="2"
-                            stroke="currentColor"
-                            strokeWidth="1.75"
-                          />
-                          <path
-                            d="M3 10h18M8 3v4M16 3v4"
-                            stroke="currentColor"
-                            strokeWidth="1.75"
-                            strokeLinecap="round"
-                          />
-                        </svg>
-                      </button>
+                    <div className="flex min-w-0 flex-col gap-3">
+                      <SwitchRow
+                        label="Есть подарочный сертификат"
+                        checked={hasGiftCert}
+                        onChange={(v) => {
+                          setHasGiftCert(v)
+                          if (v) {
+                            setBirthdayDiscount(false)
+                            setHappyHoursOnly(false)
+                            setDateTimeOpen(false)
+                            setBirthdayPickerOpen(false)
+                          } else {
+                            setCertValid(null)
+                            setCertInfo(null)
+                          }
+                        }}
+                      />
+                      <SwitchRow
+                        label="Хочу скидку в день рождения"
+                        checked={birthdayDiscount}
+                        onChange={(v) => {
+                          setBirthdayDiscount(v)
+                          if (v) {
+                            setHasGiftCert(false)
+                            setCertValid(null)
+                            setCertInfo(null)
+                            setHappyHoursOnly(false)
+                            setDateTimeOpen(false)
+                          } else {
+                            setBirthdayPickerOpen(false)
+                          }
+                        }}
+                      />
                     </div>
 
-                    <div className="flex min-w-0 flex-col gap-3">
-                      <div className="flex flex-col gap-2">
-                        <SwitchRow
-                          label="Есть подарочный сертификат"
-                          checked={hasGiftCert}
-                          onChange={setHasGiftCert}
-                        />
-                        {hasGiftCert ? (
-                          <input
-                            className={inputClass(submitted && fieldErrors.giftCert)}
-                            placeholder="Введите номер вашего сертификата"
-                            value={giftCertNumber}
-                            onChange={(e) => setGiftCertNumber(e.target.value)}
-                          />
-                        ) : null}
-                      </div>
-                      <div className="flex flex-col gap-2">
-                        <SwitchRow
-                          label="Хочу скидку в день рождения"
-                          checked={birthdayDiscount}
-                          onChange={setBirthdayDiscount}
-                        />
-                        {birthdayDiscount ? (
-                          <input
-                            className={inputClass(submitted && fieldErrors.birthday)}
-                            placeholder="Введите дату вашего дня рождения 12.02"
-                            value={birthdayDate}
-                            onChange={(e) => setBirthdayDate(e.target.value)}
-                          />
-                        ) : null}
-                      </div>
-                      {hasGiftCert || birthdayDiscount ? (
-                        <div className="rounded-lg bg-[#eceef2] px-3 py-2.5 text-[13px] font-medium leading-relaxed text-[#5a6578] min-[990px]:px-4 min-[990px]:py-3 min-[990px]:text-[14px]">
-                          {birthdayDiscount ? (
+                    <div className="flex min-w-0 flex-col">
+                      <SwitchReveal open={!hasGiftCert && !birthdayDiscount}>
+                        <span className={labelClass()}>Дата и время бронирования</span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setBirthdayPickerOpen(false)
+                            setDateTimeOpen(true)
+                          }}
+                          className={calendarFieldShellClass(submitted && fieldErrors.dateTime)}
+                          tabIndex={!hasGiftCert && !birthdayDiscount ? undefined : -1}
+                        >
+                          <span
+                            className={[
+                              'text-[14px] font-medium min-[990px]:text-[15px]',
+                              dateTimeLabel ? 'text-[#002D62]' : 'text-[#8b95a8]',
+                            ].join(' ')}
+                          >
+                            {dateTimeLabel || 'Выберите дату и время'}
+                          </span>
+                          <CalendarFieldIcon />
+                        </button>
+                        <SwitchReveal open={happyHoursOnly}>
+                          <PromoTip>
                             <p className="mb-0">
-                              Скидка в день рождения действует ±3 дня от даты; необходим документ.
+                              Счастливые часы: доступны только будни и слоты с 12:00 до 15:00 — другие
+                              даты и время выбрать нельзя.
+                            </p>
+                          </PromoTip>
+                        </SwitchReveal>
+                      </SwitchReveal>
+
+                      <SwitchReveal open={hasGiftCert}>
+                        <span className={labelClass()}>Номер подарочного сертификата</span>
+                        <input
+                          className={inputClass(submitted && fieldErrors.giftCert)}
+                          placeholder="Введите номер вашего сертификата"
+                          value={giftCertNumber}
+                          onChange={(e) =>
+                            setGiftCertNumber(sanitizeCertificateNumberInput(e.target.value))
+                          }
+                          inputMode="text"
+                          autoComplete="off"
+                          spellCheck={false}
+                          tabIndex={hasGiftCert ? undefined : -1}
+                        />
+                        <PromoTip>
+                          <p className="mb-0">
+                            Дата полёта выбирается только после проверки сертификата и только в
+                            пределах срока его действия — свободный выбор даты недоступен.
+                          </p>
+                          {giftCertNumber.trim() ? (
+                            <p
+                              className={`mb-0 mt-2 text-sm font-medium ${
+                                certValid
+                                  ? 'text-green-700'
+                                  : certValid === false
+                                    ? 'text-red-600'
+                                    : 'text-[#5a6578]'
+                              }`}
+                            >
+                              {certValid === null
+                                ? 'Проверяем сертификат…'
+                                : certValid && certInfo
+                                  ? `Сертификат найден · ${certInfo.validFrom} — ${certInfo.validTo}`
+                                  : 'Сертификат не найден или недействителен'}
                             </p>
                           ) : null}
-                          {hasGiftCert ? (
-                            <>
-                              <p className={birthdayDiscount ? 'mb-0 mt-2' : 'mb-0'}>
-                                Номер проверяется автоматически при оформлении.
-                              </p>
-                              {giftCertNumber.trim() ? (
-                                <p
-                                  className={`mb-0 mt-2 text-sm font-medium ${
-                                    certValid
-                                      ? 'text-green-700'
-                                      : certValid === false
-                                        ? 'text-red-600'
-                                        : 'text-[#5a6578]'
-                                  }`}
-                                >
-                                  {certValid === null
-                                    ? 'Проверяем сертификат…'
-                                    : certValid
-                                      ? 'Сертификат найден'
-                                      : 'Сертификат не найден или недействителен'}
-                                </p>
-                              ) : null}
-                            </>
-                          ) : null}
-                        </div>
-                      ) : null}
+                        </PromoTip>
+                        <SwitchReveal open={Boolean(certValid && certInfo)}>
+                          <span className={labelClass()}>Дата и время бронирования</span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setBirthdayPickerOpen(false)
+                              setDateTimeOpen(true)
+                            }}
+                            className={calendarFieldShellClass(submitted && fieldErrors.dateTime)}
+                            tabIndex={certValid && certInfo ? undefined : -1}
+                          >
+                            <span
+                              className={[
+                                'text-[14px] font-medium min-[990px]:text-[15px]',
+                                dateTimeLabel ? 'text-[#002D62]' : 'text-[#8b95a8]',
+                              ].join(' ')}
+                            >
+                              {dateTimeLabel || 'Выберите дату и время'}
+                            </span>
+                            <CalendarFieldIcon />
+                          </button>
+                        </SwitchReveal>
+                      </SwitchReveal>
+
+                      <SwitchReveal open={birthdayDiscount}>
+                        <span className={labelClass()}>Дата дня рождения</span>
+                        <button
+                          type="button"
+                          onClick={openBirthdayPicker}
+                          className={calendarFieldShellClass(submitted && fieldErrors.birthday)}
+                          tabIndex={birthdayDiscount ? undefined : -1}
+                        >
+                          <span
+                            className={[
+                              'text-[14px] font-medium min-[990px]:text-[15px]',
+                              birthdayDate ? 'text-[#002D62]' : 'text-[#8b95a8]',
+                            ].join(' ')}
+                          >
+                            {birthdayDate || 'Выберите дату дня рождения'}
+                          </span>
+                          <CalendarFieldIcon />
+                        </button>
+                        <PromoTip>
+                          <p className="mb-0">
+                            Сначала укажите день рождения. Дату полёта можно выбрать только в окне
+                            ±3 дня от этой даты — поэтому обычный выбор даты скрыт. Нужен документ.
+                          </p>
+                        </PromoTip>
+                        <SwitchReveal open={isBirthdayInputValid(birthdayDate)}>
+                          <span className={labelClass()}>Дата и время бронирования</span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setBirthdayPickerOpen(false)
+                              setDateTimeOpen(true)
+                            }}
+                            className={calendarFieldShellClass(submitted && fieldErrors.dateTime)}
+                            tabIndex={isBirthdayInputValid(birthdayDate) ? undefined : -1}
+                          >
+                            <span
+                              className={[
+                                'text-[14px] font-medium min-[990px]:text-[15px]',
+                                dateTimeLabel ? 'text-[#002D62]' : 'text-[#8b95a8]',
+                              ].join(' ')}
+                            >
+                              {dateTimeLabel || 'Выберите дату и время'}
+                            </span>
+                            <CalendarFieldIcon />
+                          </button>
+                        </SwitchReveal>
+                      </SwitchReveal>
                     </div>
                   </div>
 
@@ -602,7 +1080,10 @@ function BookingModal() {
                         id="booking-name"
                         className={inputClass(submitted && fieldErrors.name)}
                         value={name}
-                        onChange={(e) => setName(e.target.value)}
+                        onChange={(e) => setName(sanitizePersonNameInput(e.target.value))}
+                        placeholder="Иван"
+                        autoComplete="given-name"
+                        inputMode="text"
                       />
                     </div>
 
@@ -612,9 +1093,13 @@ function BookingModal() {
                       </label>
                       <input
                         id="booking-phone"
+                        type="tel"
                         className={inputClass(submitted && fieldErrors.phone)}
                         value={phone}
-                        onChange={(e) => setPhone(e.target.value)}
+                        onChange={(e) => setPhone(sanitizePhoneInput(e.target.value))}
+                        placeholder="+375 29 123-45-67"
+                        autoComplete="tel"
+                        inputMode="tel"
                       />
                     </div>
                   </div>
@@ -623,13 +1108,38 @@ function BookingModal() {
                     <label className={labelClass()} htmlFor="booking-note">
                       Примечание
                     </label>
-                    <input
-                      id="booking-note"
-                      className={inputClass()}
-                      placeholder="Есть какая то просьба?"
-                      value={note}
-                      onChange={(e) => setNote(e.target.value)}
-                    />
+                    {happyHoursOnly ? (
+                      <div
+                        className={[
+                          'flex w-full flex-wrap items-center gap-2 rounded-lg border border-[#d1d5db] bg-[#f0f1f3] px-3 py-2.5',
+                          'min-[990px]:px-4 min-[990px]:py-3',
+                        ].join(' ')}
+                      >
+                        <span
+                          className="inline-flex shrink-0 select-none items-center rounded-md bg-[#e8f2ff] px-2 py-1 text-[13px] font-semibold text-[#0075FF] min-[990px]:text-[14px]"
+                          title="Метка акции — нельзя удалить"
+                        >
+                          {HAPPY_HOURS_NOTE_TAG}
+                        </span>
+                        <input
+                          id="booking-note"
+                          className="min-w-0 flex-1 border-0 bg-transparent p-0 text-[14px] font-medium text-[#002D62] outline-none placeholder:text-[#8b95a8] min-[990px]:text-[15px]"
+                          placeholder="Есть какая то просьба?"
+                          value={note}
+                          onChange={(e) => setNote(sanitizeNoteInput(e.target.value))}
+                          maxLength={500 - HAPPY_HOURS_NOTE_TAG.length - 2}
+                        />
+                      </div>
+                    ) : (
+                      <input
+                        id="booking-note"
+                        className={inputClass()}
+                        placeholder="Есть какая то просьба?"
+                        value={note}
+                        onChange={(e) => setNote(sanitizeNoteInput(e.target.value))}
+                        maxLength={500}
+                      />
+                    )}
                   </div>
 
                   <div className="grid grid-cols-1 gap-4 min-[700px]:grid-cols-2 min-[700px]:gap-6">
@@ -642,8 +1152,11 @@ function BookingModal() {
                         type="email"
                         className={inputClass(submitted && fieldErrors.email)}
                         value={email}
-                        onChange={(e) => setEmail(e.target.value)}
+                        onChange={(e) => setEmail(sanitizeEmailInput(e.target.value))}
                         placeholder="для кода подтверждения"
+                        autoComplete="email"
+                        inputMode="email"
+                        spellCheck={false}
                       />
                     </div>
 
@@ -690,7 +1203,10 @@ function BookingModal() {
                           fieldErrors.email ||
                           fieldErrors.giftCert ||
                           fieldErrors.birthday ||
-                          fieldErrors.consent
+                          fieldErrors.consent ||
+                          fieldErrors.dateTime ||
+                          !selectedDate ||
+                          !selectedTime
                         ) {
                           setBookingError('Заполните все обязательные поля корректно')
                           return
@@ -710,8 +1226,9 @@ function BookingModal() {
                                   phone,
                                   email,
                                   paymentMethod: payment === 'now' ? 'ONLINE' : 'OFFLINE',
-                                  comment: note,
+                                  comment: composeBookingComment(note, happyHoursOnly),
                                   isBirthdayPromo: birthdayDiscount,
+                                  isHappyHoursPromo: happyHoursOnly,
                                   birthdayDate: birthdayDate || undefined,
                                   certificateNumber: hasGiftCert ? giftCertNumber : undefined,
                                 }),
@@ -763,7 +1280,7 @@ function BookingModal() {
                 </div>
               </div>
             ) : (
-              <div className="flex min-h-0 flex-1 flex-col">
+              <div className="flex flex-col">
                 <button
                   type="button"
                   onClick={() => setDateTimeOpen(false)}
@@ -771,78 +1288,73 @@ function BookingModal() {
                 >
                   ← Назад к форме
                 </button>
-                <div className="grid min-h-0 flex-1 grid-cols-1 gap-5 md:grid-cols-2 md:gap-6">
-                  <div className="min-h-0 min-w-0 md:border-r md:border-[#e5e7eb] md:pr-6">
+                <div className="grid grid-cols-1 gap-5 md:grid-cols-2 md:gap-6">
+                  <div className="min-w-0 md:border-r md:border-[#e5e7eb] md:pr-6">
                     <DayPicker
                       mode="single"
-                      required
-                      selected={selectedDate}
+                      selected={selectedDate ?? undefined}
+                      defaultMonth={selectedDate ?? startOfToday()}
                       onSelect={(d) => {
-                        if (d) setSelectedDate(d)
+                        setSelectedDate(d ?? null)
+                        if (!d) setSelectedTime(null)
                       }}
                       locale={ruRdp}
                       disabled={(date) =>
-                        isBookingDateDisabled(date, calendarMap, {
-                          birthdayDiscount,
-                          birthdayDate,
-                          bookingWindowMonths,
-                        })
+                        isBookingDateDisabled(date, calendarMap, dateDisableOpts)
                       }
                       showOutsideDays={false}
                       className="booking-rdp w-full max-w-none [--rdp-accent-color:#0075FF] [--rdp-background-color:#fff]"
-                      classNames={{
-                        [UI.Root]: 'w-full',
-                        [UI.Months]: 'flex w-full flex-col gap-2',
-                        [UI.Month]: 'w-full',
-                        [UI.MonthGrid]: 'w-full table-fixed border-separate border-spacing-1',
-                        [UI.MonthCaption]: 'flex items-center justify-between px-1 py-2',
-                        [UI.CaptionLabel]: 'text-[15px] font-bold capitalize text-[#002D62] min-[990px]:text-[16px]',
-                        [UI.Nav]: 'flex items-center gap-1',
-                        [UI.PreviousMonthButton]:
-                          'inline-flex h-8 w-8 items-center justify-center rounded-lg border border-[#d1d5db] text-[#002D62] hover:bg-[#f0f1f3]',
-                        [UI.NextMonthButton]:
-                          'inline-flex h-8 w-8 items-center justify-center rounded-lg border border-[#d1d5db] text-[#002D62] hover:bg-[#f0f1f3]',
-                        [UI.Weekdays]: 'w-full',
-                        [UI.Weekday]:
-                          'px-0 py-1.5 text-center text-[10px] font-semibold uppercase leading-tight text-[#002D62] min-[400px]:py-2 min-[400px]:text-[11px]',
-                        [UI.Week]: '',
-                        [UI.Day]: 'p-0.5 text-center align-middle',
-                        [UI.DayButton]:
-                          'mx-auto flex h-10 w-10 items-center justify-center rounded-lg text-[13px] font-medium text-[#002D62] hover:bg-[#e8f2ff] data-[selected-single=true]:rounded-lg data-[selected-single=true]:bg-[#0075FF] data-[selected-single=true]:text-white min-[400px]:h-11 min-[400px]:w-11 min-[400px]:text-[14px] disabled:text-[#9ca3af] disabled:opacity-60',
-                      }}
+                      classNames={dayPickerClassNames}
                     />
                   </div>
-                  <div className="min-h-0 min-w-0 md:pl-0">
+                  <div className="min-w-0 md:pl-0">
                     <p className="mb-2 text-[13px] font-semibold text-[#002D62] md:sr-only">Время</p>
-                    <div className="grid max-h-[min(40dvh,320px)] grid-cols-2 gap-2 overflow-y-auto overscroll-contain min-[400px]:grid-cols-3 sm:max-h-none sm:grid-cols-3 md:max-h-[min(52dvh,400px)] md:grid-cols-2 md:pl-2 lg:grid-cols-3">
-                      {BOOKING_TIME_SLOTS.map((t) => (
-                        <button
-                          key={t}
-                          type="button"
-                          onClick={() => setSelectedTime(t)}
-                          className={[
-                            'min-w-0 rounded-full border px-2 py-2.5 text-center text-[13px] font-semibold transition-colors min-[400px]:px-3 min-[400px]:text-[14px] min-[990px]:py-2.5',
-                            selectedTime === t
-                              ? 'border-[#0075FF] bg-[#e8f2ff] text-[#0075FF]'
-                              : 'border-[#d1d5db] bg-white text-[#002D62] hover:border-[#0075FF]/45',
-                          ].join(' ')}
-                        >
-                          {t}
-                        </button>
-                      ))}
+                    <div className="grid grid-cols-2 gap-2 min-[400px]:grid-cols-3 sm:grid-cols-3 md:grid-cols-2 md:pl-2 lg:grid-cols-3">
+                      {(happyHoursOnly
+                        ? BOOKING_TIME_SLOTS.filter((t) => isHappyHourTime(t))
+                        : BOOKING_TIME_SLOTS
+                      ).map((t) => {
+                        const past = selectedDate ? isTimeSlotPast(selectedDate, t) : false
+                        return (
+                          <button
+                            key={t}
+                            type="button"
+                            disabled={past || !selectedDate}
+                            onClick={() => setSelectedTime(t)}
+                            className={[
+                              'min-w-0 rounded-full border px-2 py-2.5 text-center text-[13px] font-semibold transition-colors min-[400px]:px-3 min-[400px]:text-[14px] min-[990px]:py-2.5',
+                              past || !selectedDate
+                                ? 'cursor-not-allowed border-[#e5e7eb] bg-[#f3f4f6] text-[#9ca3af]'
+                                : selectedTime === t
+                                  ? 'border-[#0075FF] bg-[#e8f2ff] text-[#0075FF]'
+                                  : 'border-[#d1d5db] bg-white text-[#002D62] hover:border-[#0075FF]/45',
+                            ].join(' ')}
+                          >
+                            {t}
+                          </button>
+                        )
+                      })}
                     </div>
                   </div>
                 </div>
 
                 <div className="mt-4 border-t border-dotted border-[#0075FF] pt-4 min-[990px]:mt-5 min-[990px]:pt-5">
                   <div className="flex flex-col gap-3 min-[990px]:flex-row min-[990px]:items-center min-[990px]:justify-between">
-                    <p className="text-[14px] font-semibold text-[#002D62] min-[990px]:text-[15px]">
-                      {formatFooterSummary(selectedDate, selectedTime)}
+                    <p
+                      className={[
+                        'text-[14px] font-semibold min-[990px]:text-[15px]',
+                        selectedDate && selectedTime ? 'text-[#002D62]' : 'text-[#8b95a8]',
+                      ].join(' ')}
+                    >
+                      {selectedDate && selectedTime
+                        ? formatFooterSummary(selectedDate, selectedTime)
+                        : 'Выберите дату и время'}
                     </p>
                     <button
                       type="button"
                       onClick={confirmDateTime}
-                      className="w-full rounded-xl bg-[linear-gradient(180deg,#4da3ff_0%,#0075ff_48%,#0050b3_100%)] px-8 py-2.5 text-[15px] font-semibold text-white shadow-[0_6px_20px_rgba(0,117,255,0.35)] min-[990px]:w-auto min-[990px]:py-3"
+                      disabled={!selectedDate || !selectedTime}
+                      className="w-full rounded-xl bg-[linear-gradient(180deg,#4da3ff_0%,#0075ff_48%,#0050b3_100%)] px-8 py-2.5 text-[15px] font-semibold text-white shadow-[0_6px_20px_rgba(0,117,255,0.35)] disabled:cursor-not-allowed disabled:opacity-50 min-[990px]:w-auto min-[990px]:py-3"
                     >
                       Продолжить
                     </button>
@@ -850,6 +1362,8 @@ function BookingModal() {
                 </div>
               </div>
             )}
+          </div>
+            </div>
           </div>
         </Dialog.Content>
       </Dialog.Portal>

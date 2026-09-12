@@ -50,6 +50,7 @@ function PricesPage() {
               lead="Подарите себе незабываемый полет в день рождения или в течении трех дней до или после праздника"
               terms={BIRTHDAY_TERMS}
               documentLine="Паспорт или водительское удостоверение"
+              bookingPromo="birthday"
             />
             <PricesPromoCard
               headerBackground="linear-gradient(91.68deg, #35AEA2 -98.39%, #164843 196.25%)"
@@ -59,6 +60,7 @@ function PricesPage() {
               lead="Летайте по специальной цене в будние дни с 12:00 до 15:00"
               terms={HAPPY_TERMS}
               documentLine="Паспорт или водительское удостоверение"
+              bookingPromo="happy-hours"
             />
           </div>
         </section>
