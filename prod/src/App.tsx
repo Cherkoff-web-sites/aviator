@@ -4,6 +4,7 @@ import FeedbackWidget from './components/FeedbackWidget'
 import BookingModal from './components/booking/BookingModal'
 import GiftCertificateModal from './components/giftCertificate/GiftCertificateModal'
 import ScrollToTop from './components/ScrollToTop'
+import SiteThemeSync from './components/SiteThemeSync'
 import { AdminAuthProvider } from './contexts/AdminAuthContext'
 import { BookingModalProvider } from './contexts/BookingModalContext'
 import { GiftCertificateModalProvider } from './contexts/GiftCertificateModalContext'
@@ -37,6 +38,7 @@ function App() {
         <BookingModalProvider>
           <GiftCertificateModalProvider>
             <ScrollToTop />
+            <SiteThemeSync />
             <div className="flex min-h-0 flex-1 flex-col">
               <Routes>
                 <Route path="/admin/login" element={<AdminLoginPage />} />
