@@ -111,7 +111,7 @@ export type ApiCertificate = {
   createdAt?: string
 }
 
-export type ApiWaiting = { id: string; date: string; line: string }
+export type ApiWaiting = { id: string; date: string; line: string; createdAt?: string }
 export type ApiPriceRow = { id: string; durationMin: number; simulatorSlug: string; priceByn: number }
 export type ApiPromo = {
   id: string

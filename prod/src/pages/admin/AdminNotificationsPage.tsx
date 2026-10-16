@@ -1,4 +1,3 @@
-import * as React from 'react'
 import { format, parseISO } from 'date-fns'
 import { ru } from 'date-fns/locale'
 import { Bell, CheckCheck } from 'lucide-react'
