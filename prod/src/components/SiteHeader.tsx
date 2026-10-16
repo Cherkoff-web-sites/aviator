@@ -3,6 +3,7 @@ import { Link, NavLink, useLocation } from 'react-router-dom'
 
 import { useBookingModal } from '../contexts/BookingModalContext'
 import { HEADER_MOBILE_SOCIAL_ICONS } from '../data/socialAssets'
+import { phoneToTelHref, usePublicContacts } from '../hooks/usePublicContacts'
 
 function isSimulatorsNavActive(pathname: string) {
   return pathname === '/simulators' || pathname.startsWith('/simulator/')
@@ -38,6 +39,7 @@ function SiteHeader() {
   const [isMenuOpen, setIsMenuOpen] = useState(false)
   const [headerVisible, setHeaderVisible] = useState(true)
   const { openBooking } = useBookingModal()
+  const contacts = usePublicContacts()
   const headerHasBg = pathname === '/' || pathname === '/simulators'
 
   useEffect(() => {
@@ -216,12 +218,12 @@ function SiteHeader() {
 
             <div className="mt-auto pt-9">
               <a
-                href="tel:+375297131001"
+                href={phoneToTelHref(contacts.phone)}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="block text-lg no-underline"
               >
-                +375 29 713 10 01
+                {contacts.phone}
               </a>
               <div className="mt-4 flex items-center gap-3">
                 {HEADER_MOBILE_SOCIAL_ICONS.map((s) => (

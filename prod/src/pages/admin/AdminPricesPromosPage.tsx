@@ -1,13 +1,130 @@
 import * as React from 'react'
-import { Plus, Trash2 } from 'lucide-react'
+import { ChevronDown, Plus, Trash2, X } from 'lucide-react'
+import ConfirmDialog from '@/components/admin/ConfirmDialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import { useLiveData } from '@/hooks/useLiveData'
 import { apiFetch, type ApiPriceRow, type ApiPromo } from '@/lib/api'
 import { useAdminAuth } from '@/contexts/AdminAuthContext'
+import { useAdminUndo } from '@/contexts/AdminUndoContext'
 import { canEditBookings } from '@/lib/admin-access'
+import { labelOf, PROMO_TYPE_OPTIONS, SIMULATOR_OPTIONS } from '@/lib/admin-labels'
 import { durationsForSimulator, FLIGHT_DURATIONS, MI2_MAX_DURATION_MIN } from '@/lib/flight-durations'
+
+/** Варианты для графы «Продукт» в акциях. */
+const PROMO_PRODUCT_OPTIONS = SIMULATOR_OPTIONS.map((o) => ({
+  id: o.value,
+  label: o.label,
+}))
+
+function parseProductType(raw: string): string[] {
+  const parts = raw
+    .split(/[,;]/)
+    .map((s) => s.trim())
+    .filter(Boolean)
+  const ids: string[] = []
+  for (const part of parts) {
+    const lower = part.toLowerCase().replace(/\s+/g, ' ')
+    const hit = PROMO_PRODUCT_OPTIONS.find((o) => {
+      const label = o.label.toLowerCase()
+      if (lower === label) return true
+      if (o.id === 'boeing-737' && (lower.includes('boeing') || lower.includes('737'))) return true
+      if (o.id === 'mi-2' && (lower.includes('ми-2') || lower.includes('mi-2') || lower === 'mi2'))
+        return true
+      return false
+    })
+    if (hit && !ids.includes(hit.id)) ids.push(hit.id)
+  }
+  return ids
+}
+
+function formatProductType(ids: string[]): string {
+  return ids
+    .map((id) => PROMO_PRODUCT_OPTIONS.find((o) => o.id === id)?.label)
+    .filter(Boolean)
+    .join(', ')
+}
+
+function ProductTypeMultiSelect({
+  value,
+  onChange,
+  disabled,
+}: {
+  value: string
+  onChange: (next: string) => void
+  disabled?: boolean
+}) {
+  const selected = React.useMemo(() => parseProductType(value), [value])
+
+  const toggle = (id: string) => {
+    const next = selected.includes(id) ? selected.filter((x) => x !== id) : [...selected, id]
+    onChange(formatProductType(next))
+  }
+
+  const remove = (id: string) => {
+    onChange(formatProductType(selected.filter((x) => x !== id)))
+  }
+
+  if (disabled) {
+    return <span className="text-sm text-foreground">{value || '—'}</span>
+  }
+
+  return (
+    <div className="flex min-w-[180px] max-w-[280px] flex-col gap-1.5">
+      <div className="flex flex-wrap gap-1">
+        {selected.map((id) => {
+          const label = PROMO_PRODUCT_OPTIONS.find((o) => o.id === id)?.label ?? id
+          return (
+            <span
+              key={id}
+              className="inline-flex items-center gap-1 rounded-md border border-border bg-muted/60 px-1.5 py-0.5 text-xs font-medium text-foreground"
+            >
+              {label}
+              <button
+                type="button"
+                className="rounded-sm text-muted-foreground hover:text-foreground"
+                aria-label={`Убрать ${label}`}
+                onClick={() => remove(id)}
+              >
+                <X className="size-3" />
+              </button>
+            </span>
+          )
+        })}
+        {selected.length === 0 ? (
+          <span className="text-xs text-muted-foreground">Не выбрано</span>
+        ) : null}
+      </div>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button type="button" variant="outline" size="sm" className="h-8 w-full justify-between gap-2 px-2 text-xs">
+            <span>Добавить тренажёр</span>
+            <ChevronDown className="size-3.5 opacity-60" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="start" className="w-48">
+          {PROMO_PRODUCT_OPTIONS.map((o) => (
+            <DropdownMenuCheckboxItem
+              key={o.id}
+              checked={selected.includes(o.id)}
+              onCheckedChange={() => toggle(o.id)}
+              onSelect={(e) => e.preventDefault()}
+            >
+              {o.label}
+            </DropdownMenuCheckboxItem>
+          ))}
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </div>
+  )
+}
 
 function EditablePriceTable({
   title,
@@ -18,12 +135,18 @@ function EditablePriceTable({
 }: {
   title: string
   rows: ApiPriceRow[]
-  onSave: (rows: ApiPriceRow[]) => Promise<void>
+  onSave: (rows: ApiPriceRow[], previous: ApiPriceRow[]) => Promise<void>
   canEdit: boolean
   defaultSlug?: string
 }) {
   const [local, setLocal] = React.useState(rows)
+  const [deleteId, setDeleteId] = React.useState<string | null>(null)
+  const [saveOpen, setSaveOpen] = React.useState(false)
+  const [busy, setBusy] = React.useState(false)
   React.useEffect(() => setLocal(rows), [rows])
+
+  const dirty = JSON.stringify(local) !== JSON.stringify(rows)
+  const deleteRow = local.find((r) => r.id === deleteId)
 
   const addRow = () => {
     setLocal((prev) => [
@@ -32,8 +155,20 @@ function EditablePriceTable({
     ])
   }
 
-  const removeRow = (id: string) => {
-    setLocal((prev) => prev.filter((r) => r.id !== id))
+  const confirmDelete = () => {
+    if (!deleteId) return
+    setLocal((prev) => prev.filter((r) => r.id !== deleteId))
+    setDeleteId(null)
+  }
+
+  const confirmSave = async () => {
+    setBusy(true)
+    try {
+      await onSave(local, rows)
+      setSaveOpen(false)
+    } finally {
+      setBusy(false)
+    }
   }
 
   return (
@@ -47,7 +182,13 @@ function EditablePriceTable({
                 <Plus className="size-4" />
                 Добавить
               </Button>
-              <Button type="button" variant="secondary" size="sm" onClick={() => void onSave(local)}>
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                disabled={!dirty}
+                onClick={() => setSaveOpen(true)}
+              >
                 Сохранить
               </Button>
             </>
@@ -140,7 +281,7 @@ function EditablePriceTable({
                       variant="ghost"
                       size="icon"
                       className="size-8 text-destructive"
-                      onClick={() => removeRow(r.id)}
+                      onClick={() => setDeleteId(r.id)}
                     >
                       <Trash2 className="size-4" />
                     </Button>
@@ -151,12 +292,37 @@ function EditablePriceTable({
           </tbody>
         </table>
       </CardContent>
+
+      <ConfirmDialog
+        open={!!deleteId}
+        title="Удалить строку цены?"
+        description={
+          deleteRow
+            ? `${deleteRow.simulatorSlug}, ${deleteRow.durationMin} мин — ${deleteRow.priceByn} BYN. После сохранения изменения можно отменить вверху страницы.`
+            : undefined
+        }
+        confirmLabel="Удалить"
+        destructive
+        onConfirm={confirmDelete}
+        onCancel={() => setDeleteId(null)}
+      />
+
+      <ConfirmDialog
+        open={saveOpen}
+        title="Сохранить цены?"
+        description="Текущие цены на сайте будут заменены. Действие можно отменить вверху страницы в течение минуты."
+        confirmLabel="Сохранить"
+        busy={busy}
+        onConfirm={() => void confirmSave()}
+        onCancel={() => setSaveOpen(false)}
+      />
     </Card>
   )
 }
 
 export default function AdminPricesPromosPage() {
   const { session } = useAdminAuth()
+  const { pushUndo } = useAdminUndo()
   const canEdit = session ? canEditBookings(session.role) : false
 
   const { data: flightPricesData, reload: r1 } = useLiveData(
@@ -176,7 +342,36 @@ export default function AdminPricesPromosPage() {
   const promos = promosData ?? []
 
   const [promoLocal, setPromoLocal] = React.useState(promos)
+  const [promoSaveOpen, setPromoSaveOpen] = React.useState(false)
+  const [promoBusy, setPromoBusy] = React.useState(false)
   React.useEffect(() => setPromoLocal(promos), [promos])
+
+  const promoDirty = JSON.stringify(promoLocal) !== JSON.stringify(promos)
+
+  const savePromos = async () => {
+    setPromoBusy(true)
+    try {
+      const previous = promos.map((p) => ({ ...p }))
+      await apiFetch('/api/admin/promos', {
+        method: 'PUT',
+        body: JSON.stringify({ rows: promoLocal }),
+      })
+      pushUndo({
+        label: 'Отменить сохранение акций',
+        run: async () => {
+          await apiFetch('/api/admin/promos', {
+            method: 'PUT',
+            body: JSON.stringify({ rows: previous }),
+          })
+          void r3()
+        },
+      })
+      setPromoSaveOpen(false)
+      void r3()
+    } finally {
+      setPromoBusy(false)
+    }
+  }
 
   return (
     <div className="flex flex-col gap-6">
@@ -184,8 +379,21 @@ export default function AdminPricesPromosPage() {
         title="Цены — Ми-2 / B737"
         rows={flightPrices}
         canEdit={canEdit}
-        onSave={async (rows) => {
-          await apiFetch('/api/admin/prices/flights', { method: 'PUT', body: JSON.stringify({ rows }) })
+        onSave={async (rows, previous) => {
+          await apiFetch('/api/admin/prices/flights', {
+            method: 'PUT',
+            body: JSON.stringify({ rows }),
+          })
+          pushUndo({
+            label: 'Отменить сохранение цен полётов',
+            run: async () => {
+              await apiFetch('/api/admin/prices/flights', {
+                method: 'PUT',
+                body: JSON.stringify({ rows: previous }),
+              })
+              void r1()
+            },
+          })
           void r1()
         }}
       />
@@ -194,8 +402,21 @@ export default function AdminPricesPromosPage() {
         rows={certPrices}
         canEdit={canEdit}
         defaultSlug="combo"
-        onSave={async (rows) => {
-          await apiFetch('/api/admin/prices/certificates', { method: 'PUT', body: JSON.stringify({ rows }) })
+        onSave={async (rows, previous) => {
+          await apiFetch('/api/admin/prices/certificates', {
+            method: 'PUT',
+            body: JSON.stringify({ rows }),
+          })
+          pushUndo({
+            label: 'Отменить сохранение цен сертификатов',
+            run: async () => {
+              await apiFetch('/api/admin/prices/certificates', {
+                method: 'PUT',
+                body: JSON.stringify({ rows: previous }),
+              })
+              void r2()
+            },
+          })
           void r2()
         }}
       />
@@ -207,12 +428,8 @@ export default function AdminPricesPromosPage() {
               type="button"
               variant="secondary"
               size="sm"
-              onClick={() =>
-                void apiFetch('/api/admin/promos', {
-                  method: 'PUT',
-                  body: JSON.stringify({ rows: promoLocal }),
-                }).then(() => r3())
-              }
+              disabled={!promoDirty}
+              onClick={() => setPromoSaveOpen(true)}
             >
               Сохранить
             </Button>
@@ -290,34 +507,36 @@ export default function AdminPricesPromosPage() {
                       `${p.startDate} — ${p.endDate}`
                     )}
                   </td>
-                  <td className="py-2">
-                    {canEdit ? (
-                      <Input
-                        className="h-8"
-                        value={p.productType}
-                        onChange={(e) => {
-                          const n = [...promoLocal]
-                          n[i] = { ...p, productType: e.target.value }
-                          setPromoLocal(n)
-                        }}
-                      />
-                    ) : (
-                      p.productType
-                    )}
+                  <td className="py-2 align-top">
+                    <ProductTypeMultiSelect
+                      value={p.productType}
+                      disabled={!canEdit}
+                      onChange={(productType) => {
+                        const n = [...promoLocal]
+                        n[i] = { ...p, productType }
+                        setPromoLocal(n)
+                      }}
+                    />
                   </td>
                   <td className="py-2">
                     {canEdit ? (
-                      <Input
-                        className="h-8"
+                      <select
+                        className="h-8 rounded-md border bg-background px-2 text-sm"
                         value={p.promoType}
                         onChange={(e) => {
                           const n = [...promoLocal]
                           n[i] = { ...p, promoType: e.target.value }
                           setPromoLocal(n)
                         }}
-                      />
+                      >
+                        {PROMO_TYPE_OPTIONS.map((o) => (
+                          <option key={o.value} value={o.value}>
+                            {o.label}
+                          </option>
+                        ))}
+                      </select>
                     ) : (
-                      p.promoType
+                      labelOf(PROMO_TYPE_OPTIONS, p.promoType)
                     )}
                   </td>
                   <td className="py-2">
@@ -343,6 +562,16 @@ export default function AdminPricesPromosPage() {
           </table>
         </CardContent>
       </Card>
+
+      <ConfirmDialog
+        open={promoSaveOpen}
+        title="Сохранить акции?"
+        description="Изменения акций применятся на сайте. Действие можно отменить вверху страницы в течение минуты."
+        confirmLabel="Сохранить"
+        busy={promoBusy}
+        onConfirm={() => void savePromos()}
+        onCancel={() => setPromoSaveOpen(false)}
+      />
     </div>
   )
 }

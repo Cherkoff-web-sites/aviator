@@ -1,9 +1,11 @@
 import { useEffect, useMemo } from 'react'
 import { Navigate, Outlet, useLocation } from 'react-router-dom'
 
+import DemoDataButton from '@/components/admin/DemoDataButton'
 import { AppSidebar } from '@/components/app-sidebar'
 import { ADMIN_NAV_MAIN } from '@/data/adminNav'
 import { useAdminAuth } from '@/contexts/AdminAuthContext'
+import { AdminUndoButton, AdminUndoProvider } from '@/contexts/AdminUndoContext'
 import {
   SidebarInset,
   SidebarProvider,
@@ -31,6 +33,8 @@ export default function AdminLayout() {
   const pageTitle = useMemo(() => {
     if (pathname === '/admin' || pathname === '/admin/') return 'Домашняя страница'
     if (pathname.startsWith('/admin/settings')) return 'Настройки'
+    if (pathname.startsWith('/admin/notifications')) return 'Уведомления'
+    if (pathname.startsWith('/admin/archive')) return 'Архив'
     const hit = ADMIN_NAV_MAIN.find((i) => i.to === pathname)
     return hit?.title ?? 'Раздел'
   }, [pathname])
@@ -52,20 +56,24 @@ export default function AdminLayout() {
   }
 
   return (
-    <SidebarProvider className="min-h-svh">
-      <CloseMobileSidebarOnNavigate />
-      <AppSidebar />
-      <SidebarInset>
-        <header className="flex h-16 shrink-0 items-center gap-3 border-b border-border bg-background px-4">
-          <SidebarTrigger className="-ml-1 shrink-0" />
-          <h1 className="min-w-0 truncate text-lg font-semibold leading-tight text-foreground">
-            {pageTitle}
-          </h1>
-        </header>
-        <div className="flex flex-1 flex-col gap-4 bg-muted/30 p-4 pt-4 md:p-6">
-          <Outlet />
-        </div>
-      </SidebarInset>
-    </SidebarProvider>
+    <AdminUndoProvider>
+      <SidebarProvider className="min-h-svh">
+        <CloseMobileSidebarOnNavigate />
+        <AppSidebar />
+        <SidebarInset>
+          <header className="flex h-16 shrink-0 items-center gap-3 border-b border-border bg-background px-4">
+            <SidebarTrigger className="-ml-1 shrink-0" />
+            <h1 className="min-w-0 truncate text-lg font-semibold leading-tight text-foreground">
+              {pageTitle}
+            </h1>
+            <AdminUndoButton />
+          </header>
+          <div className="flex flex-1 flex-col gap-4 bg-muted/30 p-4 pt-4 md:p-6">
+            <Outlet />
+          </div>
+        </SidebarInset>
+        <DemoDataButton />
+      </SidebarProvider>
+    </AdminUndoProvider>
   )
 }

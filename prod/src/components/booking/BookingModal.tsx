@@ -33,10 +33,12 @@ import {
   isHappyHourTime,
   isPersonNameValid,
   isPhoneValid,
+  isSlotClosedByMaintenance,
   isTimeSlotPast,
   parseBirthdayDdMm,
   type CalendarStatus,
   type CertValidity,
+  type PublicMaintenance,
 } from '../../lib/pricing'
 import { BOOKING_TIME_SLOTS, type BookingTimeSlot } from './bookingTimeSlots'
 import {
@@ -284,7 +286,8 @@ function BookingModal() {
   const [submitted, setSubmitted] = useState(false)
   const [flightPrices, setFlightPrices] = useState<ApiPriceRow[]>([])
   const [calendarMap, setCalendarMap] = useState<Record<string, CalendarStatus>>({})
-  const [bookingWindowMonths, setBookingWindowMonths] = useState(3)
+  const [maintenanceList, setMaintenanceList] = useState<PublicMaintenance[]>([])
+  const [bookingWindowMonths, setBookingWindowMonths] = useState(12)
   const [certValid, setCertValid] = useState<boolean | null>(null)
   const [certInfo, setCertInfo] = useState<CertValidity | null>(null)
 
@@ -388,15 +391,20 @@ function BookingModal() {
   useEffect(() => {
     if (!isOpen) return
     void Promise.all([
-      apiFetch<{ days: { date: string; status: CalendarStatus }[] }>('/api/public/calendar'),
+      apiFetch<{
+        days: { date: string; status: CalendarStatus }[]
+        maintenance?: PublicMaintenance[]
+        bookingWindowMonths?: number
+      }>('/api/public/calendar'),
       apiFetch<ApiPriceRow[]>('/api/public/prices/flights'),
       apiFetch<{ bookingWindowMonths: number }>('/api/public/settings'),
     ]).then(([cal, prices, settings]) => {
       const map: Record<string, CalendarStatus> = {}
       for (const d of cal.days) map[d.date] = d.status
       setCalendarMap(map)
+      setMaintenanceList(cal.maintenance ?? [])
       setFlightPrices(prices)
-      setBookingWindowMonths(settings.bookingWindowMonths)
+      setBookingWindowMonths(cal.bookingWindowMonths ?? settings.bookingWindowMonths ?? 12)
     })
   }, [isOpen])
 
@@ -461,6 +469,9 @@ function BookingModal() {
       requireValidCertificate: hasGiftCert && !(certValid === true && certInfo),
       timeSlots: BOOKING_TIME_SLOTS,
       happyHoursOnly,
+      maintenance: maintenanceList,
+      simulatorSlug: aircraft,
+      durationMin,
     }),
     [
       birthdayDiscount,
@@ -470,6 +481,9 @@ function BookingModal() {
       certValid,
       certInfo,
       happyHoursOnly,
+      maintenanceList,
+      aircraft,
+      durationMin,
     ],
   )
 
@@ -489,10 +503,19 @@ function BookingModal() {
       slots = slots.filter((t) => isHappyHourTime(t))
     }
     if (selectedDate) {
-      slots = slots.filter((t) => !isTimeSlotPast(selectedDate, t))
+      const dateKey = format(selectedDate, 'yyyy-MM-dd')
+      slots = slots.filter((t) => {
+        if (isTimeSlotPast(selectedDate, t)) return false
+        if (
+          isSlotClosedByMaintenance(dateKey, t, durationMin, aircraft, maintenanceList)
+        ) {
+          return false
+        }
+        return true
+      })
     }
     return slots
-  }, [selectedDate, happyHoursOnly])
+  }, [selectedDate, happyHoursOnly, durationMin, aircraft, maintenanceList])
 
   useEffect(() => {
     if (selectedTime === null) return

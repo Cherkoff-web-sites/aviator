@@ -47,5 +47,14 @@ export function canAccessRoute(role: UserRole, pathname: string) {
 
   const hidden = role === 'PILOT' ? PILOT_HIDDEN : role === 'MANAGER' ? MANAGER_HIDDEN : new Set<string>()
   if (pathname.startsWith('/admin/settings') && role !== 'ADMIN') return false
+  if (pathname.startsWith('/admin/notifications')) return true
+  /** Архив — только админ и менеджер (секции фильтруются по доступу к страницам). */
+  if (pathname.startsWith('/admin/archive')) {
+    return role === 'ADMIN' || role === 'MANAGER'
+  }
   return !hidden.has(pathname)
+}
+
+export function canViewArchive(role: UserRole | null | undefined) {
+  return role === 'ADMIN' || role === 'MANAGER'
 }

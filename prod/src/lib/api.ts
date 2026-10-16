@@ -5,6 +5,7 @@ export type UserRole = 'ADMIN' | 'MANAGER' | 'PILOT'
 export type AdminUser = {
   id: string
   login: string
+  password: string
   fullName: string
   phone: string
   role: UserRole
@@ -100,11 +101,14 @@ export type ApiCertificate = {
   fullName: string
   durationMin: number
   paymentStatus: 'PAID' | 'UNPAID'
+  paymentMethod?: 'ONLINE' | 'OFFLINE'
   validFrom: string
   validTo: string
   simulatorSlug: string
   status: string
+  designColor?: string
   comment: string
+  createdAt?: string
 }
 
 export type ApiWaiting = { id: string; date: string; line: string }

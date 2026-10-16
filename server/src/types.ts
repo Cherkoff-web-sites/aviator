@@ -18,6 +18,8 @@ export type PaymentStatus = 'PAID' | 'UNPAID'
 export type User = {
   id: string
   login: string
+  /** Демо-хранилище: пароль в открытом виде (для админки). */
+  password: string
   fullName: string
   phone: string
   role: UserRole
@@ -57,6 +59,16 @@ export type StaffShift = {
   createdAt: string
 }
 
+/** Цвет бланка: Boeing — silver/turquoise/gold/navy; Ми-2 — coral/emerald; combo — lilac. */
+export type CertificateDesignColor =
+  | 'silver'
+  | 'turquoise'
+  | 'gold'
+  | 'navy'
+  | 'coral'
+  | 'emerald'
+  | 'lilac'
+
 export type Certificate = {
   id: string
   number: string
@@ -64,10 +76,14 @@ export type Certificate = {
   fullName: string
   durationMin: number
   paymentStatus: PaymentStatus
+  /** ONLINE = на сайте, OFFLINE = в офисе */
+  paymentMethod: 'ONLINE' | 'OFFLINE'
   validFrom: string
   validTo: string
   simulatorSlug: string
   status: CertificateStatus
+  /** Цвет бланка / фон строки в админке */
+  designColor?: CertificateDesignColor
   comment: string
   createdAt: string
 }
@@ -103,11 +119,25 @@ export type WorkHourEntry = {
   createdAt: string
 }
 
+/**
+ * Закрытие под ТО / недоступность на сайте.
+ * - без simulatorSlug → все тренажёры
+ * - без startTime/endTime → весь день
+ * - с интервалом → только это окно (можно закрыть «полдня»)
+ */
 export type MaintenanceEntry = {
   id: string
-  plannedAt: string
+  /** yyyy-MM-dd */
+  date: string
+  /** null/undefined = все тренажёры */
+  simulatorSlug?: string | null
+  /** HH:mm; без пары start/end = весь день */
+  startTime?: string | null
+  endTime?: string | null
   notes: string
   createdAt: string
+  /** @deprecated старые записи — мигрируются в date */
+  plannedAt?: string
 }
 
 export type OptionItem = {
@@ -123,6 +153,48 @@ export type FeedbackRequest = {
   phone: string
   message: string
   createdAt: string
+}
+
+export type NotificationKind =
+  | 'booking'
+  | 'certificate'
+  | 'maintenance'
+  | 'staff_shift'
+  | 'waiting_room'
+  | 'feedback'
+  | 'calendar'
+  | 'system'
+
+export type AdminNotification = {
+  id: string
+  kind: NotificationKind
+  title: string
+  body: string
+  href: string
+  /** Кому показывать по роли. Пусто = никому (не используется). */
+  audienceRoles: UserRole[]
+  /** Если задано — видно только этому пользователю (поверх ролей). */
+  targetUserId?: string
+  /** userId → когда прочитано */
+  readBy: Record<string, string>
+  createdAt: string
+  meta?: Record<string, string>
+}
+
+/** Запись архива удалений (см. lib/archive.ts). */
+export type ArchiveEntry = {
+  id: string
+  section: string
+  kind?: string
+  entityId: string
+  title: string
+  summary: string
+  payload: unknown
+  deletedAt: string
+  expiresAt: string
+  deletedByUserId?: string
+  deletedByName?: string
+  sourcePath: string
 }
 
 export type DataStore = {
@@ -146,4 +218,7 @@ export type DataStore = {
   counters: { certificate: number }
   pendingCodes: { bookingId: string; code: string; expiresAt: string; sentAt: string }[]
   feedbackRequests?: FeedbackRequest[]
+  notifications?: AdminNotification[]
+  /** Удалённые записи (хранятся 30 дней). */
+  archive?: ArchiveEntry[]
 }

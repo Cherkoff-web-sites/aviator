@@ -1,5 +1,13 @@
-import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs'
-import { dirname, join } from 'node:path'
+import {
+  readFileSync,
+  writeFileSync,
+  mkdirSync,
+  existsSync,
+  copyFileSync,
+  readdirSync,
+  unlinkSync,
+} from 'node:fs'
+import { basename, dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { randomUUID } from 'node:crypto'
 import type { DataStore } from '../types.js'
@@ -7,6 +15,8 @@ import { createSeedStore } from './seed-data.js'
 
 const __dir = dirname(fileURLToPath(import.meta.url))
 export const STORE_PATH = process.env.STORE_PATH ?? join(__dir, '../../data/store.json')
+
+const MAX_BACKUPS = 5
 
 let writeQueue: Promise<void> = Promise.resolve()
 
@@ -18,9 +28,20 @@ function ensureFile() {
   }
 }
 
+function normalizeStore(raw: DataStore): DataStore {
+  if (Array.isArray(raw.users)) {
+    for (const u of raw.users) {
+      if (typeof u.password !== 'string') u.password = 'changeme'
+      if (!Array.isArray(u.pilotSimulators)) u.pilotSimulators = []
+    }
+  }
+  if (!Array.isArray(raw.archive)) raw.archive = []
+  return raw
+}
+
 export function readStore(): DataStore {
   ensureFile()
-  return JSON.parse(readFileSync(STORE_PATH, 'utf8')) as DataStore
+  return normalizeStore(JSON.parse(readFileSync(STORE_PATH, 'utf8')) as DataStore)
 }
 
 export function writeStore(data: DataStore) {
@@ -32,6 +53,33 @@ export async function updateStore(mutator: (store: DataStore) => void): Promise<
     const store = readStore()
     mutator(store)
     writeStore(store)
+  })
+  await writeQueue
+  return readStore()
+}
+
+/** Копирует текущую базу в `store.backup-<время>.json` рядом с ней. */
+export function backupStore(): string | null {
+  if (!existsSync(STORE_PATH)) return null
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-')
+  const backup = STORE_PATH.replace(/\.json$/, `.backup-${stamp}.json`)
+  copyFileSync(STORE_PATH, backup)
+  const dir = dirname(STORE_PATH)
+  const prefix = `${basename(STORE_PATH, '.json')}.backup-`
+  const old = readdirSync(dir)
+    .filter((f) => f.startsWith(prefix))
+    .sort()
+    .slice(0, -MAX_BACKUPS)
+  for (const f of old) unlinkSync(join(dir, f))
+  return backup
+}
+
+/** Полностью заменяет базу демо-данными, рассчитанными от сегодняшнего дня. */
+export async function resetStoreToDemo(): Promise<DataStore> {
+  writeQueue = writeQueue.then(() => {
+    backupStore()
+    ensureFile()
+    writeStore(createSeedStore({ demo: true }))
   })
   await writeQueue
   return readStore()

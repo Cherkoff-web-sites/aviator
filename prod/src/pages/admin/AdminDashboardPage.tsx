@@ -1,7 +1,8 @@
 import * as React from 'react'
-import { format } from 'date-fns'
+import { format, isValid, parseISO } from 'date-fns'
 import { Check, Clock, Info, Loader2, MoreHorizontal, Plus } from 'lucide-react'
 import { ru } from 'date-fns/locale'
+import { useSearchParams } from 'react-router-dom'
 import { Calendar } from '@/components/ui/calendar'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -19,11 +20,17 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
+import AdminFormModal from '@/components/admin/AdminFormModal'
+import ConfirmDialog from '@/components/admin/ConfirmDialog'
+import { useHighlightRow } from '@/hooks/useHighlightRow'
 import { useIsMobile } from '@/hooks/use-mobile'
 import { useLiveData } from '@/hooks/useLiveData'
 import { useAdminAuth } from '@/contexts/AdminAuthContext'
+import { useAdminUndo } from '@/contexts/AdminUndoContext'
 import { apiFetch, type ApiBooking } from '@/lib/api'
 import { canEditBookings } from '@/lib/admin-access'
+import PaymentMethodIcon from '@/components/admin/PaymentMethodIcon'
+import { BOOKING_STATUS_OPTIONS, PAYMENT_METHOD_OPTIONS } from '@/lib/admin-labels'
 import { clampDurationForSimulator, durationsForSimulator } from '@/lib/flight-durations'
 import { cn } from '@/lib/utils'
 
@@ -31,8 +38,6 @@ const SIM_PLANE = '✈️'
 const SIM_HELI = '🚁'
 const PAY_OK = '✅'
 const PAY_BAD = '❌'
-const METHOD_ONLINE = '🌐'
-const METHOD_OFFLINE = '👤'
 
 function EmojiCell({
   emoji,
@@ -62,7 +67,6 @@ function EmojiCell({
 
 type SimulatorType = 'plane' | 'helicopter' | 'both'
 type BookingStatus = 'in_progress' | 'done' | 'waiting' | 'canceled'
-type MethodKind = 'online' | 'offline'
 
 type BookingRow = {
   id: string
@@ -72,7 +76,7 @@ type BookingRow = {
   status: BookingStatus
   paid: boolean
   time: string
-  method: MethodKind
+  method: 'ONLINE' | 'OFFLINE'
   comment: string
   muted: boolean
   raw: ApiBooking
@@ -115,7 +119,7 @@ function mapApiBooking(row: ApiBooking): BookingRow {
     status: statusMap[row.status] ?? 'waiting',
     paid: row.paid,
     time: `${row.startTime} - ${row.endTime}`,
-    method: row.paymentMethod === 'ONLINE' ? 'online' : 'offline',
+    method: row.paymentMethod === 'ONLINE' ? 'ONLINE' : 'OFFLINE',
     comment: [
       row.comment,
       row.email ? `Email: ${row.email}` : '',
@@ -126,7 +130,7 @@ function mapApiBooking(row: ApiBooking): BookingRow {
     ]
       .filter(Boolean)
       .join(' · '),
-    muted: row.status === 'CANCELLED' || row.status === 'EXPIRED',
+    muted: row.status === 'DONE' || row.status === 'CANCELLED' || row.status === 'EXPIRED',
     raw: row,
   }
 }
@@ -162,8 +166,8 @@ function StatusBadge({ status }: { status: BookingStatus }) {
       )
     case 'done':
       return (
-        <span className="inline-flex items-center gap-1.5 rounded-full bg-green-100 px-2.5 py-1 text-xs font-medium text-green-900 dark:bg-green-950/60 dark:text-green-100">
-          <Check className="size-3.5 shrink-0 text-green-700 dark:text-green-400" />
+        <span className="inline-flex items-center gap-1.5 rounded-full bg-green-500/[0.04] px-2.5 py-1 text-xs font-medium text-green-700/55 dark:text-green-400/55">
+          <Check className="size-3.5 shrink-0 text-green-700/55 dark:text-green-400/55" />
           Закончили
         </span>
       )
@@ -176,8 +180,8 @@ function StatusBadge({ status }: { status: BookingStatus }) {
       )
     case 'canceled':
       return (
-        <span className="inline-flex items-center gap-1.5 rounded-full bg-muted px-2.5 py-1 text-xs font-medium text-foreground">
-          <Info className="size-3.5 shrink-0 text-muted-foreground" />
+        <span className="inline-flex items-center gap-1.5 rounded-full bg-destructive/[0.04] px-2.5 py-1 text-xs font-medium text-destructive/55">
+          <Info className="size-3.5 shrink-0 text-destructive/55" />
           Отменен
         </span>
       )
@@ -207,24 +211,49 @@ function PayCell({ paid }: { paid: boolean }) {
   )
 }
 
-function MethodIcon({ method }: { method: MethodKind }) {
-  if (method === 'online') {
-    return <EmojiCell emoji={METHOD_ONLINE} label="Онлайн" className="text-[1.05rem]" />
-  }
-  return <EmojiCell emoji={METHOD_OFFLINE} label="Офлайн" className="text-[1.05rem]" />
-}
-
 export default function AdminDashboardPage() {
-  const [date, setDate] = React.useState<Date | undefined>(new Date())
+  const [searchParams, setSearchParams] = useSearchParams()
+  const dateFromUrl = React.useMemo(() => {
+    const raw = searchParams.get('date')
+    if (!raw) return undefined
+    const parsed = parseISO(raw)
+    return isValid(parsed) ? parsed : undefined
+  }, [searchParams])
+
+  const [date, setDate] = React.useState<Date | undefined>(() => dateFromUrl ?? new Date())
   const [formOpen, setFormOpen] = React.useState(false)
   const [editId, setEditId] = React.useState<string | null>(null)
   const [deleteTarget, setDeleteTarget] = React.useState<BookingRow | null>(null)
+  const [saveConfirmOpen, setSaveConfirmOpen] = React.useState(false)
+  const [actionBusy, setActionBusy] = React.useState(false)
   const [form, setForm] = React.useState(EMPTY_FORM)
   const [initialForm, setInitialForm] = React.useState(EMPTY_FORM)
   const { session } = useAdminAuth()
+  const { pushUndo } = useAdminUndo()
   const isMobile = useIsMobile()
   const headerDate = date ?? new Date()
   const canEdit = session ? canEditBookings(session.role) : false
+
+  React.useEffect(() => {
+    if (dateFromUrl) setDate(dateFromUrl)
+  }, [dateFromUrl])
+
+  const selectDate = React.useCallback(
+    (next: Date | undefined) => {
+      setDate(next)
+      setSearchParams(
+        (prev) => {
+          const nextParams = new URLSearchParams()
+          if (next) nextParams.set('date', format(next, 'yyyy-MM-dd'))
+          const highlight = prev.get('highlight')
+          if (highlight) nextParams.set('highlight', highlight)
+          return nextParams
+        },
+        { replace: true },
+      )
+    },
+    [setSearchParams],
+  )
 
   const dateKey = format(headerDate, 'yyyy-MM-dd')
   const { data: calPayload } = useLiveData(
@@ -250,6 +279,7 @@ export default function AdminDashboardPage() {
   )
 
   const mapped = (apiRows ?? []).map(mapApiBooking)
+  const { rowProps } = useHighlightRow(apiRows !== null)
   const formDirty = JSON.stringify(form) !== JSON.stringify(initialForm)
 
   const openCreate = () => {
@@ -280,29 +310,75 @@ export default function AdminDashboardPage() {
 
   const save = async () => {
     if (!canEdit || !formDirty) return
-    if (editId) {
-      const endH = Math.floor((Number(form.startTime.split(':')[0]) * 60 + Number(form.startTime.split(':')[1]) + form.durationMin) / 60)
-      const endM = (Number(form.startTime.split(':')[0]) * 60 + Number(form.startTime.split(':')[1]) + form.durationMin) % 60
+    setActionBusy(true)
+    try {
+      const endH = Math.floor(
+        (Number(form.startTime.split(':')[0]) * 60 + Number(form.startTime.split(':')[1]) + form.durationMin) / 60,
+      )
+      const endM =
+        (Number(form.startTime.split(':')[0]) * 60 + Number(form.startTime.split(':')[1]) + form.durationMin) % 60
       const endTime = `${String(endH).padStart(2, '0')}:${String(endM).padStart(2, '0')}`
-      await apiFetch(`/api/admin/bookings/${editId}`, {
-        method: 'PATCH',
-        body: JSON.stringify({ ...form, endTime }),
-      })
-    } else {
-      await apiFetch('/api/admin/bookings', {
-        method: 'POST',
-        body: JSON.stringify({ ...form, date: dateKey }),
-      })
+
+      if (editId) {
+        const previous = mapped.find((r) => r.id === editId)?.raw
+        await apiFetch(`/api/admin/bookings/${editId}`, {
+          method: 'PATCH',
+          body: JSON.stringify({ ...form, endTime }),
+        })
+        if (previous) {
+          pushUndo({
+            label: `Отменить изменение записи «${previous.name}»`,
+            run: async () => {
+              await apiFetch(`/api/admin/bookings/${previous.id}`, {
+                method: 'PATCH',
+                body: JSON.stringify(previous),
+              })
+              void reload()
+            },
+          })
+        }
+      } else {
+        const created = await apiFetch<ApiBooking>('/api/admin/bookings', {
+          method: 'POST',
+          body: JSON.stringify({ ...form, date: dateKey, endTime }),
+        })
+        pushUndo({
+          label: `Отменить создание записи «${created.name}»`,
+          run: async () => {
+            await apiFetch(`/api/admin/bookings/${created.id}`, { method: 'DELETE' })
+            void reload()
+          },
+        })
+      }
+      setFormOpen(false)
+      setSaveConfirmOpen(false)
+      void reload()
+    } finally {
+      setActionBusy(false)
     }
-    setFormOpen(false)
-    void reload()
   }
 
   const deleteBooking = async () => {
     if (!canEdit || !deleteTarget) return
-    await apiFetch(`/api/admin/bookings/${deleteTarget.id}`, { method: 'DELETE' })
-    setDeleteTarget(null)
-    void reload()
+    setActionBusy(true)
+    try {
+      const snapshot = deleteTarget.raw
+      await apiFetch(`/api/admin/bookings/${deleteTarget.id}`, { method: 'DELETE' })
+      pushUndo({
+        label: `Отменить удаление записи «${snapshot.name}»`,
+        run: async () => {
+          await apiFetch('/api/admin/bookings', {
+            method: 'POST',
+            body: JSON.stringify(snapshot),
+          })
+          void reload()
+        },
+      })
+      setDeleteTarget(null)
+      void reload()
+    } finally {
+      setActionBusy(false)
+    }
   }
 
   return (
@@ -311,7 +387,7 @@ export default function AdminDashboardPage() {
         mode="single"
         numberOfMonths={isMobile ? 1 : 3}
         selected={date}
-        onSelect={setDate}
+        onSelect={selectDate}
         locale={ru}
         className="w-fit max-w-full rounded-lg border"
         disabled={(d) => {
@@ -347,8 +423,13 @@ export default function AdminDashboardPage() {
           ) : null}
         </div>
 
-        {formOpen && canEdit ? (
-          <div className="grid gap-2 rounded-lg border bg-muted/30 p-4 sm:grid-cols-2">
+        <AdminFormModal
+          open={formOpen && canEdit}
+          title={editId ? 'Редактировать запись' : 'Новая запись'}
+          description={formatTableHeaderDate(headerDate)}
+          onClose={() => setFormOpen(false)}
+        >
+          <div className="grid gap-3 sm:grid-cols-2">
             {(
               [
                 ['name', 'Имя'],
@@ -356,7 +437,6 @@ export default function AdminDashboardPage() {
                 ['email', 'Email'],
                 ['startTime', 'Время начала'],
                 ['comment', 'Комментарий'],
-                ['status', 'Статус'],
               ] as const
             ).map(([key, label]) => (
               <label key={key} className="text-sm">
@@ -368,6 +448,20 @@ export default function AdminDashboardPage() {
                 />
               </label>
             ))}
+            <label className="text-sm">
+              <span className="text-muted-foreground">Статус</span>
+              <select
+                className="mt-1 h-9 w-full rounded-md border bg-background px-2 text-sm"
+                value={form.status}
+                onChange={(e) => setForm((f) => ({ ...f, status: e.target.value }))}
+              >
+                {BOOKING_STATUS_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
+            </label>
             <label className="text-sm">
               <span className="text-muted-foreground">Тренажёр</span>
               <select
@@ -409,8 +503,11 @@ export default function AdminDashboardPage() {
                   setForm((f) => ({ ...f, paymentMethod: e.target.value as 'OFFLINE' | 'ONLINE' }))
                 }
               >
-                <option value="OFFLINE">При посещении</option>
-                <option value="ONLINE">Онлайн</option>
+                {PAYMENT_METHOD_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>
+                    {o.label}
+                  </option>
+                ))}
               </select>
             </label>
             <label className="flex items-center gap-2 pt-6 text-sm">
@@ -423,7 +520,7 @@ export default function AdminDashboardPage() {
             </label>
             <div className="flex flex-wrap gap-2 sm:col-span-2">
               {formDirty ? (
-                <Button type="button" onClick={() => void save()}>
+                <Button type="button" onClick={() => setSaveConfirmOpen(true)}>
                   Сохранить
                 </Button>
               ) : null}
@@ -432,23 +529,36 @@ export default function AdminDashboardPage() {
               </Button>
             </div>
           </div>
-        ) : null}
+        </AdminFormModal>
 
-        {deleteTarget ? (
-          <div className="rounded-lg border border-destructive/40 bg-destructive/5 p-4">
-            <p className="text-sm font-medium text-destructive">
-              Удалить запись {deleteTarget.name}, {deleteTarget.time}?
-            </p>
-            <div className="mt-3 flex gap-2">
-              <Button type="button" variant="destructive" size="sm" onClick={() => void deleteBooking()}>
-                Удалить
-              </Button>
-              <Button type="button" variant="outline" size="sm" onClick={() => setDeleteTarget(null)}>
-                Отмена
-              </Button>
-            </div>
-          </div>
-        ) : null}
+        <ConfirmDialog
+          open={saveConfirmOpen}
+          title={editId ? 'Сохранить изменения?' : 'Создать запись?'}
+          description={
+            editId
+              ? `Запись «${form.name || 'без имени'}» будет обновлена. При необходимости действие можно отменить вверху страницы.`
+              : `Будет создана новая запись на ${formatTableHeaderDate(headerDate)}. При необходимости действие можно отменить вверху страницы.`
+          }
+          confirmLabel="Сохранить"
+          busy={actionBusy}
+          onConfirm={() => void save()}
+          onCancel={() => setSaveConfirmOpen(false)}
+        />
+
+        <ConfirmDialog
+          open={!!deleteTarget}
+          title="Удалить запись?"
+          description={
+            deleteTarget
+              ? `Запись «${deleteTarget.name}», ${deleteTarget.time} будет удалена. При необходимости действие можно отменить вверху страницы.`
+              : undefined
+          }
+          confirmLabel="Удалить"
+          destructive
+          busy={actionBusy}
+          onConfirm={() => void deleteBooking()}
+          onCancel={() => setDeleteTarget(null)}
+        />
 
         {mapped.length > 0 ? (
           <div className="-mx-4 max-w-[calc(100vw-2rem)] overflow-x-auto sm:mx-0 sm:max-w-none">
@@ -468,11 +578,14 @@ export default function AdminDashboardPage() {
               </TableHeader>
               <TableBody>
                 {mapped.map((row) => (
-                  <TableRow key={row.id} className={cn(row.muted && 'text-muted-foreground')}>
+                  <TableRow
+                    key={row.id}
+                    {...rowProps(row.id, cn(row.muted && 'text-muted-foreground/70 opacity-70'))}
+                  >
                     <TableCell className={cn('whitespace-nowrap', !row.muted && 'font-semibold text-foreground')}>
                       {row.name}
                     </TableCell>
-                    <TableCell className="whitespace-nowrap font-mono text-[13px]">{row.phone}</TableCell>
+                    <TableCell className="whitespace-nowrap">{row.phone}</TableCell>
                     <TableCell className="px-2 text-center">
                       <SimulatorIcons type={row.simulator} />
                     </TableCell>
@@ -484,7 +597,7 @@ export default function AdminDashboardPage() {
                     </TableCell>
                     <TableCell className="whitespace-nowrap text-[13px]">{row.time}</TableCell>
                     <TableCell className="text-center">
-                      <MethodIcon method={row.method} />
+                      <PaymentMethodIcon method={row.method} />
                     </TableCell>
                     <TableCell className="max-w-[220px] text-sm leading-snug">{row.comment}</TableCell>
                     {canEdit ? (

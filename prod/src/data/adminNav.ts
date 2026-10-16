@@ -46,7 +46,7 @@ export const ADMIN_NAV_MAIN: AdminNavMainItem[] = [
   },
   { title: 'Аналитика', to: '/admin/analytics', iconSrc: icon('nav_analytics'), iconSlot: 'nav_analytics' },
   {
-    title: 'Техническое обслуживание',
+    title: 'Управление активными записями',
     to: '/admin/maintenance',
     iconSrc: icon('nav_maintenance'),
     iconSlot: 'nav_maintenance',

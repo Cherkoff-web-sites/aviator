@@ -7,6 +7,7 @@ import {
   format,
   isBefore,
   isSameMonth,
+  isToday,
   isWeekend,
   parseISO,
   startOfMonth,
@@ -15,8 +16,11 @@ import {
   subMonths,
 } from 'date-fns'
 import { ru } from 'date-fns/locale'
-import { ChevronDown, ChevronUp, ChevronRight, MoreHorizontal, Plus } from 'lucide-react'
+import { ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Plane, Plus } from 'lucide-react'
+import { useSearchParams } from 'react-router-dom'
 
+import AdminFormModal from '@/components/admin/AdminFormModal'
+import ConfirmDialog from '@/components/admin/ConfirmDialog'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -24,9 +28,11 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import { useHighlightRow } from '@/hooks/useHighlightRow'
 import { useLiveData } from '@/hooks/useLiveData'
 import { apiFetch, type AdminUser, type ApiStaffShift } from '@/lib/api'
 import { useAdminAuth } from '@/contexts/AdminAuthContext'
+import { useAdminUndo } from '@/contexts/AdminUndoContext'
 import { canEditStaffShift } from '@/lib/admin-access'
 import { cn } from '@/lib/utils'
 
@@ -38,16 +44,12 @@ type StaffShiftUi = {
   vehicles: Vehicle[]
   color: string
   userId: string
+  simulatorSlug: string
+  date: string
   canDelete: boolean
-  onDelete: () => void
 }
 
 const WEEKDAY_LABELS = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'] as const
-const WEEKDAY_2_BY_GET_DAY = ['Вс', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'] as const
-
-function weekdayTwoLetters(d: Date) {
-  return WEEKDAY_2_BY_GET_DAY[d.getDay()]
-}
 
 function dateKey(d: Date) {
   return format(d, 'yyyy-MM-dd')
@@ -59,69 +61,101 @@ function slugToVehicles(slug: string): Vehicle[] {
   return ['helicopter', 'plane']
 }
 
-function mapShift(row: ApiStaffShift): Omit<StaffShiftUi, 'canDelete' | 'onDelete'> {
+function mapShift(row: ApiStaffShift): Omit<StaffShiftUi, 'canDelete'> {
   return {
     id: row.id,
     name: row.user?.fullName ?? 'Сотрудник',
     vehicles: slugToVehicles(row.simulatorSlug),
     color: row.user?.color ?? '#2563eb',
     userId: row.userId,
+    simulatorSlug: row.simulatorSlug,
+    date: row.date,
   }
 }
 
-function VehicleEmojis({ vehicles }: { vehicles: Vehicle[] }) {
+function VehicleIcons({ vehicles, color }: { vehicles: Vehicle[]; color: string }) {
   return (
-    <span className="inline-flex shrink-0 items-center gap-0.5 text-[0.85rem] leading-none opacity-95">
-      {vehicles.includes('helicopter') ? <span aria-hidden>🚁</span> : null}
-      {vehicles.includes('plane') ? <span aria-hidden>✈️</span> : null}
+    <span className="inline-flex shrink-0 items-center gap-0.5">
+      {vehicles.includes('helicopter') ? (
+        <span
+          className="inline-flex size-[18px] items-center justify-center rounded-full bg-white text-[10px] leading-none shadow-sm"
+          style={{ boxShadow: `inset 0 0 0 1px ${color}` }}
+          aria-hidden
+        >
+          🚁
+        </span>
+      ) : null}
+      {vehicles.includes('plane') ? (
+        <span
+          className="inline-flex size-[18px] items-center justify-center rounded-full bg-white shadow-sm"
+          style={{ boxShadow: `inset 0 0 0 1px ${color}`, color }}
+          aria-hidden
+        >
+          <Plane className="size-2.5" strokeWidth={2.5} />
+        </span>
+      ) : null}
     </span>
   )
 }
 
-function ShiftRecordMenu({
+function ShiftChip({
   shift,
-  canDelete,
-  onDelete,
+  onRequestDelete,
+  highlighted,
 }: {
   shift: StaffShiftUi
-  canDelete: boolean
-  onDelete: () => void
+  onRequestDelete: () => void
+  highlighted?: boolean
 }) {
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <button
-          type="button"
-          style={{ backgroundColor: shift.color }}
-          className="flex min-h-8 w-full min-w-0 items-center gap-1.5 rounded-full px-2.5 py-1 text-left text-xs font-medium text-white shadow-sm outline-none ring-offset-background focus-visible:ring-2 focus-visible:ring-ring"
-          aria-label={`${shift.name}, действия`}
-        >
-          <span className="min-w-0 flex-1 truncate">{shift.name}</span>
-          <VehicleEmojis vehicles={shift.vehicles} />
-        </button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-44">
-        <DropdownMenuItem disabled>Просмотр</DropdownMenuItem>
-        {canDelete ? (
-          <DropdownMenuItem
-            className="text-destructive focus:bg-destructive/10 focus:text-destructive"
-            onClick={onDelete}
+    <div
+      data-highlight-id={shift.id}
+      className={cn(
+        'rounded-md',
+        highlighted && 'bg-primary/10 ring-2 ring-inset ring-primary/50',
+      )}
+    >
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <button
+            type="button"
+            className="flex min-h-8 w-full min-w-0 items-center gap-1.5 rounded-md border px-2 py-1 text-left text-xs font-medium outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring"
+            style={{
+              backgroundColor: `color-mix(in srgb, ${shift.color} 14%, white)`,
+              borderColor: `color-mix(in srgb, ${shift.color} 38%, transparent)`,
+              color: shift.color,
+            }}
+            aria-label={`${shift.name}, действия`}
           >
-            Удалить
-          </DropdownMenuItem>
-        ) : null}
-      </DropdownMenuContent>
-    </DropdownMenu>
+            <span className="min-w-0 flex-1 truncate">{shift.name}</span>
+            <VehicleIcons vehicles={shift.vehicles} color={shift.color} />
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="w-44">
+          <DropdownMenuItem disabled>Просмотр</DropdownMenuItem>
+          {shift.canDelete ? (
+            <DropdownMenuItem
+              className="text-destructive focus:bg-destructive/10 focus:text-destructive"
+              onClick={onRequestDelete}
+            >
+              Удалить
+            </DropdownMenuItem>
+          ) : null}
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </div>
   )
 }
 
-function DayCell({
+function DayCard({
   day,
   displayMonth,
   shifts,
   expanded,
   onToggleExpand,
   onAddDay,
+  onRequestDelete,
+  highlightId,
 }: {
   day: Date
   displayMonth: Date
@@ -129,87 +163,97 @@ function DayCell({
   expanded: boolean
   onToggleExpand: () => void
   onAddDay: () => void
+  onRequestDelete: (shift: StaffShiftUi) => void
+  highlightId?: string | null
 }) {
   const inMonth = isSameMonth(day, displayMonth)
   const weekend = isWeekend(day)
+  const today = isToday(day)
   const count = shifts.length
   const dayNum = format(day, 'd', { locale: ru })
-  const dowShort = weekdayTwoLetters(day)
+  const visible = expanded || count <= 2 ? shifts : shifts.slice(0, 2)
+  const hiddenCount = expanded ? 0 : Math.max(0, count - 2)
 
   return (
-    <div className={cn('flex min-h-[132px] flex-col bg-background p-2', !inMonth && 'bg-muted/30')}>
-      <div className="mb-2 flex items-start justify-between gap-1">
-        <div
-          className={cn(
-            'text-xs font-medium leading-tight tabular-nums',
-            !inMonth && 'text-muted-foreground',
-            inMonth && weekend && 'text-red-600',
-            inMonth && !weekend && 'text-foreground',
-          )}
-        >
-          {dayNum} <span>{dowShort}</span>
+    <div
+      className={cn(
+        'flex min-h-[148px] flex-col rounded-lg border bg-background p-2.5 transition-colors',
+        !inMonth && 'border-transparent bg-muted/25 opacity-55',
+        inMonth && 'border-border/70 shadow-[0_1px_0_hsl(var(--border)/0.6)]',
+        today && inMonth && 'border-primary/40 bg-primary/[0.03] ring-1 ring-primary/20',
+      )}
+    >
+      <div className="mb-2 flex items-center justify-between gap-1">
+        <div className="flex items-baseline gap-1.5">
+          <span
+            className={cn(
+              'text-sm font-semibold tabular-nums leading-none',
+              !inMonth && 'text-muted-foreground',
+              inMonth && weekend && 'text-destructive',
+              inMonth && !weekend && 'text-foreground',
+            )}
+          >
+            {dayNum}
+          </span>
+          <span className="text-[11px] text-muted-foreground">{WEEKDAY_LABELS[(day.getDay() + 6) % 7]}</span>
         </div>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          className="size-7 shrink-0 text-muted-foreground hover:text-foreground"
-          aria-label="Добавить запись"
-          onClick={onAddDay}
-        >
-          <Plus className="size-4" />
-        </Button>
-      </div>
-
-      <div className="flex flex-1 flex-col gap-1">
-        {count === 0 ? (
+        {inMonth ? (
           <button
             type="button"
+            className="inline-flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+            aria-label="Добавить запись"
             onClick={onAddDay}
-            className="flex min-h-10 w-full items-center justify-center rounded-full border border-dashed border-muted-foreground/25 bg-muted/40 text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
           >
             <Plus className="size-4" />
-            <span className="sr-only">Добавить смену</span>
           </button>
-        ) : count === 1 ? (
-          <ShiftRecordMenu shift={shifts[0]} canDelete={shifts[0].canDelete} onDelete={shifts[0].onDelete} />
-        ) : expanded ? (
-          <div className="flex flex-col gap-1">
-            <div className="flex justify-end">
-              <Button
-                type="button"
-                variant="outline"
-                size="icon"
-                className="size-8 shrink-0"
-                aria-label="Свернуть список записей"
-                onClick={onToggleExpand}
-              >
-                <ChevronUp className="size-4" />
-              </Button>
-            </div>
-            {shifts.map((s) => (
-              <ShiftRecordMenu key={s.id} shift={s} canDelete={s.canDelete} onDelete={s.onDelete} />
-            ))}
-          </div>
         ) : (
-          <div className="flex flex-col gap-1">
-            <div className="flex items-center gap-1">
-              <div className="min-w-0 flex-1">
-                <ShiftRecordMenu shift={shifts[0]} canDelete={shifts[0].canDelete} onDelete={shifts[0].onDelete} />
-              </div>
-              <Button
+          <span className="size-7" />
+        )}
+      </div>
+
+      <div className="flex flex-1 flex-col gap-1.5">
+        {count === 0 ? (
+          inMonth ? (
+            <button
+              type="button"
+              onClick={onAddDay}
+              className="flex min-h-9 w-full items-center justify-center rounded-md border border-dashed border-border bg-muted/30 text-muted-foreground transition-colors hover:border-primary/30 hover:bg-primary/[0.04] hover:text-foreground"
+            >
+              <Plus className="size-3.5" />
+              <span className="sr-only">Добавить смену</span>
+            </button>
+          ) : null
+        ) : (
+          <>
+            {visible.map((s) => (
+              <ShiftChip
+                key={s.id}
+                shift={s}
+                highlighted={highlightId === s.id}
+                onRequestDelete={() => onRequestDelete(s)}
+              />
+            ))}
+            {hiddenCount > 0 ? (
+              <button
                 type="button"
-                variant="outline"
-                size="icon"
-                className="size-8 shrink-0"
-                aria-label="Развернуть список записей"
                 onClick={onToggleExpand}
+                className="inline-flex items-center justify-center gap-1 rounded-md px-1.5 py-1 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
               >
-                <ChevronDown className="size-4" />
-              </Button>
-            </div>
-            <p className="px-1 text-[10px] text-muted-foreground">+{count - 1} ещё</p>
-          </div>
+                +{hiddenCount} ещё
+                <ChevronDown className="size-3.5" />
+              </button>
+            ) : null}
+            {expanded && count > 2 ? (
+              <button
+                type="button"
+                onClick={onToggleExpand}
+                className="inline-flex items-center justify-center gap-1 rounded-md px-1.5 py-1 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+              >
+                Свернуть
+                <ChevronUp className="size-3.5" />
+              </button>
+            ) : null}
+          </>
         )}
       </div>
     </div>
@@ -218,11 +262,30 @@ function DayCell({
 
 export default function AdminStaffSchedulePage() {
   const { session } = useAdminAuth()
-  const [viewMonth, setViewMonth] = React.useState(() => new Date())
+  const { pushUndo } = useAdminUndo()
+  const [searchParams] = useSearchParams()
+  const dateFromUrl = searchParams.get('date')
+  const [viewMonth, setViewMonth] = React.useState(() => {
+    if (dateFromUrl) {
+      const parsed = parseISO(dateFromUrl)
+      if (!Number.isNaN(parsed.getTime())) return parsed
+    }
+    return new Date()
+  })
   const [expandedByKey, setExpandedByKey] = React.useState<Record<string, boolean>>({})
   const [addForDate, setAddForDate] = React.useState<string | null>(null)
+  const [deleteTarget, setDeleteTarget] = React.useState<StaffShiftUi | null>(null)
+  const [actionBusy, setActionBusy] = React.useState(false)
   const [simulatorSlug, setSimulatorSlug] = React.useState('boeing-737')
   const [pilotId, setPilotId] = React.useState('')
+
+  React.useEffect(() => {
+    if (!dateFromUrl) return
+    const parsed = parseISO(dateFromUrl)
+    if (Number.isNaN(parsed.getTime())) return
+    setViewMonth(parsed)
+    setExpandedByKey((prev) => ({ ...prev, [dateFromUrl]: true }))
+  }, [dateFromUrl])
 
   const monthKey = format(viewMonth, 'yyyy-MM')
   const { data: apiShiftsData, reload } = useLiveData(
@@ -230,6 +293,14 @@ export default function AdminStaffSchedulePage() {
     [monthKey],
   )
   const apiShifts = apiShiftsData ?? []
+  const { highlightId } = useHighlightRow(apiShiftsData !== null)
+
+  React.useEffect(() => {
+    if (!highlightId) return
+    const hit = apiShifts.find((s) => s.id === highlightId)
+    if (!hit) return
+    setExpandedByKey((prev) => ({ ...prev, [hit.date]: true }))
+  }, [highlightId, apiShifts])
 
   const isManager = session?.role === 'ADMIN' || session?.role === 'MANAGER'
   const { data: pilotsData } = useLiveData(
@@ -241,8 +312,12 @@ export default function AdminStaffSchedulePage() {
   const simulatorOptions = React.useMemo(
     () =>
       isManager
-        ? (selectedPilot?.pilotSimulators.length ? selectedPilot.pilotSimulators : ['boeing-737', 'mi-2'])
-        : (session?.user.pilotSimulators.length ? session.user.pilotSimulators : ['boeing-737']),
+        ? selectedPilot?.pilotSimulators.length
+          ? selectedPilot.pilotSimulators
+          : ['boeing-737', 'mi-2']
+        : session?.user.pilotSimulators.length
+          ? session.user.pilotSimulators
+          : ['boeing-737'],
     [isManager, selectedPilot, session?.user.pilotSimulators],
   )
 
@@ -259,25 +334,23 @@ export default function AdminStaffSchedulePage() {
       const canDelete = session
         ? canEditStaffShift(session.role, row.userId, session.userId)
         : false
-      const enriched: StaffShiftUi = {
-        ...ui,
-        canDelete,
-        onDelete: () => {
-          void apiFetch(`/api/admin/staff-shifts/${row.id}`, { method: 'DELETE' }).then(() => reload())
-        },
-      }
       const list = map.get(row.date) ?? []
-      list.push(enriched)
+      list.push({ ...ui, canDelete })
       map.set(row.date, list)
     }
     return map
-  }, [apiShifts, session, reload])
+  }, [apiShifts, session])
 
   const monthStart = startOfMonth(viewMonth)
   const monthEnd = endOfMonth(viewMonth)
   const gridStart = startOfWeek(monthStart, { weekStartsOn: 1 })
   const gridEnd = endOfWeek(monthEnd, { weekStartsOn: 1 })
   const days = eachDayOfInterval({ start: gridStart, end: gridEnd })
+  const weeks = React.useMemo(() => {
+    const chunks: Date[][] = []
+    for (let i = 0; i < days.length; i += 7) chunks.push(days.slice(i, i + 7))
+    return chunks
+  }, [days])
 
   const title = format(viewMonth, 'LLLL yyyy', { locale: ru })
   const titleCased = title.replace(/^(.)/, (c) => c.toUpperCase())
@@ -295,76 +368,129 @@ export default function AdminStaffSchedulePage() {
 
   const submitShift = async () => {
     if (!addForDate || !session) return
-    await apiFetch('/api/admin/staff-shifts', {
-      method: 'POST',
-      body: JSON.stringify({
-        date: addForDate,
-        simulatorSlug,
-        userId: isManager ? pilotId || pilots[0]?.id : session.userId,
-      }),
-    })
-    setAddForDate(null)
-    void reload()
+    setActionBusy(true)
+    try {
+      const created = await apiFetch<ApiStaffShift>('/api/admin/staff-shifts', {
+        method: 'POST',
+        body: JSON.stringify({
+          date: addForDate,
+          simulatorSlug,
+          userId: isManager ? pilotId || pilots[0]?.id : session.userId,
+        }),
+      })
+      pushUndo({
+        label: 'Отменить добавление смены',
+        run: async () => {
+          await apiFetch(`/api/admin/staff-shifts/${created.id}`, { method: 'DELETE' })
+          void reload()
+        },
+      })
+      setAddForDate(null)
+      void reload()
+    } finally {
+      setActionBusy(false)
+    }
+  }
+
+  const confirmDelete = async () => {
+    if (!deleteTarget) return
+    setActionBusy(true)
+    try {
+      const snapshot = deleteTarget
+      await apiFetch(`/api/admin/staff-shifts/${snapshot.id}`, { method: 'DELETE' })
+      pushUndo({
+        label: `Отменить удаление смены «${snapshot.name}»`,
+        run: async () => {
+          await apiFetch('/api/admin/staff-shifts', {
+            method: 'POST',
+            body: JSON.stringify({
+              id: snapshot.id,
+              date: snapshot.date,
+              simulatorSlug: snapshot.simulatorSlug,
+              userId: snapshot.userId,
+            }),
+          })
+          void reload()
+        },
+      })
+      setDeleteTarget(null)
+      void reload()
+    } finally {
+      setActionBusy(false)
+    }
   }
 
   return (
-    <div className="flex w-full min-w-0 flex-col gap-4">
-      {addForDate ? (
-        <div className="flex flex-col gap-2 rounded-lg border bg-background p-4 sm:flex-row sm:items-end">
-          <p className="text-sm font-medium">Смена на {addForDate}</p>
+    <div className="flex w-full min-w-0 flex-col gap-5">
+      <AdminFormModal
+        open={!!addForDate}
+        title="Новая смена"
+        description={addForDate ? `Дата: ${addForDate}` : undefined}
+        size="md"
+        onClose={() => setAddForDate(null)}
+      >
+        <div className="flex flex-col gap-3">
           {isManager ? (
+            <label className="text-sm">
+              <span className="text-muted-foreground">Сотрудник</span>
+              <select
+                className="mt-1 flex h-9 w-full rounded-md border bg-background px-2 text-sm"
+                value={pilotId || pilots[0]?.id || ''}
+                onChange={(e) => setPilotId(e.target.value)}
+              >
+                {pilots.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.fullName}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : null}
+          <label className="text-sm">
+            <span className="text-muted-foreground">Тренажёр</span>
             <select
-              className="h-9 rounded-md border bg-background px-2 text-sm"
-              value={pilotId || pilots[0]?.id || ''}
-              onChange={(e) => setPilotId(e.target.value)}
+              className="mt-1 flex h-9 w-full rounded-md border bg-background px-2 text-sm"
+              value={simulatorSlug}
+              onChange={(e) => setSimulatorSlug(e.target.value)}
             >
-              {pilots.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.fullName}
+              {simulatorOptions.map((slug) => (
+                <option key={slug} value={slug}>
+                  {slug === 'boeing-737' ? 'Boeing 737' : slug === 'mi-2' ? 'Ми-2' : slug}
                 </option>
               ))}
             </select>
-          ) : null}
-          <select
-            className="h-9 rounded-md border bg-background px-2 text-sm"
-            value={simulatorSlug}
-            onChange={(e) => setSimulatorSlug(e.target.value)}
-          >
-            {simulatorOptions.map((slug) => (
-              <option key={slug} value={slug}>
-                {slug === 'boeing-737' ? 'Boeing 737' : slug === 'mi-2' ? 'Ми-2' : slug}
-              </option>
-            ))}
-          </select>
-          <Button type="button" onClick={() => void submitShift()}>
-            Сохранить
-          </Button>
-          <Button type="button" variant="outline" onClick={() => setAddForDate(null)}>
-            Отмена
-          </Button>
+          </label>
+          <div className="flex gap-2 pt-1">
+            <Button type="button" onClick={() => void submitShift()} disabled={actionBusy}>
+              Сохранить
+            </Button>
+            <Button type="button" variant="outline" onClick={() => setAddForDate(null)} disabled={actionBusy}>
+              Отмена
+            </Button>
+          </div>
         </div>
-      ) : null}
+      </AdminFormModal>
 
-      <div className="flex w-full min-w-0 items-center gap-2 sm:gap-6">
+      <div className="flex w-full min-w-0 items-center gap-2 sm:gap-4">
         <Button
           type="button"
           variant="outline"
           size="icon"
-          className="shrink-0"
+          className="size-9 shrink-0 rounded-md"
           aria-label="Предыдущий месяц"
           onClick={() => canGoPrev && setViewMonth((d) => addMonths(d, -1))}
           disabled={!canGoPrev}
         >
-          <ChevronRight className="size-4 rotate-180" />
+          <ChevronLeft className="size-4" />
         </Button>
-        <h2 className="min-w-0 flex-1 truncate text-center text-base font-semibold capitalize leading-tight text-foreground sm:text-lg">
+        <h2 className="min-w-0 flex-1 text-center text-base font-semibold leading-tight text-foreground sm:text-lg">
           {titleCased}
         </h2>
         <Button
           type="button"
           variant="outline"
           size="icon"
-          className="shrink-0"
+          className="size-9 shrink-0 rounded-md"
           aria-label="Следующий месяц"
           onClick={() => canGoNext && setViewMonth((d) => addMonths(d, 1))}
           disabled={!canGoNext}
@@ -373,44 +499,84 @@ export default function AdminStaffSchedulePage() {
         </Button>
       </div>
 
-      <div className="overflow-x-auto rounded-lg border border-border bg-muted/40 p-px">
-        <div className="min-w-[720px]">
-          <div className="grid grid-cols-7 gap-px bg-border">
+      <div className="overflow-x-auto">
+        <div className="min-w-[760px] space-y-3">
+          <div className="grid grid-cols-7 gap-2 px-0.5">
             {WEEKDAY_LABELS.map((w) => (
               <div
                 key={w}
-                className="bg-muted/50 px-2 py-2 text-center text-xs font-semibold text-muted-foreground"
+                className="px-1 text-center text-[11px] font-medium uppercase tracking-wide text-muted-foreground"
               >
                 {w}
               </div>
             ))}
           </div>
-          <div className="grid grid-cols-7 gap-px bg-border">
-            {days.map((day) => {
-              const key = dateKey(day)
-              const shifts = shiftsByDate.get(key) ?? []
-              return (
-                <DayCell
-                  key={key}
-                  day={day}
-                  displayMonth={viewMonth}
-                  shifts={shifts}
-                  expanded={!!expandedByKey[key]}
-                  onToggleExpand={() =>
-                    setExpandedByKey((prev) => ({ ...prev, [key]: !prev[key] }))
-                  }
-                  onAddDay={() => tryAddDay(key)}
-                />
-              )
-            })}
-          </div>
+
+          {weeks.map((week) => (
+            <div key={dateKey(week[0])} className="grid grid-cols-7 gap-2">
+              {week.map((day) => {
+                const key = dateKey(day)
+                const shifts = shiftsByDate.get(key) ?? []
+                return (
+                  <DayCard
+                    key={key}
+                    day={day}
+                    displayMonth={viewMonth}
+                    shifts={shifts}
+                    expanded={!!expandedByKey[key]}
+                    onToggleExpand={() =>
+                      setExpandedByKey((prev) => ({ ...prev, [key]: !prev[key] }))
+                    }
+                    onAddDay={() => tryAddDay(key)}
+                    onRequestDelete={setDeleteTarget}
+                    highlightId={highlightId}
+                  />
+                )
+              })}
+            </div>
+          ))}
         </div>
       </div>
 
-      <p className="flex items-center gap-2 text-xs text-muted-foreground">
-        <MoreHorizontal className="size-4 shrink-0 opacity-60" aria-hidden />
-        Изменения сохраняются сразу и видны всем открытым сессиям.
-      </p>
+      <div className="flex flex-wrap items-center gap-4 text-xs text-muted-foreground">
+        <span className="inline-flex items-center gap-1.5">
+          <span className="size-2.5 rounded-sm bg-primary/25 ring-1 ring-primary/35" />
+          Сегодня
+        </span>
+        <span className="inline-flex items-center gap-1.5">
+          <span
+            className="inline-flex size-[18px] items-center justify-center rounded-full bg-white"
+            style={{ boxShadow: 'inset 0 0 0 1px #0891b2', color: '#0891b2' }}
+          >
+            <Plane className="size-2.5" strokeWidth={2.5} />
+          </span>
+          Boeing 737
+        </span>
+        <span className="inline-flex items-center gap-1.5">
+          <span
+            className="inline-flex size-[18px] items-center justify-center rounded-full bg-white text-[10px]"
+            style={{ boxShadow: 'inset 0 0 0 1px #ea580c' }}
+          >
+            🚁
+          </span>
+          Ми-2
+        </span>
+      </div>
+
+      <ConfirmDialog
+        open={!!deleteTarget}
+        title="Удалить смену?"
+        description={
+          deleteTarget
+            ? `Смена «${deleteTarget.name}» на ${deleteTarget.date} будет удалена. Действие можно отменить вверху страницы.`
+            : undefined
+        }
+        confirmLabel="Удалить"
+        destructive
+        busy={actionBusy}
+        onConfirm={() => void confirmDelete()}
+        onCancel={() => setDeleteTarget(null)}
+      />
     </div>
   )
 }

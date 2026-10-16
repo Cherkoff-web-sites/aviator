@@ -10,7 +10,7 @@ import {
 
 function navItemIsActive(pathname: string, to: string) {
   if (to === '/admin') return pathname === '/admin' || pathname === '/admin/'
-  return pathname === to
+  return pathname === to || pathname.startsWith(`${to}/`)
 }
 
 export function NavMain({ items }: { items: AdminNavMainItem[] }) {
@@ -40,7 +40,7 @@ export function NavMain({ items }: { items: AdminNavMainItem[] }) {
                     decoding="async"
                   />
                 </span>
-                <span>{item.title}</span>
+                <span className="min-w-0 flex-1 truncate">{item.title}</span>
               </NavLink>
             </SidebarMenuButton>
           </SidebarMenuItem>

@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom'
 
 import { useGiftCertificateModal } from '../contexts/GiftCertificateModalContext'
 import { FOOTER_SOCIAL_ICONS, SOCIAL_ASSETS } from '../data/socialAssets'
+import { phoneToTelHref, usePublicContacts } from '../hooks/usePublicContacts'
 
 const footerLogoPath = '/assets/header/logo.svg'
 const paymentStripPath = SOCIAL_ASSETS.payments
@@ -9,14 +10,15 @@ const arrowUpIconPath = '/assets/icons/arrow_up.svg'
 
 const MAPS_URL =
   'https://yandex.ru/maps/?text=%D0%9C%D0%B8%D0%BD%D1%81%D0%BA%2C%20%D1%83%D0%BB.%20%D0%98%D0%B3%D0%BE%D1%80%D1%8F%20%D0%9B%D1%83%D1%87%D0%B5%D0%BD%D0%BA%D0%BE%2C%2026'
-const PHONE_HREF = 'tel:+375297131001'
-const EMAIL_HREF = 'mailto:aviator@737.by'
 
 const linkClass = 'text-inherit no-underline transition-opacity hover:opacity-90'
 const externalRel = 'noopener noreferrer'
 
 function SiteFooter() {
   const { openGiftCertificate } = useGiftCertificateModal()
+  const contacts = usePublicContacts()
+  const phoneHref = phoneToTelHref(contacts.phone)
+  const emailHref = `mailto:${contacts.email}`
 
   return (
     <footer className="bg-[#090c0e] text-white">
@@ -111,13 +113,13 @@ function SiteFooter() {
                   <h3 className="mb-3 text-[20px] font-bold">Контакты</h3>
                   <div className="space-y-2 text-[15px] font-medium text-white/90">
                     <p>
-                      <a href={PHONE_HREF} className={linkClass} target="_blank" rel={externalRel}>
-                        +375 29 713 10 01
+                      <a href={phoneHref} className={linkClass} target="_blank" rel={externalRel}>
+                        {contacts.phone}
                       </a>
                     </p>
                     <p>
-                      <a href={EMAIL_HREF} className={linkClass} target="_blank" rel={externalRel}>
-                        aviator@737.by
+                      <a href={emailHref} className={linkClass} target="_blank" rel={externalRel}>
+                        {contacts.email}
                       </a>
                     </p>
                   </div>
@@ -141,8 +143,7 @@ function SiteFooter() {
                 <div>
                   <h3 className="mb-3 text-[20px] font-bold">Режим работы</h3>
                   <div className="space-y-2 text-[15px] font-medium text-white/90">
-                    <p>С 12.00 до 22.00</p>
-                    <p>Ежедневно, без выходных</p>
+                    <p>{contacts.hours}</p>
                     <p>
                       <a href={MAPS_URL} className={linkClass} target="_blank" rel={externalRel}>
                         г. Минск, ул. Игоря Лученко, д. 26
@@ -190,13 +191,13 @@ function SiteFooter() {
               <h3 className="text-[18px] font-bold">Контакты</h3>
               <div className="mt-4 space-y-2 text-sm">
                 <p>
-                  <a href={PHONE_HREF} className={linkClass} target="_blank" rel={externalRel}>
-                    +375 29 713 10 01
+                  <a href={phoneHref} className={linkClass} target="_blank" rel={externalRel}>
+                    {contacts.phone}
                   </a>
                 </p>
                 <p>
-                  <a href={EMAIL_HREF} className={linkClass} target="_blank" rel={externalRel}>
-                    aviator@737.by
+                  <a href={emailHref} className={linkClass} target="_blank" rel={externalRel}>
+                    {contacts.email}
                   </a>
                 </p>
               </div>
@@ -219,8 +220,7 @@ function SiteFooter() {
             <div className="text-right">
               <h3 className="text-[18px] font-bold">Режим работы</h3>
               <div className="mt-4 space-y-2 text-sm text-white/85">
-                <p>С 12.00 до 22.00</p>
-                <p>Ежедневно, без выходных</p>
+                <p>{contacts.hours}</p>
                 <p>
                   <a href={MAPS_URL} className={linkClass} target="_blank" rel={externalRel}>
                     г. Минск, ул. Игоря Лученко, д. 26

@@ -14,6 +14,7 @@ import AdminAccountsPage from './pages/admin/AdminAccountsPage'
 import AdminCertificatesPage from './pages/admin/AdminCertificatesPage'
 import AdminDashboardPage from './pages/admin/AdminDashboardPage'
 import AdminAnalyticsPage from './pages/admin/AdminAnalyticsPage'
+import AdminNotificationsPage from './pages/admin/AdminNotificationsPage'
 import AdminMaintenancePage from './pages/admin/AdminMaintenancePage'
 import AdminPricesPromosPage from './pages/admin/AdminPricesPromosPage'
 import AdminSectionPage from './pages/admin/AdminSectionPage'
@@ -21,6 +22,7 @@ import AdminSettingsPage from './pages/admin/AdminSettingsPage'
 import AdminStaffSchedulePage from './pages/admin/AdminStaffSchedulePage'
 import AdminScheduleSettingsPage from './pages/admin/AdminScheduleSettingsPage'
 import AdminWaitingRoomPage from './pages/admin/AdminWaitingRoomPage'
+import AdminArchivePage from './pages/admin/AdminArchivePage'
 import { ADMIN_NAV_MAIN } from './data/adminNav'
 import ContactsPage from './pages/ContactsPage'
 import FaqPage from './pages/FaqPage'
@@ -53,6 +55,8 @@ function App() {
                   <Route path="accounts" element={<AdminAccountsPage />} />
                   <Route path="maintenance" element={<AdminMaintenancePage />} />
                   <Route path="analytics" element={<AdminAnalyticsPage />} />
+                  <Route path="notifications" element={<AdminNotificationsPage />} />
+                  <Route path="archive" element={<AdminArchivePage />} />
                   {ADMIN_NAV_MAIN.filter(
                     (item) =>
                       item.to !== '/admin' &&
