@@ -1,36 +1,10 @@
 import { randomUUID } from 'node:crypto'
 import { addDays } from 'date-fns'
-import type { DataStore, UserRole } from '../types.js'
+import type { ArchiveEntry, ArchiveSectionKey, DataStore, UserRole } from '../types.js'
+
+export type { ArchiveEntry, ArchiveSectionKey }
 
 export const ARCHIVE_RETENTION_DAYS = 30
-
-/** Секция архива = страница-источник удаления. */
-export type ArchiveSectionKey =
-  | 'bookings'
-  | 'certificates'
-  | 'waiting_room'
-  | 'staff_shifts'
-  | 'maintenance'
-  | 'schedule_settings'
-  | 'accounts'
-  | 'prices_promos'
-
-export type ArchiveEntry = {
-  id: string
-  section: ArchiveSectionKey
-  /** Подтип внутри секции (например flight_prices / promos). */
-  kind?: string
-  entityId: string
-  title: string
-  summary: string
-  payload: unknown
-  deletedAt: string
-  expiresAt: string
-  deletedByUserId?: string
-  deletedByName?: string
-  /** Путь страницы-источника для ACL. */
-  sourcePath: string
-}
 
 export const ARCHIVE_SECTION_META: Record<
   ArchiveSectionKey,

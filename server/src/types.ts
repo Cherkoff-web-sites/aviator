@@ -181,10 +181,21 @@ export type AdminNotification = {
   meta?: Record<string, string>
 }
 
+/** Секция архива = страница-источник удаления. */
+export type ArchiveSectionKey =
+  | 'bookings'
+  | 'certificates'
+  | 'waiting_room'
+  | 'staff_shifts'
+  | 'maintenance'
+  | 'schedule_settings'
+  | 'accounts'
+  | 'prices_promos'
+
 /** Запись архива удалений (см. lib/archive.ts). */
 export type ArchiveEntry = {
   id: string
-  section: string
+  section: ArchiveSectionKey
   kind?: string
   entityId: string
   title: string
