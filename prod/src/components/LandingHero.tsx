@@ -20,14 +20,7 @@ function LandingHero() {
         className="absolute inset-0 h-full w-full object-cover"
         style={{ objectPosition: '87% 50%' }}
       />
-      <div
-        className="absolute inset-0"
-        style={{
-          background:
-            'linear-gradient(105deg, rgba(0, 45, 98, 0.88) 0%, rgba(0, 45, 98, 0.55) 42%, rgba(21, 24, 36, 0.25) 72%, rgba(21, 24, 36, 0.15) 100%)',
-        }}
-      />
-      <div className="absolute inset-0 bg-gradient-to-t from-black/50 via-transparent to-black/25" />
+      <div className="absolute inset-0 bg-gradient-to-t from-black/55 via-black/20 to-black/35" />
 
       <div className="container-app relative z-10 flex flex-1 flex-col justify-end pb-14 pt-[120px] min-[990px]:pb-20 min-[990px]:pt-[140px]">
         <div className="max-w-[640px] animate-[fadeUp_0.7s_ease-out_both]">
@@ -38,12 +31,11 @@ function LandingHero() {
             AVIATOR
           </p>
           <h1 className="mt-3 text-[clamp(1.35rem,2.8vw,2rem)] font-semibold leading-snug text-white/95 min-[990px]:mt-4">
-            Авиатренажёры в Минске
+            Профессиональные авиатренажеры в Минске
           </h1>
-          <p className="mt-4 max-w-[480px] text-[15px] leading-relaxed text-white/85 min-[990px]:mt-5 min-[990px]:text-lg">
-            Станьте пилотом Boeing 737 или вертолёта Ми-2
-            <br />
-            Забронируйте полет за 2 минуты
+          <p className="mt-4 max-w-[520px] text-[15px] leading-relaxed text-white/85 min-[990px]:mt-5 min-[990px]:text-lg">
+            Погрузитесь в небо и откройте для себя увлекательный мир авиации – почувствуйте себя
+            пилотом Boeing 737 или вертолета Ми-2.
           </p>
 
           <div className="mt-8 flex flex-col gap-3 min-[520px]:flex-row min-[520px]:items-center min-[990px]:mt-10">
@@ -58,7 +50,7 @@ function LandingHero() {
               to="/simulators"
               className="btn-outline-light h-12 px-9 text-lg font-medium"
             >
-              Посмотреть тренажёры <span className="ml-2">→</span>
+              Посмотреть тренажеры <span className="ml-2">→</span>
             </Link>
           </div>
 
@@ -67,7 +59,7 @@ function LandingHero() {
             onClick={() => openGiftCertificate()}
             className="mt-5 text-left text-[15px] font-medium text-white/80 underline-offset-4 transition-colors hover:text-white hover:underline min-[990px]:text-base"
           >
-            Подарочный сертификат — идеальный подарок пилоту →
+            Подарите небо родным и близким →
           </button>
         </div>
       </div>

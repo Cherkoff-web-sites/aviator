@@ -24,13 +24,18 @@ import AdminScheduleSettingsPage from './pages/admin/AdminScheduleSettingsPage'
 import AdminWaitingRoomPage from './pages/admin/AdminWaitingRoomPage'
 import AdminArchivePage from './pages/admin/AdminArchivePage'
 import { ADMIN_NAV_MAIN } from './data/adminNav'
+import AgreementPage from './pages/AgreementPage'
 import ContactsPage from './pages/ContactsPage'
 import FaqPage from './pages/FaqPage'
 import GalleryPage from './pages/GalleryPage'
 import HomePage from './pages/HomePage'
 import PricesPage from './pages/PricesPage'
+import PrivacyPage from './pages/PrivacyPage'
+import RulesPage from './pages/RulesPage'
 import SimulatorPage from './pages/SimulatorPage'
 import SimulatorsPage from './pages/SimulatorsPage'
+/** TEMP: удаляемая фича локальной замены фото — см. features/dev-photo-edit */
+import DevPhotoEdit from './features/dev-photo-edit/DevPhotoEdit'
 
 function App() {
   return (
@@ -82,6 +87,9 @@ function App() {
                 <Route path="/prices" element={<PricesPage />} />
                 <Route path="/contacts" element={<ContactsPage />} />
                 <Route path="/faq" element={<FaqPage />} />
+                <Route path="/documents/rules" element={<RulesPage />} />
+                <Route path="/documents/privacy" element={<PrivacyPage />} />
+                <Route path="/documents/agreement" element={<AgreementPage />} />
                 <Route path="/simulator/:slug" element={<SimulatorPage />} />
               </Routes>
             </div>
@@ -89,6 +97,8 @@ function App() {
             <GiftCertificateModal />
             <FeedbackWidget />
             <CookieConsent />
+            {/* TEMP: убрать вместе с features/dev-photo-edit */}
+            <DevPhotoEdit />
           </GiftCertificateModalProvider>
         </BookingModalProvider>
         </AdminAuthProvider>

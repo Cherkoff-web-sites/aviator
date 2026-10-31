@@ -402,17 +402,19 @@ function GiftCertificateModal() {
                       <span>
                         Настоящим подтверждаю согласие с{' '}
                         <a
-                          href="#"
+                          href="/documents/privacy"
+                          target="_blank"
+                          rel="noopener noreferrer"
                           className="text-[#1D56BE] underline"
-                          onClick={(e) => e.preventDefault()}
                         >
                           Правилами по обработке персональных данных
                         </a>{' '}
                         и{' '}
                         <a
-                          href="#"
+                          href="/documents/agreement"
+                          target="_blank"
+                          rel="noopener noreferrer"
                           className="text-[#1D56BE] underline"
-                          onClick={(e) => e.preventDefault()}
                         >
                           Офертой
                         </a>

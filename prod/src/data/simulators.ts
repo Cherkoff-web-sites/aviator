@@ -19,6 +19,8 @@ export interface SimulatorPricingPlan {
   /** Текст между разделителями (например «Базовый минимум») */
   ribbon?: string
   highlighted?: boolean
+  /** Пункты тарифа; если нет — берутся features блока */
+  features?: string[]
 }
 
 export interface SimulatorPricingBlock {
@@ -31,6 +33,12 @@ export interface SimulatorPricingBlock {
   plans: SimulatorPricingPlan[]
 }
 
+export interface SimulatorHighlight {
+  iconSrc: string
+  title: string
+  description: string
+}
+
 export interface Simulator {
   slug: string
   title: string
@@ -39,6 +47,9 @@ export interface Simulator {
   image: string
   pageHeading: string
   pageDescription: string
+  /** CTA «Новые эмоции…» — заголовок над кнопкой брони */
+  ctaTitle: string
+  highlights: SimulatorHighlight[]
   /** Блок «Профессиональная запись…» — свои тексты и 3 фото */
   photoSlider: {
     title: string
@@ -57,7 +68,7 @@ export const SIMULATOR_PAGE_SECTION_VARIANTS: readonly SimulatorSplitVariant[] =
   'text-left',
   'image-left',
   'text-left',
-]
+] as const
 
 /** Иконки секций: 1 — rocket, 2 — samolet, 3 — people (одинаково на всех страницах тренажёров) */
 const SECTION_ICONS = [
@@ -66,21 +77,65 @@ const SECTION_ICONS = [
   '/assets/icons/people.svg',
 ] as const
 
-const MI2_PRICING_FEATURES = [
-  'Полет по кругу',
-  'Запуск с ВПП',
-  'Брифинг',
-  'Послеполетный разбор',
-  'Фото и видео',
-] as const
+const HIGHLIGHT_ICONS = {
+  check: '/assets/icons/icon_check.svg',
+  scenarios: '/assets/icons/icon_scenarios.svg',
+  equipment: '/assets/icons/icon_equipment.svg',
+} as const
 
-const BOEING_PRICING_FEATURES = [
-  'Полноразмерная кабина 737',
-  'Инструктор на весь сеанс',
-  'Выбор аэропорта и погоды',
-  'Работа автопилота',
-  'Фото и видео',
-] as const
+const MI2_HIGHLIGHTS: SimulatorHighlight[] = [
+  {
+    iconSrc: HIGHLIGHT_ICONS.check,
+    title: 'Профессиональная подготовка',
+    description: 'Возможность отработки стандартных и нестандартных процедур',
+  },
+  {
+    iconSrc: HIGHLIGHT_ICONS.scenarios,
+    title: 'Разнообразные сценарии',
+    description: 'Любая точка земного шара и реалистичные погодные условия по всему миру',
+  },
+  {
+    iconSrc: HIGHLIGHT_ICONS.equipment,
+    title: 'Современное оборудование',
+    description: 'Новейшие технологии для максимальной реалистичности',
+  },
+]
+
+const BOEING_HIGHLIGHTS: SimulatorHighlight[] = [
+  {
+    iconSrc: HIGHLIGHT_ICONS.check,
+    title: 'Профессиональная подготовка',
+    description: 'Возможность отработки стандартных и нестандартных процедур',
+  },
+  {
+    iconSrc: HIGHLIGHT_ICONS.scenarios,
+    title: 'Разнообразные сценарии',
+    description: 'Любой аэропорт мира',
+  },
+  {
+    iconSrc: HIGHLIGHT_ICONS.equipment,
+    title: 'Современное оборудование',
+    description: 'Новейшие технологии для максимальной реалистичности',
+  },
+]
+
+const SCHOOL_HIGHLIGHTS: SimulatorHighlight[] = [
+  {
+    iconSrc: HIGHLIGHT_ICONS.check,
+    title: 'Профессиональная подготовка',
+    description: 'Возможность отработки стандартных и нестандартных процедур',
+  },
+  {
+    iconSrc: HIGHLIGHT_ICONS.scenarios,
+    title: 'Разнообразные сценарии',
+    description: 'Более 100 аэропортов и реалистичные погодные условия по всему миру',
+  },
+  {
+    iconSrc: HIGHLIGHT_ICONS.equipment,
+    title: 'Современное оборудование',
+    description: 'Новейшие технологии для максимальной реалистичности',
+  },
+]
 
 const SCHOOL_PRICING_FEATURES = [
   'Учебные материалы',
@@ -98,11 +153,12 @@ export const simulators: Simulator[] = [
     image: '/assets/simulator/mi_2.webp',
     pageHeading: 'Ми-2',
     pageDescription:
-      'Почувствуйте себя пилотом вертолёта в полноразмерном тренажёре. Реалистичная кабина, профессиональные инструкторы и незабываемые впечатления.',
+      'Легендарный Ми-2 в формате полноразмерного авиатренажёра.',
+    ctaTitle: 'Ваше приключение начинается здесь',
+    highlights: MI2_HIGHLIGHTS,
     photoSlider: {
       title: 'Профессиональная запись полета',
-      description:
-        'HD-видео вашего полёта, включая работу приборов и ваши действия на органах управления — чтобы пересматривать, анализировать и делиться этой эмоцией.',
+      description: 'В кабине разрешена фото- и видеосъемка.',
       images: [
         '/assets/simulator/photo_sm_mi2_1.png',
         '/assets/simulator/photo_sm_mi2_2.png',
@@ -114,11 +170,36 @@ export const simulators: Simulator[] = [
       backgroundImage: '/assets/simulator/sm_price_2.webp',
       headingIcon: '/assets/icons/vertolet.svg',
       headingTitle: 'Авиатренажер Ми-2',
-      headingSubtitle: 'Настоящая кабина вертолета Ми-2',
-      features: [...MI2_PRICING_FEATURES],
+      headingSubtitle:
+        'К самостоятельному управлению допускаются взрослые и дети с 10 лет',
+      features: [],
       plans: [
-        { durationLabel: '30 минут', priceDisplay: 'Б 170 BYN', ribbon: 'Базовый минимум' },
-        { durationLabel: '60 минут', priceDisplay: 'Б 300 BYN', highlighted: true, ribbon: 'Базовый минимум' },
+        {
+          durationLabel: '30 минут',
+          priceDisplay: 'Б 170 BYN',
+          ribbon: 'Идеально для первого знакомства с авиатренажером',
+          features: [
+            'Знакомство с кабиной и инструктаж (3-5 мин)',
+            'Любая локация земного шара без привязки к аэропортам',
+            '2 пассажира',
+            'Возможна отработка нештатных ситуаций',
+            'Фото- и видеосъемка',
+          ],
+        },
+        {
+          durationLabel: '60 минут',
+          priceDisplay: 'Б 300 BYN',
+          highlighted: true,
+          ribbon: 'Полноценный полет',
+          features: [
+            'Инструктаж (5-10 мин) и запуск вертолета с «холодной прокрутки»',
+            'Несколько локаций земного шара',
+            '2 пассажира',
+            'Отработка «зависания» в воздухе',
+            'Возможна отработка нештатных ситуаций',
+            'Фото- и видеосъемка',
+          ],
+        },
       ],
     },
     sections: [
@@ -127,7 +208,7 @@ export const simulators: Simulator[] = [
         iconSrc: SECTION_ICONS[0],
         title: 'О тренажёре',
         paragraphs: [
-          'Тренажёр Ми-2 создан на основе реальной кабины и полностью повторяет конструкцию, приборы и управление вертолётом. Физическая модель полёта передаёт вибрации, реакции на рыскание, работу шаг-газ, влияние ветра и другие нюансы пилотирования лёгкого вертолёта.',
+          'В основе нашего симулятора — подлинная кабина легендарного Ми-2. Это не копия, а настоящий фюзеляж с оригинальными приборами, тумблерами и рычагами управления. Каждое ваше действие вызывает мгновенный отклик системы, а передовая визуализация стирает грань между реальностью и графикой. Выбирайте свой маршрут: от заснеженных горных пиков до мегаполисов, залитых огнями ночного города.',
         ],
         image: '/assets/simulator/sm_4.webp',
       },
@@ -136,13 +217,13 @@ export const simulators: Simulator[] = [
         iconSrc: '/assets/icons/vertolet.svg',
         title: 'Полноразмерная кабина Ми-2',
         paragraphs: [
-          'Полноразмерная кабина Ми-2 — с оригинальными приборами, переключателями, системой управления. Визуальная система отображает полёт с различными погодными условиями, временем суток и рельефом местности.',
+          'Почувствуйте металл и вес реального управления. Мы сохранили каждую деталь кабины Ми-2, чтобы вы могли ощутить себя настоящим пилотом.',
         ],
         bulletPoints: [
-          'Полная симуляция приборов Ми-2',
-          'Реалистичная динамика полёта лёгкого вертолёта',
-          'Управление шаг-газом, педалями и ручкой циклического шага',
-          '180° визуальная система',
+          'Полностью закрытая кабина отсекает внешний мир, обеспечивая 100% погружение в атмосферу полёта.',
+          'Точная математическая модель передаёт каждое движение, поведение и реакцию вертолёта в воздухе.',
+          'Профессиональная панорамная визуализация и объёмный звук создают полную иллюзию реального полета.',
+          'Уникальная возможность почувствовать себя пилотом вертолета, а также отработать любые нештатные ситуации — от отказа систем до экстремальных погодных условий.',
         ],
         image: '/assets/simulator/sm_5.webp',
       },
@@ -151,13 +232,13 @@ export const simulators: Simulator[] = [
         iconSrc: SECTION_ICONS[2],
         title: 'Профессиональные инструкторы',
         paragraphs: [
-          'Обучение проходит под руководством инструкторов с опытом реального пилотирования вертолётов.',
+          'Забудьте о сухой теории. Осуществите полет под руководством действующих пилотов и сертифицированных инструкторов, имеющих за плечами тысячи часов реального налёта.',
         ],
         bulletPoints: [
-          'Реальные пилоты и сертифицированные инструкторы',
-          'Индивидуальные занятия',
-          'Пошаговый разбор ошибок после полёта',
-          'Программы как для новичков, так и для профессионалов',
+          'Летайте с профессионалами, которые знают вертолет изнутри.',
+          'Каждый полет проходит в индивидуальном формате.',
+          'Понятный инструктаж и сопровождение на протяжении всего полета',
+          'Адаптивные программы — от первого знакомства с кабиной до отработки сложных навыков для профессионалов.',
         ],
         image: '/assets/simulator/sm_6.webp',
       },
@@ -170,10 +251,12 @@ export const simulators: Simulator[] = [
     image: '/assets/simulator/boeing_737.webp',
     pageHeading: 'Boeing 737NG',
     pageDescription:
-      'Почувствуйте себя настоящим пилотом в полноразмерном авиасимуляторе. Реалистичная кабина, профессиональные инструкторы и незабываемые впечатления.',
+      'Почувствуйте мощь Boeing 737: профессиональный авиатренажер мирового бестселлера авиации.',
+    ctaTitle: 'Кресло капитана ждет тебя',
+    highlights: BOEING_HIGHLIGHTS,
     photoSlider: {
       title: 'Погрузитесь в атмосферу Boeing 737NG',
-      description: 'Посмотрите фото, видео и панораму кабины Boeing 737NG',
+      description: '',
       images: [
         '/assets/simulator/photo_sm_1.webp',
         '/assets/simulator/photo_sm_2.webp',
@@ -184,25 +267,71 @@ export const simulators: Simulator[] = [
     pricingBlock: {
       backgroundImage: '/assets/simulator/sm_price_1.webp',
       headingIcon: '/assets/icons/samolet.svg',
-      headingTitle: 'Авиатренажёр Boeing 737NG',
-      headingSubtitle: 'Полноразмерная кабина пассажирского лайнера',
-      features: [...BOEING_PRICING_FEATURES],
+      headingTitle: 'Авиатренажер Boeing 737',
+      headingSubtitle:
+        'К самостоятельному управлению допускаются взрослые и дети с 8 лет',
+      features: [],
       plans: [
-        { durationLabel: '30 минут', priceDisplay: 'Б 200 BYN', ribbon: 'Базовый минимум' },
-        { durationLabel: '60 минут', priceDisplay: 'Б 350 BYN', ribbon: 'Базовый минимум' },
-        { durationLabel: '90 минут', priceDisplay: 'Б 480 BYN', highlighted: true, ribbon: 'Базовый минимум' },
-        { durationLabel: '120 минут', priceDisplay: 'Б 600 BYN', ribbon: 'Базовый минимум' },
+        {
+          durationLabel: '30 минут',
+          priceDisplay: 'Б 170 BYN',
+          ribbon: 'Ознакомительный полет',
+          features: [
+            'Знакомство с кабиной и инструктаж (3-5 мин)',
+            'Любой аэропорт мира и погода',
+            '4 пассажира',
+            'Возможна отработка нештатных ситуаций',
+            'Фото- и видеосъемка',
+          ],
+        },
+        {
+          durationLabel: '60 минут',
+          priceDisplay: 'Б 300 BYN',
+          ribbon: 'Полноценный полет',
+          features: [
+            'Инструктаж (7-15 мин) с запуском двигателей',
+            'Любой аэропорт мира и погода',
+            '4 пассажира',
+            'Возможна отработка нештатных ситуаций',
+            'Фото- и видеосъемка',
+          ],
+        },
+        {
+          durationLabel: '90 минут',
+          priceDisplay: 'Б 400 BYN',
+          highlighted: true,
+          ribbon: 'Для ценителей авиации',
+          features: [
+            'Знакомство с оборудованием',
+            'Запуск двигателей, руление к ВВП',
+            'Любой аэропорт мира и погода',
+            '4 пассажира',
+            'Возможна отработка нештатных ситуаций',
+            'Фото- и видеосъемка',
+          ],
+        },
+        {
+          durationLabel: '120 минут',
+          priceDisplay: 'Б 450 BYN',
+          ribbon: 'Для настоящих фанатов',
+          features: [
+            'Полноценное выполнение рейса со всеми процедурами',
+            'Любой аэропорт мира и погода',
+            '4 пассажира',
+            'Возможна отработка нештатных ситуаций',
+            'Фото- и видеосъемка',
+          ],
+        },
       ],
     },
     sections: [
       {
         variant: 'text-left',
         iconSrc: SECTION_ICONS[0],
-        title: 'Стань пилотом без сложного обучения и риска',
+        title: 'Ваш первый рейс в кресле капитана.',
         paragraphs: [
-          'Хочешь побывать за штурвалом настоящего пассажирского авиалайнера, увидеть взлетную полосу не из окна иллюминатора, а так, как ее видят пилоты?',
-          'Авиатренажер Boeing 737NG позволит почувствовать себя настоящим пилотом воздушного авиалайнера!',
-          'Благодаря особой конструкции кабины, использованию настоящего оборудования для ее оснащения, а также прекрасной визуализации ты сможешь полностью погрузиться в пилотирование',
+          'Мечтали увидеть мир глазами пилота, а не через узкое окно иллюминатора? С Boeing 737NG границы стираются.',
+          'Никаких долгих теорий и рисков — только вы, штурвал и бесконечное небо.',
         ],
         image: '/assets/simulator/sm_1.webp',
       },
@@ -211,13 +340,13 @@ export const simulators: Simulator[] = [
         iconSrc: SECTION_ICONS[1],
         title: 'Полноразмерная кабина Boeing 737NG',
         paragraphs: [
-          'Точная копия реальной кабины пилотов с оригинальными элементами управления',
+          'Мы воссоздали рабочее место пилота с абсолютной точностью, чтобы ничто не отвлекало вас от полета.',
         ],
         bulletPoints: [
-          'Аутентичные панели приборов',
-          'Настоящие переключатели и рычаги',
-          'Полная имитация систем самолета',
-          '180° визуальная система',
+          'Полностью закрытое пространство кабины гарантирует изоляцию от внешнего шума и взглядов, позволяя полностью сосредоточиться на управлении.',
+          'Оригинальные рычаги, тумблеры и панели. Каждая кнопка выполняет свою реальную функцию.',
+          'Панорамный обзор 180° формирует глубокое ощущение полета, при котором каждый маневр и крен воспринимаются всем телом.',
+          'Интеллектуальная имитация всех систем и авионики в точности повторяет логику работы самого массового лайнера в мире.',
         ],
         image: '/assets/simulator/sm_2.webp',
       },
@@ -225,14 +354,12 @@ export const simulators: Simulator[] = [
         variant: 'text-left',
         iconSrc: SECTION_ICONS[2],
         title: 'Профессиональные инструкторы',
-        paragraphs: [
-          'Опытные пилоты с многолетним стажем на реальных Boeing 737NG',
-        ],
+        paragraphs: [],
         bulletPoints: [
-          'Сертифицированные инструкторы',
-          'Опыт более 5000 летных часов',
-          'Индивидуальный подход',
-          'Понятные объяснения',
+          'Вашим вторым пилотом станет эксперт с колоссальным опытом — более 5000 часов налета за штурвалом реального Boeing 737NG.',
+          'Программа полета выстраивается индивидуально, исходя из ваших пожеланий и уровня подготовки.',
+          'Сложные технические нюансы и системы самолета объясняются простым и понятным языком, доступным даже новичку',
+          'По желанию, возможна отработка нештатных ситуаций в неблагоприятных погодных условиях.',
         ],
         image: '/assets/simulator/sm_3.webp',
       },
@@ -246,6 +373,8 @@ export const simulators: Simulator[] = [
     pageHeading: 'Авиашкола',
     pageDescription:
       'Обучение пилотированию с нуля и повышение квалификации. Практика на тренажёрах, опытные преподаватели и современная программа.',
+    ctaTitle: 'Новые эмоции рядом',
+    highlights: SCHOOL_HIGHLIGHTS,
     photoSlider: {
       title: 'Видеозапись занятий на тренажёре',
       description:
@@ -266,7 +395,12 @@ export const simulators: Simulator[] = [
       plans: [
         { durationLabel: '1 занятие', priceDisplay: 'Б 150 BYN', ribbon: 'Базовый минимум' },
         { durationLabel: '4 занятия', priceDisplay: 'Б 520 BYN', ribbon: 'Базовый минимум' },
-        { durationLabel: '8 занятий', priceDisplay: 'Б 960 BYN', highlighted: true, ribbon: 'Базовый минимум' },
+        {
+          durationLabel: '8 занятий',
+          priceDisplay: 'Б 960 BYN',
+          highlighted: true,
+          ribbon: 'Базовый минимум',
+        },
         { durationLabel: '12 занятий', priceDisplay: 'Б 1320 BYN', ribbon: 'Базовый минимум' },
       ],
     },
@@ -309,6 +443,29 @@ export const simulators: Simulator[] = [
     ],
   },
 ]
+
+/** Блок «Полёт 2в1» на странице Цены (30 мин Boeing + 30 мин Ми-2). */
+export const COMBO_PRICING_BLOCK: SimulatorPricingBlock = {
+  backgroundImage: '/assets/simulator/sm_price_2.webp',
+  headingIcon: '/assets/icons/rocket.svg',
+  headingTitle: 'Полёт 2в1',
+  headingSubtitle: '30 минут самолёт + 30 минут вертолёт — один сертификат',
+  features: [],
+  plans: [
+    {
+      durationLabel: '60 минут',
+      priceDisplay: 'Б 370 BYN',
+      highlighted: true,
+      ribbon: '30 мин Boeing 737NG + 30 мин Ми-2',
+      features: [
+        '30 минут на Boeing 737NG',
+        '30 минут на вертолёте Ми-2',
+        'Инструктаж на каждом тренажёре',
+        'Фото- и видеосъемка',
+      ],
+    },
+  ],
+}
 
 for (const sim of simulators) {
   if (sim.sections.length !== SIMULATOR_PAGE_SECTION_VARIANTS.length) {

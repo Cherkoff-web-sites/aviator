@@ -1,30 +1,17 @@
-/** Иконки: положите SVG в `public/assets/icons/` с этими именами (можете заменить заглушки). */
-const HIGHLIGHTS = [
-  {
-    iconSrc: '/assets/icons/icon_check.svg',
-    title: 'Профессиональная подготовка',
-    description: 'Возможность отработки стандартных и нестандартных процедур',
-  },
-  {
-    iconSrc: '/assets/icons/icon_scenarios.svg',
-    title: 'Разнообразные сценарии',
-    description: 'Более 100 аэропортов и реалистичные погодные условия по всему миру',
-  },
-  {
-    iconSrc: '/assets/icons/icon_equipment.svg',
-    title: 'Современное оборудование',
-    description: 'Новейшие технологии для максимальной реалистичности',
-  },
-] as const
+import type { SimulatorHighlight } from '../data/simulators'
 
-function SimulatorHighlightsThree() {
+type Props = {
+  items: readonly SimulatorHighlight[]
+}
+
+function SimulatorHighlightsThree({ items }: Props) {
   return (
     <section data-sim-reveal="cards" className="bg-[#002D62] py-12 text-white min-[990px]:py-16">
       <div className="container-app">
         <div className="grid grid-cols-1 gap-12 min-[990px]:grid-cols-3 min-[990px]:gap-10">
-          {HIGHLIGHTS.map((item) => (
+          {items.map((item) => (
             <div
-              key={item.iconSrc}
+              key={`${item.title}-${item.description}`}
               data-sim-reveal-item
               className="flex flex-col items-center text-center will-change-transform min-[990px]:px-4"
             >

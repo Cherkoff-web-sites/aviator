@@ -49,6 +49,11 @@ export function sanitizeCertificateNumberInput(value: string): string {
   return value.replace(/[^A-Za-zА-Яа-яЁё0-9№#\-]/g, '').replace(/\s+/g, '').slice(0, 32)
 }
 
+/** Только цифры номера сертификата (без буквы серии). */
+export function sanitizeCertificateDigitsInput(value: string): string {
+  return value.replace(/\D/g, '').slice(0, 12)
+}
+
 export function sanitizeNoteInput(value: string): string {
   return value.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, '').slice(0, 500)
 }

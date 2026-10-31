@@ -75,7 +75,10 @@ export default function CookieConsent() {
         <p className="text-sm leading-snug text-white/90">
           Мы используем cookie для корректной работы сайта и улучшения сервиса. Продолжая пользоваться
           сайтом, вы соглашаетесь с{' '}
-          <a href="/faq" className="font-medium text-[#6ea8ff] underline-offset-2 hover:underline">
+          <a
+            href="/documents/privacy"
+            className="font-medium text-[#6ea8ff] underline-offset-2 hover:underline"
+          >
             политикой обработки данных
           </a>
           .

@@ -50,8 +50,8 @@ function SimulatorPage() {
           images={simulator.photoSlider.images}
           galleryTo={simulator.photoSlider.galleryTo}
         />
-        <SimulatorHighlightsThree />
-        <SimulatorCtaBooking />
+        <SimulatorHighlightsThree items={simulator.highlights} />
+        <SimulatorCtaBooking title={simulator.ctaTitle} />
         {simulator.slug !== 'avia-school' ? (
           <SimulatorPricingSection block={simulator.pricingBlock} />
         ) : null}

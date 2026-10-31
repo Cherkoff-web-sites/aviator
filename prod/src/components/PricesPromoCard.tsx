@@ -39,6 +39,8 @@ export type PricesPromoCardProps = {
   discount: string
   lead: string
   terms: string[]
+  /** Заголовок нижнего блока: «Необходимые документы:» / «Ограничения:» */
+  footerTitle?: string
   documentLine: string
   bookingPromo?: 'birthday' | 'happy-hours'
 }
@@ -50,6 +52,7 @@ function PricesPromoCard({
   discount,
   lead,
   terms,
+  footerTitle = 'Необходимые документы:',
   documentLine,
   bookingPromo,
 }: PricesPromoCardProps) {
@@ -90,7 +93,7 @@ function PricesPromoCard({
           <div className="rounded-2xl border border-white/35 px-4 py-4 min-[990px]:px-5 min-[990px]:py-5">
             <div className="flex items-center gap-2">
               {CALENDAR_ICON}
-              <span className="text-[15px] font-semibold min-[990px]:text-[16px]">Необходимые документы:</span>
+              <span className="text-[15px] font-semibold min-[990px]:text-[16px]">{footerTitle}</span>
             </div>
             <div className="mt-3 flex gap-2">
               {CHECK_ICON}

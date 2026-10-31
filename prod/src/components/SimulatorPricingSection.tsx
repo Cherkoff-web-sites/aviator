@@ -1,9 +1,10 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useParams } from 'react-router-dom'
 
 import type { BookingSimulatorSlug } from '../contexts/BookingModalContext'
 import { useBookingModal } from '../contexts/BookingModalContext'
 import { useGiftCertificateModal } from '../contexts/GiftCertificateModalContext'
+import type { GiftCertProductChoice } from './booking/bookingPricing'
 import type { SimulatorPricingBlock, SimulatorPricingPlan } from '../data/simulators'
 
 const ARROW_RIGHT_SRC = '/assets/icons/arrow_right.svg'
@@ -50,13 +51,20 @@ function PricingPlanCard({
   features,
   onBook,
   isFirst,
+  selected,
+  onSelect,
+  /** Несколько тарифов: absolute-рост. Одна карточка (2в1) — в потоке, без выступа из shell. */
+  expand,
 }: {
   plan: SimulatorPricingPlan
   features: string[]
   onBook: () => void
   isFirst: boolean
+  selected: boolean
+  onSelect: () => void
+  expand: boolean
 }) {
-  const hi = Boolean(plan.highlighted)
+  const hi = selected
   const cardRef = useRef<HTMLElement>(null)
   const finePointer = useFinePointer()
 
@@ -71,7 +79,6 @@ function PricingPlanCard({
       const nx = Math.min(1, Math.max(0, e.clientX / window.innerWidth))
       const ny = Math.min(1, Math.max(0, e.clientY / window.innerHeight))
 
-      // Как раньше — мягкий 2-стопный градиент; диапазон чуть шире исходного
       el.style.setProperty('--pricing-ga', `${155 + nx * 58}deg`)
       el.style.setProperty('--pricing-gs1', `${14 + ny * 34}%`)
       el.style.setProperty('--pricing-gs2', `${108 + nx * 62}%`)
@@ -81,68 +88,128 @@ function PricingPlanCard({
     return () => window.removeEventListener('mousemove', onMove)
   }, [finePointer, hi])
 
-  return (
-    <article
-      ref={cardRef}
-      data-sim-reveal-item
-      className={
-        hi
-          ? [
-              'pricing-plan-featured relative z-10 flex min-h-0 flex-col px-5 py-7 text-white',
-              'my-0 min-[990px]:h-[calc(100%+2.5rem)] min-[990px]:self-center min-[990px]:px-6 min-[990px]:py-9',
-            ].join(' ')
-          : [
-              'relative flex h-full min-h-0 flex-col px-5 py-6 text-white min-[990px]:px-5 min-[990px]:py-7',
-              !isFirst ? 'border-t border-white/25 min-[990px]:border-t-0 min-[990px]:border-l' : '',
-            ].join(' ')
-      }
-    >
-      <h3 className="text-[22px] font-bold leading-tight tracking-tight min-[990px]:text-[24px]">
-        {plan.durationLabel}
-      </h3>
-      <p className="mt-2 text-[17px] font-semibold leading-tight min-[990px]:text-[18px]">{plan.priceDisplay}</p>
+  /*
+    Ширина под текст в обоих состояниях одинакова: рамка 1px со всех сторон у обоих
+    (у idle — прозрачная). Featured шире на 0.75rem с каждой стороны (-inset-x-3) и ровно
+    на столько же больше боковой padding (px-5 + 0.75rem = px-8) — текст не переносится иначе.
+  */
+  const featuredClass = expand
+    ? [
+        'pricing-plan-featured z-10 flex min-h-0 flex-col px-5 py-7 text-white outline-none',
+        'relative transition-[top,bottom,left,right,padding,box-shadow] duration-300 ease-out',
+        'min-[990px]:absolute min-[990px]:-inset-x-3 min-[990px]:-top-5 min-[990px]:-bottom-5 min-[990px]:px-8 min-[990px]:py-9',
+      ].join(' ')
+    : [
+        'pricing-plan-featured relative z-10 flex h-full min-h-0 flex-col px-5 py-7 text-white outline-none',
+        'min-[990px]:py-9',
+      ].join(' ')
 
-      {plan.ribbon ? (
-        <p className="mt-3 text-[14px] font-semibold leading-snug text-white/95 min-[990px]:text-[15px]">
-          {plan.ribbon}
-        </p>
+  const idleDivider = !isFirst
+    ? 'border-t-white/25 min-[990px]:border-t-transparent min-[990px]:border-l-white/25'
+    : ''
+
+  const idleClass = expand
+    ? [
+        'relative z-0 flex h-full min-h-0 cursor-pointer flex-col border border-transparent px-5 py-6 text-white outline-none',
+        'transition-[top,bottom,left,right,padding,background-color] duration-300 ease-out hover:bg-white/[0.06]',
+        'min-[990px]:absolute min-[990px]:inset-x-0 min-[990px]:top-0 min-[990px]:bottom-0 min-[990px]:h-auto min-[990px]:py-7',
+        idleDivider,
+      ].join(' ')
+    : [
+        'relative z-0 flex h-full min-h-0 cursor-pointer flex-col border border-transparent px-5 py-6 text-white outline-none',
+        'hover:bg-white/[0.06] min-[990px]:py-7',
+        idleDivider,
+      ].join(' ')
+
+  return (
+    /*
+      Десктоп (несколько тарифов): невидимый якорь задаёт высоту ряда, карточка absolute —
+      рост top/bottom не меняет shell. Одна карточка — обычный поток внутри shell.
+    */
+    <div className="relative h-full min-h-0">
+      {expand ? (
+        <div
+          className="pointer-events-none invisible hidden select-none flex-col border border-transparent px-5 py-7 min-[990px]:flex"
+          aria-hidden
+        >
+          <h3 className="text-[24px] font-bold leading-tight tracking-tight">{plan.durationLabel}</h3>
+          <p className="mt-2 text-[18px] font-semibold leading-tight">{plan.priceDisplay}</p>
+          {plan.ribbon ? (
+            <p className="mt-3 text-[15px] font-semibold leading-snug">{plan.ribbon}</p>
+          ) : null}
+          <div className="my-4 h-px w-full" />
+          <ul className="flex flex-col gap-3 text-[15px] font-medium leading-snug">
+            {features.map((line) => (
+              <li key={line} className="flex gap-2.5">
+                <span className="mt-0.5 size-[18px] shrink-0" />
+                <span>{line}</span>
+              </li>
+            ))}
+          </ul>
+          <div className="mt-8 h-[48px] w-full shrink-0" />
+        </div>
       ) : null}
 
-      <div className={`my-4 h-px w-full ${hi ? 'bg-white/40' : 'bg-white/25'}`} />
-
-      <ul className="flex flex-1 flex-col gap-2.5 text-[14px] font-medium leading-snug min-[990px]:gap-3 min-[990px]:text-[15px]">
-        {features.map((line) => (
-          <li key={line} className="flex gap-2.5">
-            <CheckIcon className="mt-0.5 shrink-0 text-white opacity-95" />
-            <span>{line}</span>
-          </li>
-        ))}
-      </ul>
-
-      <button
-        type="button"
-        onClick={onBook}
-        className={
-          hi
-            ? 'btn-solid-light mt-6 w-full px-4 py-2.5 text-[14px] font-semibold text-[#085DC1] min-[990px]:mt-8 min-[990px]:py-3 min-[990px]:text-[15px]'
-            : 'btn-book-flight mt-6 w-full px-4 py-2.5 text-[14px] font-semibold min-[990px]:mt-8 min-[990px]:py-3 min-[990px]:text-[15px]'
-        }
+      <article
+        ref={cardRef}
+        data-sim-reveal-item
+        onMouseEnter={onSelect}
+        onFocus={onSelect}
+        tabIndex={0}
+        className={hi ? featuredClass : idleClass}
       >
-        Летим
-        <img
-          src={ARROW_RIGHT_SRC}
-          alt=""
-          width={20}
-          height={15}
-          aria-hidden
+        <h3 className="text-[22px] font-bold leading-tight tracking-tight min-[990px]:text-[24px]">
+          {plan.durationLabel}
+        </h3>
+        <p className="mt-2 text-[17px] font-semibold leading-tight min-[990px]:text-[18px]">
+          {plan.priceDisplay}
+        </p>
+
+        {plan.ribbon ? (
+          <p className="mt-3 text-[14px] font-semibold leading-snug text-white/95 min-[990px]:text-[15px]">
+            {plan.ribbon}
+          </p>
+        ) : null}
+
+        <div className={`my-4 h-px w-full ${hi ? 'bg-white/40' : 'bg-white/25'}`} />
+
+        <ul className="flex flex-1 flex-col gap-2.5 text-[14px] font-medium leading-snug min-[990px]:gap-3 min-[990px]:text-[15px]">
+          {features.map((line) => (
+            <li key={line} className="flex gap-2.5">
+              <CheckIcon className="mt-0.5 shrink-0 text-white opacity-95" />
+              <span>{line}</span>
+            </li>
+          ))}
+        </ul>
+
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation()
+            onBook()
+          }}
           className={
             hi
-              ? 'h-[12px] w-auto shrink-0 object-contain [filter:brightness(0)_saturate(100%)_invert(40%)_sepia(98%)_saturate(4000%)_hue-rotate(200deg)_brightness(0.98)_contrast(101%)] min-[990px]:h-[13px]'
-              : 'h-[12px] w-auto shrink-0 object-contain brightness-0 invert min-[990px]:h-[13px]'
+              ? 'btn-solid-light mt-6 w-full px-4 py-2.5 text-[14px] font-semibold text-[#085DC1] min-[990px]:mt-8 min-[990px]:py-3 min-[990px]:text-[15px]'
+              : 'btn-book-flight mt-6 w-full px-4 py-2.5 text-[14px] font-semibold min-[990px]:mt-8 min-[990px]:py-3 min-[990px]:text-[15px]'
           }
-        />
-      </button>
-    </article>
+        >
+          Летим
+          <img
+            src={ARROW_RIGHT_SRC}
+            alt=""
+            width={20}
+            height={15}
+            aria-hidden
+            className={
+              hi
+                ? 'h-[12px] w-auto shrink-0 object-contain [filter:brightness(0)_saturate(100%)_invert(40%)_sepia(98%)_saturate(4000%)_hue-rotate(200deg)_brightness(0.98)_contrast(101%)] min-[990px]:h-[13px]'
+                : 'h-[12px] w-auto shrink-0 object-contain brightness-0 invert min-[990px]:h-[13px]'
+            }
+          />
+        </button>
+      </article>
+    </div>
   )
 }
 
@@ -157,22 +224,79 @@ type Props = {
   layout?: SimulatorPricingSectionLayout
   /** На странице без `:slug` в URL — явно указывает тренажёр для модалки брони. */
   bookingSimulatorSlug?: BookingSimulatorSlug
+  /** Кнопка «Подарить» / действие «Летим» как сертификат (для 2в1 — `both`). */
+  giftProduct?: GiftCertProductChoice | null
+  /** «Летим» открывает сертификат вместо бронирования полёта. */
+  primaryAction?: 'booking' | 'gift'
 }
 
-function SimulatorPricingSection({ block, layout = 'fullBleed', bookingSimulatorSlug }: Props) {
+function defaultPlanIndex(block: SimulatorPricingBlock) {
+  const idx = block.plans.findIndex((p) => p.highlighted)
+  return idx >= 0 ? idx : 0
+}
+
+function SimulatorPricingSection({
+  block,
+  layout = 'fullBleed',
+  bookingSimulatorSlug,
+  giftProduct: giftProductProp,
+  primaryAction = 'booking',
+}: Props) {
   const isContained = layout === 'contained'
   const { openBooking } = useBookingModal()
   const { openGiftCertificate } = useGiftCertificateModal()
   const { slug } = useParams()
+  const defaultIdxRef = useRef(defaultPlanIndex(block))
+  const [selectedIdx, setSelectedIdx] = useState(() => defaultPlanIndex(block))
+  const leaveTimerRef = useRef<number | null>(null)
+
+  useEffect(() => {
+    const idx = defaultPlanIndex(block)
+    defaultIdxRef.current = idx
+    setSelectedIdx(idx)
+  }, [block])
+
+  useEffect(
+    () => () => {
+      if (leaveTimerRef.current != null) window.clearTimeout(leaveTimerRef.current)
+    },
+    [],
+  )
+
+  const selectPlan = (index: number) => {
+    if (leaveTimerRef.current != null) {
+      window.clearTimeout(leaveTimerRef.current)
+      leaveTimerRef.current = null
+    }
+    setSelectedIdx(index)
+  }
+
+  /** Сброс на CTA с небольшой задержкой — иначе при увеличении карточки срабатывает leave и мерцает */
+  const resetToDefaultSoon = () => {
+    if (leaveTimerRef.current != null) window.clearTimeout(leaveTimerRef.current)
+    leaveTimerRef.current = window.setTimeout(() => {
+      setSelectedIdx(defaultIdxRef.current)
+      leaveTimerRef.current = null
+    }, 80)
+  }
 
   const simulatorSlug: BookingSimulatorSlug | null =
     bookingSimulatorSlug ??
     (slug === 'mi-2' || slug === 'boeing-737' || slug === 'avia-school' ? slug : null)
 
-  const giftProduct =
-    simulatorSlug === 'boeing-737' || simulatorSlug === 'mi-2' ? simulatorSlug : null
+  const giftProduct: GiftCertProductChoice | null =
+    giftProductProp !== undefined
+      ? giftProductProp
+      : simulatorSlug === 'boeing-737' || simulatorSlug === 'mi-2'
+        ? simulatorSlug
+        : null
 
   const handleBookPlan = (plan: SimulatorPricingPlan) => {
+    if (primaryAction === 'gift' && giftProduct) {
+      openGiftCertificate({ product: giftProduct })
+      return
+    }
+
     const m = plan.durationLabel.match(/(\d+)\s*минут/)
     if (!m) {
       openBooking(simulatorSlug ? { simulatorSlug } : {})
@@ -187,6 +311,8 @@ function SimulatorPricingSection({ block, layout = 'fullBleed', bookingSimulator
     })
   }
 
+  const planCount = Math.min(4, Math.max(1, block.plans.length))
+
   const inner = (
     <>
       <div
@@ -197,6 +323,7 @@ function SimulatorPricingSection({ block, layout = 'fullBleed', bookingSimulator
           className="absolute inset-0 bg-cover bg-center"
           style={{ backgroundImage: `url(${block.backgroundImage})` }}
         />
+        <div className="absolute inset-0 bg-[#002D62]/35" />
       </div>
 
       <div className={`relative z-[1] ${isContained ? 'px-4 min-[990px]:px-8' : 'container-app'}`}>
@@ -231,23 +358,26 @@ function SimulatorPricingSection({ block, layout = 'fullBleed', bookingSimulator
           ) : null}
         </header>
 
-        <div className="relative flex min-[990px]:my-5 min-[990px]:justify-center">
+        {/* Запас my-5 — место под absolute-выступ featured (только если тарифов > 1) */}
+        <div
+          className={`relative flex min-[990px]:justify-center ${planCount > 1 ? 'min-[990px]:my-5' : ''}`}
+          onMouseLeave={planCount > 1 ? resetToDefaultSoon : undefined}
+        >
           <div
-            className="pricing-plans-shell relative"
-            style={{
-              ['--plan-count' as string]: String(
-                Math.min(4, Math.max(1, block.plans.length)),
-              ),
-            }}
+            className="pricing-plans-shell relative overflow-visible"
+            style={{ ['--plan-count' as string]: String(planCount) }}
           >
-            <div className="pricing-plans-shell__grid">
+            <div className="pricing-plans-shell__grid items-stretch">
               {block.plans.map((plan, index) => (
                 <PricingPlanCard
                   key={plan.durationLabel}
                   plan={plan}
-                  features={block.features}
+                  features={plan.features?.length ? plan.features : block.features}
                   isFirst={index === 0}
+                  selected={index === selectedIdx}
+                  onSelect={() => selectPlan(index)}
                   onBook={() => handleBookPlan(plan)}
+                  expand={planCount > 1}
                 />
               ))}
             </div>

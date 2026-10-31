@@ -2,7 +2,11 @@ import { useParams } from 'react-router-dom'
 
 import { useBookingModal } from '../contexts/BookingModalContext'
 
-function SimulatorCtaBooking() {
+type Props = {
+  title: string
+}
+
+function SimulatorCtaBooking({ title }: Props) {
   const { openBooking } = useBookingModal()
   const { slug } = useParams()
   return (
@@ -12,7 +16,7 @@ function SimulatorCtaBooking() {
           data-sim-reveal-item
           className="max-w-[520px] text-[28px] font-bold leading-tight tracking-tight min-[990px]:text-[40px]"
         >
-          Новые эмоции рядом
+          {title}
         </h2>
         <button
           data-sim-reveal-item

@@ -14,7 +14,7 @@ function FaqPage() {
       <main className="flex min-h-0 flex-1 flex-col pb-12 pt-[72px] text-white min-[990px]:pb-16 min-[990px]:pt-[84px]">
         <PageGradientTitle title="Вопросы и ответы" className="pb-6 min-[990px]:pb-10" />
         <div className="container-app max-w-[800px]">
-          <FaqAccordion items={FAQ_ITEMS} defaultOpenId="real-plane" />
+          <FaqAccordion items={FAQ_ITEMS} defaultOpenId="gift-certificate" />
           <section className="mt-10 text-center min-[990px]:mt-14">
             <h2 className="text-[20px] font-bold leading-tight tracking-tight text-white min-[990px]:text-[24px]">
               Остались вопросы?

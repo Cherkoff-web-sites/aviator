@@ -55,12 +55,55 @@ const DESIGN_BY_SIM: Record<string, CertificateDesignColor[]> = {
   combo: ['lilac'],
 }
 
+const DESIGN_LETTER: Record<CertificateDesignColor, string> = {
+  silver: 'S',
+  turquoise: 'T',
+  gold: 'G',
+  navy: 'N',
+  coral: 'C',
+  emerald: 'E',
+  lilac: 'L',
+}
+
 function defaultDesignColor(simulatorSlug: string, preferred?: string): CertificateDesignColor {
   const allowed = DESIGN_BY_SIM[simulatorSlug] ?? DESIGN_BY_SIM['boeing-737']
   if (preferred && (allowed as string[]).includes(preferred)) {
     return preferred as CertificateDesignColor
   }
   return allowed[0]
+}
+
+function nextCertificateNumber(
+  counter: number,
+  designColor: CertificateDesignColor,
+): string {
+  return `№${DESIGN_LETTER[designColor]}${counter}`
+}
+
+function timeToMins(t: string): number {
+  const [h, m] = t.split(':').map(Number)
+  return (h ?? 0) * 60 + (m ?? 0)
+}
+
+function intervalsOverlap(
+  aStart: string,
+  aDur: number,
+  bStart: string,
+  bDur: number,
+): boolean {
+  const a0 = timeToMins(aStart)
+  const a1 = a0 + aDur
+  const b0 = timeToMins(bStart)
+  const b1 = b0 + (bDur || 0)
+  return a0 < b1 && b0 < a1
+}
+
+function isBookingOccupyingSlot(b: Booking, nowIso: string): boolean {
+  if (b.status === 'CANCELLED' || b.status === 'EXPIRED') return false
+  if (b.status === 'PENDING_CONFIRMATION' && b.holdExpiresAt && b.holdExpiresAt < nowIso) {
+    return false
+  }
+  return true
 }
 
 function expireCertificatesInStore(s: { certificates: Certificate[] }) {
@@ -176,7 +219,11 @@ apiRouter.get('/public/certificates/validate', (req, res) => {
   const number = String(req.query.number ?? '').trim()
   if (!number) return res.status(400).json({ valid: false })
   const store = readStore()
-  const cert = store.certificates.find((c) => c.number === number)
+  const norm = number.replace(/\s/g, '')
+  const cert = store.certificates.find((c) => {
+    const cn = c.number.replace(/\s/g, '')
+    return cn === norm || cn === `№${norm.replace(/^№/, '')}` || cn.replace(/^№/, '') === norm.replace(/^№/, '')
+  })
   if (!cert || cert.status !== 'ACTIVE') return res.json({ valid: false })
   const today = format(startOfDay(new Date()), 'yyyy-MM-dd')
   if (cert.validFrom > today || cert.validTo < today) {
@@ -189,7 +236,32 @@ apiRouter.get('/public/certificates/validate', (req, res) => {
     number: cert.number,
     validFrom: cert.validFrom,
     validTo: cert.validTo,
+    designColor: cert.designColor,
   })
+})
+
+/** Занятые интервалы на дату/тренажёр — для проверки наложений при брони. */
+apiRouter.get('/public/availability', (req, res) => {
+  const date = String(req.query.date ?? '').trim()
+  const simulatorSlug = String(req.query.simulatorSlug ?? '').trim()
+  if (!date || !simulatorSlug) {
+    return res.status(400).json({ error: 'date and simulatorSlug required' })
+  }
+  const nowIso = new Date().toISOString()
+  const store = readStore()
+  const busy = store.bookings
+    .filter(
+      (b) =>
+        b.date === date &&
+        b.simulatorSlug === simulatorSlug &&
+        isBookingOccupyingSlot(b, nowIso),
+    )
+    .map((b) => ({
+      startTime: b.startTime,
+      endTime: b.endTime,
+      durationMin: b.durationMin,
+    }))
+  res.json({ busy })
 })
 
 apiRouter.get('/public/prices/flights', (_req, res) => {
@@ -301,6 +373,21 @@ apiRouter.post('/public/bookings', async (req, res) => {
     res.status(400).json({ error: 'Выбранные дата/время недоступны (ТО или закрытый день)' })
     return
   }
+  const nowIso = new Date().toISOString()
+  const overlap = storeCheck.bookings.some(
+    (b) =>
+      b.date === booking.date &&
+      b.simulatorSlug === booking.simulatorSlug &&
+      isBookingOccupyingSlot(b, nowIso) &&
+      intervalsOverlap(booking.startTime, booking.durationMin, b.startTime, b.durationMin),
+  )
+  if (overlap) {
+    res.status(409).json({
+      error: 'Это время уже занято. Выберите другое время.',
+      code: 'SLOT_TAKEN',
+    })
+    return
+  }
 
   await updateStore((s) => {
     s.bookings.push(booking)
@@ -383,7 +470,11 @@ apiRouter.post('/public/bookings/:id/resend-code', async (req, res) => {
 apiRouter.post('/public/certificates', async (req, res) => {
   const body = req.body
   const store = readStore()
-  const number = `№${store.counters.certificate}`
+  const designColor = defaultDesignColor(
+    String(body.simulatorSlug ?? 'boeing-737'),
+    body.designColor,
+  )
+  const number = nextCertificateNumber(store.counters.certificate, designColor)
   const today = format(startOfDay(new Date()), 'yyyy-MM-dd')
   const validTo = format(addDays(new Date(), 90), 'yyyy-MM-dd')
 
@@ -399,7 +490,7 @@ apiRouter.post('/public/certificates', async (req, res) => {
     validTo,
     simulatorSlug: body.simulatorSlug,
     status: 'ACTIVE',
-    designColor: defaultDesignColor(String(body.simulatorSlug ?? 'boeing-737')),
+    designColor,
     comment: body.comment ?? '',
     createdAt: new Date().toISOString(),
   }
@@ -777,9 +868,12 @@ apiRouter.post('/admin/certificates', requireRoles('ADMIN', 'MANAGER'), async (r
       : 'OFFLINE'
     : 'OFFLINE'
   const simulatorSlug = String(body.simulatorSlug ?? 'boeing-737')
+  const designColor = defaultDesignColor(simulatorSlug, body.designColor)
   const cert: Certificate = {
     id: isRestore ? String(body.id) : newId(),
-    number: body.number ?? `№${readStore().counters.certificate}`,
+    number:
+      body.number ??
+      nextCertificateNumber(readStore().counters.certificate, designColor),
     phone: body.phone,
     fullName: body.fullName,
     durationMin: body.durationMin,
@@ -789,7 +883,7 @@ apiRouter.post('/admin/certificates', requireRoles('ADMIN', 'MANAGER'), async (r
     validTo: body.validTo,
     simulatorSlug,
     status: body.status ?? 'ACTIVE',
-    designColor: defaultDesignColor(simulatorSlug, body.designColor),
+    designColor,
     comment: body.comment ?? '',
     createdAt: body.createdAt ?? new Date().toISOString(),
   }

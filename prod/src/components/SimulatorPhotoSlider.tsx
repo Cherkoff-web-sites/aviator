@@ -35,12 +35,16 @@ function SimulatorPhotoSlider({ title, description, images, galleryTo }: Simulat
         >
           {title}
         </h2>
-        <p
-          data-sim-reveal-item
-          className="mb-8 max-w-[720px] text-[16px] font-medium leading-relaxed text-white/95 min-[990px]:mb-10 min-[990px]:text-[18px]"
-        >
-          {description}
-        </p>
+        {description.trim() ? (
+          <p
+            data-sim-reveal-item
+            className="mb-8 max-w-[720px] text-[16px] font-medium leading-relaxed text-white/95 min-[990px]:mb-10 min-[990px]:text-[18px]"
+          >
+            {description}
+          </p>
+        ) : (
+          <div className="mb-8 min-[990px]:mb-10" />
+        )}
       </div>
 
       {/* Слева как контейнер, справа — до края экрана */}

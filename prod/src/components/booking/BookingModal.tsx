@@ -1,5 +1,5 @@
 import * as Dialog from '@radix-ui/react-dialog'
-import { format, startOfToday } from 'date-fns'
+import { format, isWeekend, startOfToday } from 'date-fns'
 import { ru } from 'date-fns/locale'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { DayPicker, UI } from 'react-day-picker'
@@ -15,6 +15,7 @@ import {
   saveBookingDraft,
 } from '../../lib/modalDrafts'
 import {
+  sanitizeCertificateDigitsInput,
   sanitizeCertificateNumberInput,
   sanitizeEmailInput,
   sanitizeNoteInput,
@@ -23,6 +24,11 @@ import {
   sanitizePhoneInput,
   isCertificateNumberInputValid,
 } from '../../lib/fieldInput'
+import {
+  allDesignOptions,
+  buildCertificateNumber,
+  CERTIFICATE_DESIGN_OPTIONS,
+} from '../../lib/certificate-design'
 import {
   computeBookingPriceByn,
   findFirstBookableDate,
@@ -242,6 +248,42 @@ function parseDraftDate(value: string | null | undefined): Date | null {
   return Number.isNaN(d.getTime()) ? null : d
 }
 
+function parseCertParts(raw: string): { code: string; digits: string } {
+  const cleaned = sanitizeCertificateNumberInput(raw).replace(/^№/, '')
+  const m = cleaned.match(/^([A-Za-zА-Яа-я])(.*)$/)
+  if (m) {
+    const code = m[1].toUpperCase()
+    const known = CERTIFICATE_DESIGN_OPTIONS.some((o) => o.code === code)
+    return {
+      code: known ? code : CERTIFICATE_DESIGN_OPTIONS[0].code,
+      digits: sanitizeCertificateDigitsInput(m[2]),
+    }
+  }
+  return {
+    code: CERTIFICATE_DESIGN_OPTIONS[0].code,
+    digits: sanitizeCertificateDigitsInput(cleaned),
+  }
+}
+
+function timeToMinsLocal(t: string): number {
+  const [h, m] = t.split(':').map(Number)
+  return (h ?? 0) * 60 + (m ?? 0)
+}
+
+function slotOverlapsBusy(
+  startTime: string,
+  durationMin: number,
+  busy: { startTime: string; durationMin: number }[],
+): boolean {
+  const a0 = timeToMinsLocal(startTime)
+  const a1 = a0 + durationMin
+  return busy.some((b) => {
+    const b0 = timeToMinsLocal(b.startTime)
+    const b1 = b0 + (b.durationMin || 0)
+    return a0 < b1 && b0 < a1
+  })
+}
+
 function BookingModal() {
   const { isOpen, closeBooking, payload } = useBookingModal()
   const draftRef = useRef(loadBookingDraft())
@@ -266,9 +308,10 @@ function BookingModal() {
     () => draft?.durationMin ?? 30,
   )
   const [hasGiftCert, setHasGiftCert] = useState(false)
-  const [giftCertNumber, setGiftCertNumber] = useState(() =>
-    sanitizeCertificateNumberInput(draft?.giftCertNumber ?? ''),
-  )
+  const initialCertParts = parseCertParts(draft?.giftCertNumber ?? '')
+  const [certSeriesCode, setCertSeriesCode] = useState(initialCertParts.code)
+  const [certDigits, setCertDigits] = useState(initialCertParts.digits)
+  const giftCertNumber = buildCertificateNumber(certSeriesCode, certDigits)
   const [birthdayDiscount, setBirthdayDiscount] = useState(false)
   const [birthdayDate, setBirthdayDate] = useState(() => draft?.birthdayDate ?? '')
   const [happyHoursOnly, setHappyHoursOnly] = useState(false)
@@ -290,12 +333,21 @@ function BookingModal() {
   const [bookingWindowMonths, setBookingWindowMonths] = useState(12)
   const [certValid, setCertValid] = useState<boolean | null>(null)
   const [certInfo, setCertInfo] = useState<CertValidity | null>(null)
+  const [busySlots, setBusySlots] = useState<{ startTime: string; durationMin: number }[]>([])
+  const [slotConflictHint, setSlotConflictHint] = useState('')
+
+  const clearSelectedDateTime = useCallback(() => {
+    setSelectedDate(null)
+    setSelectedTime(null)
+    setSlotConflictHint('')
+  }, [])
 
   const resetDraftFields = useCallback(() => {
     setAircraft('boeing-737')
     setDurationMin(30)
     setHasGiftCert(false)
-    setGiftCertNumber('')
+    setCertSeriesCode(CERTIFICATE_DESIGN_OPTIONS[0].code)
+    setCertDigits('')
     setBirthdayDiscount(false)
     setBirthdayDate('')
     setHappyHoursOnly(false)
@@ -355,8 +407,32 @@ function BookingModal() {
     } else if (payload?.promo === 'happy-hours') {
       setHappyHoursOnly(true)
       setSelectedTime((t) => (t && isHappyHourTime(t) ? t : null))
+      // Сб/Вс не должны оставаться «активной» датой для счастливых часов
+      setSelectedDate((d) => (d && isWeekend(d) ? null : d))
     }
   }, [isOpen, payload])
+
+  /** Занятость слотов на выбранную дату / тренажёр */
+  useEffect(() => {
+    if (!selectedDate) {
+      setBusySlots([])
+      return
+    }
+    const dateKey = format(selectedDate, 'yyyy-MM-dd')
+    let cancelled = false
+    void apiFetch<{ busy: { startTime: string; durationMin: number }[] }>(
+      `/api/public/availability?date=${encodeURIComponent(dateKey)}&simulatorSlug=${encodeURIComponent(aircraft)}`,
+    )
+      .then((r) => {
+        if (!cancelled) setBusySlots(r.busy ?? [])
+      })
+      .catch(() => {
+        if (!cancelled) setBusySlots([])
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [selectedDate, aircraft, durationMin])
 
   useEffect(() => {
     saveBookingDraft({
@@ -511,20 +587,27 @@ function BookingModal() {
         ) {
           return false
         }
+        if (slotOverlapsBusy(t, durationMin, busySlots)) return false
         return true
       })
     }
     return slots
-  }, [selectedDate, happyHoursOnly, durationMin, aircraft, maintenanceList])
+  }, [selectedDate, happyHoursOnly, durationMin, aircraft, maintenanceList, busySlots])
 
   useEffect(() => {
     if (selectedTime === null) return
     if (availableTimeSlots.length === 0) {
       setSelectedTime(null)
+      setSlotConflictHint('На эту дату нет свободных слотов. Выберите другую дату или время.')
       return
     }
     if (!availableTimeSlots.includes(selectedTime)) {
       setSelectedTime(null)
+      setSlotConflictHint(
+        'Выбранное время занято или недоступно для этой длительности / тренажёра. Выберите другое время.',
+      )
+    } else {
+      setSlotConflictHint('')
     }
   }, [availableTimeSlots, selectedTime])
 
@@ -673,9 +756,17 @@ function BookingModal() {
     [UI.Weekday]:
       'px-0 py-1.5 text-center text-[10px] font-semibold uppercase leading-tight text-[#002D62] min-[400px]:py-2 min-[400px]:text-[11px]',
     [UI.Week]: '',
-    [UI.Day]: 'p-0.5 text-center align-middle',
+    [UI.Day]: 'group/day p-0.5 text-center align-middle',
     [UI.DayButton]:
-      'mx-auto flex h-10 w-10 items-center justify-center rounded-lg text-[13px] font-medium text-[#002D62] hover:bg-[#e8f2ff] data-[selected-single=true]:rounded-lg data-[selected-single=true]:bg-[#0075FF] data-[selected-single=true]:text-white min-[400px]:h-11 min-[400px]:w-11 min-[400px]:text-[14px] disabled:text-[#9ca3af] disabled:opacity-60',
+      [
+        'mx-auto flex h-10 w-10 items-center justify-center rounded-lg text-[13px] font-medium text-[#002D62]',
+        'hover:bg-[#e8f2ff] min-[400px]:h-11 min-[400px]:w-11 min-[400px]:text-[14px]',
+        'group-data-[selected=true]/bg-[#0075FF] group-data-[selected=true]:text-white group-data-[selected=true]:hover:bg-[#0066e0]',
+        'group-data-[today=true]:ring-1 group-data-[today=true]:ring-[#0075FF]/45',
+        'group-data-[selected=true]:ring-0',
+        'group-data-[disabled=true]:text-[#9ca3af] group-data-[disabled=true]:opacity-60 group-data-[disabled=true]:ring-0',
+        'disabled:text-[#9ca3af] disabled:opacity-60',
+      ].join(' '),
   } as const
 
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -873,6 +964,7 @@ function BookingModal() {
                       selected={aircraft === 'boeing-737'}
                       className="w-full py-3"
                       onClick={() => {
+                        if (aircraft !== 'boeing-737') clearSelectedDateTime()
                         setAircraft('boeing-737')
                       }}
                     >
@@ -882,6 +974,7 @@ function BookingModal() {
                       selected={aircraft === 'mi-2'}
                       className="w-full py-3"
                       onClick={() => {
+                        if (aircraft !== 'mi-2') clearSelectedDateTime()
                         setAircraft('mi-2')
                         setDurationMin((d) => clampDurationForSimulator('mi-2', d))
                       }}
@@ -906,7 +999,13 @@ function BookingModal() {
                         <Pill
                           key={d}
                           selected={durationMin === d}
-                          onClick={() => setDurationMin(d)}
+                          onClick={() => {
+                            if (durationMin !== d) {
+                              setSelectedTime(null)
+                              setSlotConflictHint('')
+                            }
+                            setDurationMin(d)
+                          }}
                           className="!normal-case !tracking-normal"
                         >
                           {d} минут
@@ -985,24 +1084,55 @@ function BookingModal() {
 
                       <SwitchReveal open={hasGiftCert}>
                         <span className={labelClass()}>Номер подарочного сертификата</span>
-                        <input
-                          className={inputClass(submitted && fieldErrors.giftCert)}
-                          placeholder="Введите номер вашего сертификата"
-                          value={giftCertNumber}
-                          onChange={(e) =>
-                            setGiftCertNumber(sanitizeCertificateNumberInput(e.target.value))
-                          }
-                          inputMode="text"
-                          autoComplete="off"
-                          spellCheck={false}
-                          tabIndex={hasGiftCert ? undefined : -1}
-                        />
+                        <div
+                          className={[
+                            'flex overflow-hidden rounded-lg border bg-[#f0f1f3]',
+                            submitted && fieldErrors.giftCert
+                              ? 'border-red-500'
+                              : 'border-[#d1d5db] focus-within:border-[#0075FF] focus-within:ring-1 focus-within:ring-[#0075FF]/30',
+                          ].join(' ')}
+                        >
+                          <label className="relative flex shrink-0 items-stretch border-r border-[#d1d5db] bg-white">
+                            <span className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-[14px] font-semibold text-[#002D62]">
+                              №
+                            </span>
+                            <select
+                              value={certSeriesCode}
+                              onChange={(e) => setCertSeriesCode(e.target.value)}
+                              className="h-full cursor-pointer appearance-none bg-transparent py-2.5 pl-8 pr-8 text-[14px] font-semibold text-[#002D62] outline-none min-[990px]:text-[15px]"
+                              aria-label="Серия (цвет бланка)"
+                              tabIndex={hasGiftCert ? undefined : -1}
+                            >
+                              {allDesignOptions().map((o) => (
+                                <option key={o.value} value={o.code}>
+                                  {o.code} — {o.label}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                          <input
+                            className="min-w-0 flex-1 border-0 bg-transparent px-3 py-2.5 text-[14px] font-medium text-[#002D62] outline-none placeholder:text-[#8b95a8] min-[990px]:text-[15px]"
+                            placeholder="Только цифры номера"
+                            value={certDigits}
+                            onChange={(e) =>
+                              setCertDigits(sanitizeCertificateDigitsInput(e.target.value))
+                            }
+                            inputMode="numeric"
+                            autoComplete="off"
+                            spellCheck={false}
+                            tabIndex={hasGiftCert ? undefined : -1}
+                          />
+                        </div>
+                        <p className="mt-1.5 text-[12px] text-[#5a6578]">
+                          Полный номер: <span className="font-semibold text-[#002D62]">{giftCertNumber}</span>
+                          {' · '}серия по цвету бланка, вводите только цифры
+                        </p>
                         <PromoTip>
                           <p className="mb-0">
                             Дата полёта выбирается только после проверки сертификата и только в
                             пределах срока его действия — свободный выбор даты недоступен.
                           </p>
-                          {giftCertNumber.trim() ? (
+                          {certDigits.trim() ? (
                             <p
                               className={`mb-0 mt-2 text-sm font-medium ${
                                 certValid
@@ -1261,8 +1391,21 @@ function BookingModal() {
                             setOtpDigits(OTP_EMPTY())
                             setWizardStep('otp')
                             setResendSec(60)
-                          } catch {
-                            setBookingError('Не удалось создать бронь. Проверьте данные.')
+                          } catch (err) {
+                            const msg =
+                              err instanceof Error ? err.message : ''
+                            if (msg.includes('занято') || msg.includes('SLOT_TAKEN')) {
+                              setBookingError(
+                                'Это время уже занято. Выберите другое время — наложения записей быть не должно.',
+                              )
+                              setSelectedTime(null)
+                              setSlotConflictHint(
+                                'Выберите другое время: выбранный слот занят.',
+                              )
+                              setDateTimeOpen(true)
+                            } else {
+                              setBookingError('Не удалось создать бронь. Проверьте данные.')
+                            }
                           }
                         })()
                       }}
@@ -1289,11 +1432,21 @@ function BookingModal() {
                       />
                       <span>
                         Настоящим подтверждаю согласие с{' '}
-                        <a href="#" className="text-[#0075FF] underline">
+                        <a
+                          href="/documents/privacy"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-[#0075FF] underline"
+                        >
                           Правилами по обработке персональных данных
                         </a>{' '}
                         и{' '}
-                        <a href="#" className="text-[#0075FF] underline">
+                        <a
+                          href="/documents/agreement"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-[#0075FF] underline"
+                        >
                           Офертой
                         </a>
                         .
@@ -1319,7 +1472,8 @@ function BookingModal() {
                       defaultMonth={selectedDate ?? startOfToday()}
                       onSelect={(d) => {
                         setSelectedDate(d ?? null)
-                        if (!d) setSelectedTime(null)
+                        setSelectedTime(null)
+                        setSlotConflictHint('')
                       }}
                       locale={ruRdp}
                       disabled={(date) =>
@@ -1328,6 +1482,9 @@ function BookingModal() {
                       showOutsideDays={false}
                       className="booking-rdp w-full max-w-none [--rdp-accent-color:#0075FF] [--rdp-background-color:#fff]"
                       classNames={dayPickerClassNames}
+                      modifiersClassNames={{
+                        today: happyHoursOnly && isWeekend(startOfToday()) ? 'opacity-50' : '',
+                      }}
                     />
                   </div>
                   <div className="min-w-0 md:pl-0">
@@ -1338,15 +1495,22 @@ function BookingModal() {
                         : BOOKING_TIME_SLOTS
                       ).map((t) => {
                         const past = selectedDate ? isTimeSlotPast(selectedDate, t) : false
+                        const taken =
+                          selectedDate != null && slotOverlapsBusy(t, durationMin, busySlots)
+                        const disabled = past || !selectedDate || taken
                         return (
                           <button
                             key={t}
                             type="button"
-                            disabled={past || !selectedDate}
-                            onClick={() => setSelectedTime(t)}
+                            disabled={disabled}
+                            title={taken ? 'Время занято' : undefined}
+                            onClick={() => {
+                              setSelectedTime(t)
+                              setSlotConflictHint('')
+                            }}
                             className={[
                               'min-w-0 rounded-full border px-2 py-2.5 text-center text-[13px] font-semibold transition-colors min-[400px]:px-3 min-[400px]:text-[14px] min-[990px]:py-2.5',
-                              past || !selectedDate
+                              disabled
                                 ? 'cursor-not-allowed border-[#e5e7eb] bg-[#f3f4f6] text-[#9ca3af]'
                                 : selectedTime === t
                                   ? 'border-[#0075FF] bg-[#e8f2ff] text-[#0075FF]'
@@ -1358,6 +1522,11 @@ function BookingModal() {
                         )
                       })}
                     </div>
+                    {slotConflictHint ? (
+                      <p className="mt-3 text-[13px] font-medium leading-snug text-red-600">
+                        {slotConflictHint}
+                      </p>
+                    ) : null}
                   </div>
                 </div>
 

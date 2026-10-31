@@ -20,10 +20,10 @@ const HAPPY_TAG = '«Счастливые часы»'
 
 /** Должно совпадать с прайсом на странице «Цены» (prod/src/data/simulators.ts). */
 const FLIGHT_PRICES = [
-  { durationMin: 30, simulatorSlug: B737, priceByn: 200 },
-  { durationMin: 60, simulatorSlug: B737, priceByn: 350 },
-  { durationMin: 90, simulatorSlug: B737, priceByn: 480 },
-  { durationMin: 120, simulatorSlug: B737, priceByn: 600 },
+  { durationMin: 30, simulatorSlug: B737, priceByn: 170 },
+  { durationMin: 60, simulatorSlug: B737, priceByn: 300 },
+  { durationMin: 90, simulatorSlug: B737, priceByn: 400 },
+  { durationMin: 120, simulatorSlug: B737, priceByn: 450 },
   { durationMin: 30, simulatorSlug: MI2, priceByn: 170 },
   { durationMin: 60, simulatorSlug: MI2, priceByn: 300 },
 ]
@@ -217,18 +217,18 @@ function demoUsers(): User[] {
 function demoCertificates(base: Date, nowIso: string): Certificate[] {
   const d = (n: number) => dk(addDays(base, n))
   const rows: Omit<Certificate, 'id' | 'createdAt'>[] = [
-    { number: '№111100', phone: '+375 29 123-45-67', fullName: 'Никита Швепс', durationMin: 30, paymentStatus: 'PAID', paymentMethod: 'ONLINE', validFrom: d(-10), validTo: d(80), simulatorSlug: B737, status: 'ACTIVE', designColor: 'silver', comment: 'Оформлен на сайте' },
-    { number: '№111101', phone: '+375 33 765-43-21', fullName: 'Мария Лебедева', durationMin: 60, paymentStatus: 'PAID', paymentMethod: 'ONLINE', validFrom: d(-60), validTo: d(30), simulatorSlug: B737, status: 'USED', designColor: 'turquoise', comment: 'Полёт выполнен сегодня' },
-    { number: '№111102', phone: '+375 44 555-12-34', fullName: 'Дмитрий Орлов', durationMin: 120, paymentStatus: 'PAID', paymentMethod: 'ONLINE', validFrom: d(-40), validTo: d(50), simulatorSlug: B737, status: 'PARTIAL', designColor: 'gold', comment: 'Использовано 60 из 120 минут' },
-    { number: '№111103', phone: '+375 25 303-40-50', fullName: 'Алексей Фёдоров', durationMin: 30, paymentStatus: 'PAID', paymentMethod: 'OFFLINE', validFrom: d(-5), validTo: d(85), simulatorSlug: MI2, status: 'ACTIVE', designColor: 'coral', comment: 'Оформлен в офисе' },
-    { number: '№111104', phone: '+375 29 222-33-44', fullName: 'Анна Морозова', durationMin: 60, paymentStatus: 'PAID', paymentMethod: 'ONLINE', validFrom: d(0), validTo: d(5), simulatorSlug: MI2, status: 'ACTIVE', designColor: 'emerald', comment: 'Оплачен на сайте, скоро истекает' },
-    { number: '№111105', phone: '+375 33 444-55-66', fullName: 'Игорь Волков', durationMin: 60, paymentStatus: 'PAID', paymentMethod: 'ONLINE', validFrom: d(-200), validTo: d(-20), simulatorSlug: B737, status: 'EXPIRED', designColor: 'navy', comment: 'Не воспользовался вовремя' },
-    { number: '№111106', phone: '+48 512 345 678', fullName: 'Ольга Кузнецова', durationMin: 30, paymentStatus: 'PAID', paymentMethod: 'OFFLINE', validFrom: d(-15), validTo: d(75), simulatorSlug: MI2, status: 'CANCELLED', designColor: 'coral', comment: 'Отказ клиента' },
-    { number: '№111107', phone: '+375 44 777-88-99', fullName: 'Сергей Павлов', durationMin: 60, paymentStatus: 'PAID', paymentMethod: 'ONLINE', validFrom: d(-3), validTo: d(87), simulatorSlug: 'combo', status: 'ACTIVE', designColor: 'lilac', comment: 'Комбо: 30 мин Boeing + 30 мин Ми-2, сайт' },
-    { number: '№111108', phone: '+375 29 101-20-30', fullName: 'Наталья Семёнова', durationMin: 60, paymentStatus: 'PAID', paymentMethod: 'ONLINE', validFrom: d(-100), validTo: d(-1), simulatorSlug: 'combo', status: 'EXPIRED', designColor: 'lilac', comment: 'Истёк вчера' },
-    { number: '№111109', phone: '+375 33 606-70-80', fullName: 'Виктория Белова', durationMin: 90, paymentStatus: 'PAID', paymentMethod: 'OFFLINE', validFrom: d(-30), validTo: d(20), simulatorSlug: B737, status: 'PARTIAL', designColor: 'gold', comment: 'Остаток 30 минут' },
-    { number: '№111110', phone: '+375 25 900-11-22', fullName: 'Екатерина Соколова', durationMin: 30, paymentStatus: 'PAID', paymentMethod: 'ONLINE', validFrom: d(-120), validTo: d(-30), simulatorSlug: MI2, status: 'USED', designColor: 'emerald', comment: '' },
-    { number: '№111111', phone: '+7 916 123-45-67', fullName: 'Павел Новиков', durationMin: 120, paymentStatus: 'PAID', paymentMethod: 'OFFLINE', validFrom: d(1), validTo: d(91), simulatorSlug: B737, status: 'ACTIVE', designColor: 'navy', comment: 'Корпоративный подарок, оформлен в офисе' },
+    { number: '№S111100', phone: '+375 29 123-45-67', fullName: 'Никита Швепс', durationMin: 30, paymentStatus: 'PAID', paymentMethod: 'ONLINE', validFrom: d(-10), validTo: d(80), simulatorSlug: B737, status: 'ACTIVE', designColor: 'silver', comment: 'Оформлен на сайте' },
+    { number: '№T111101', phone: '+375 33 765-43-21', fullName: 'Мария Лебедева', durationMin: 60, paymentStatus: 'PAID', paymentMethod: 'ONLINE', validFrom: d(-60), validTo: d(30), simulatorSlug: B737, status: 'USED', designColor: 'turquoise', comment: 'Полёт выполнен сегодня' },
+    { number: '№G111102', phone: '+375 44 555-12-34', fullName: 'Дмитрий Орлов', durationMin: 120, paymentStatus: 'PAID', paymentMethod: 'ONLINE', validFrom: d(-40), validTo: d(50), simulatorSlug: B737, status: 'PARTIAL', designColor: 'gold', comment: 'Использовано 60 из 120 минут' },
+    { number: '№C111103', phone: '+375 25 303-40-50', fullName: 'Алексей Фёдоров', durationMin: 30, paymentStatus: 'PAID', paymentMethod: 'OFFLINE', validFrom: d(-5), validTo: d(85), simulatorSlug: MI2, status: 'ACTIVE', designColor: 'coral', comment: 'Оформлен в офисе' },
+    { number: '№E111104', phone: '+375 29 222-33-44', fullName: 'Анна Морозова', durationMin: 60, paymentStatus: 'PAID', paymentMethod: 'ONLINE', validFrom: d(0), validTo: d(5), simulatorSlug: MI2, status: 'ACTIVE', designColor: 'emerald', comment: 'Оплачен на сайте, скоро истекает' },
+    { number: '№N111105', phone: '+375 33 444-55-66', fullName: 'Игорь Волков', durationMin: 60, paymentStatus: 'PAID', paymentMethod: 'ONLINE', validFrom: d(-200), validTo: d(-20), simulatorSlug: B737, status: 'EXPIRED', designColor: 'navy', comment: 'Не воспользовался вовремя' },
+    { number: '№C111106', phone: '+48 512 345 678', fullName: 'Ольга Кузнецова', durationMin: 30, paymentStatus: 'PAID', paymentMethod: 'OFFLINE', validFrom: d(-15), validTo: d(75), simulatorSlug: MI2, status: 'CANCELLED', designColor: 'coral', comment: 'Отказ клиента' },
+    { number: '№L111107', phone: '+375 44 777-88-99', fullName: 'Сергей Павлов', durationMin: 60, paymentStatus: 'PAID', paymentMethod: 'ONLINE', validFrom: d(-3), validTo: d(87), simulatorSlug: 'combo', status: 'ACTIVE', designColor: 'lilac', comment: 'Комбо: 30 мин Boeing + 30 мин Ми-2, сайт' },
+    { number: '№L111108', phone: '+375 29 101-20-30', fullName: 'Наталья Семёнова', durationMin: 60, paymentStatus: 'PAID', paymentMethod: 'ONLINE', validFrom: d(-100), validTo: d(-1), simulatorSlug: 'combo', status: 'EXPIRED', designColor: 'lilac', comment: 'Истёк вчера' },
+    { number: '№G111109', phone: '+375 33 606-70-80', fullName: 'Виктория Белова', durationMin: 90, paymentStatus: 'PAID', paymentMethod: 'OFFLINE', validFrom: d(-30), validTo: d(20), simulatorSlug: B737, status: 'PARTIAL', designColor: 'gold', comment: 'Остаток 30 минут' },
+    { number: '№E111110', phone: '+375 25 900-11-22', fullName: 'Екатерина Соколова', durationMin: 30, paymentStatus: 'PAID', paymentMethod: 'ONLINE', validFrom: d(-120), validTo: d(-30), simulatorSlug: MI2, status: 'USED', designColor: 'emerald', comment: '' },
+    { number: '№N111111', phone: '+7 916 123-45-67', fullName: 'Павел Новиков', durationMin: 120, paymentStatus: 'PAID', paymentMethod: 'OFFLINE', validFrom: d(1), validTo: d(91), simulatorSlug: B737, status: 'ACTIVE', designColor: 'navy', comment: 'Корпоративный подарок, оформлен в офисе' },
   ]
   return rows.map((row, i) => ({ id: `demo-c-${i}`, createdAt: nowIso, ...row }))
 }

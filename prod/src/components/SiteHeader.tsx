@@ -34,13 +34,41 @@ const arrowIconPath = '/assets/icons/arrow_right.svg'
 const menuIconPath = '/assets/icons/menu.svg'
 const closeIconPath = '/assets/icons/close.svg'
 
+/** Чёрные / тёмные страницы: шапка прозрачная у верха, синяя после скролла.
+ *  Светлые (`/documents/*`) — синий фон всегда. */
+function isDarkHeroPath(pathname: string) {
+  return (
+    pathname === '/' ||
+    pathname === '/simulators' ||
+    pathname === '/prices' ||
+    pathname === '/gallery' ||
+    pathname === '/faq' ||
+    pathname === '/contacts' ||
+    pathname.startsWith('/simulator/')
+  )
+}
+
+const HEADER_BG_STYLE = {
+  background:
+    'radial-gradient(145.17% 312.16% at 22.07% 0%, #03489B 0%, rgba(3, 72, 155, 0) 100%)',
+  backdropFilter: 'blur(21px)',
+  WebkitBackdropFilter: 'blur(21px)',
+} as const
+
+const SCROLL_BG_THRESHOLD = 40
+
 function SiteHeader() {
   const { pathname } = useLocation()
   const [isMenuOpen, setIsMenuOpen] = useState(false)
   const [headerVisible, setHeaderVisible] = useState(true)
+  const [scrolled, setScrolled] = useState(() =>
+    typeof window !== 'undefined' ? window.scrollY > SCROLL_BG_THRESHOLD : false,
+  )
   const { openBooking } = useBookingModal()
   const contacts = usePublicContacts()
-  const headerHasBg = pathname === '/' || pathname === '/simulators'
+  const darkHero = isDarkHeroPath(pathname)
+  /** Синий фон: на обычных страницах всегда; на тёмных hero — только после скролла */
+  const headerHasBg = darkHero ? scrolled : true
 
   useEffect(() => {
     document.body.style.overflow = isMenuOpen ? 'hidden' : ''
@@ -50,16 +78,23 @@ function SiteHeader() {
   }, [isMenuOpen])
 
   useEffect(() => {
+    setScrolled(window.scrollY > SCROLL_BG_THRESHOLD)
+    setHeaderVisible(true)
+  }, [pathname])
+
+  useEffect(() => {
     let lastY = window.scrollY
 
     const onScroll = () => {
+      const y = window.scrollY
+      setScrolled(y > SCROLL_BG_THRESHOLD)
+
       if (isMenuOpen) {
         setHeaderVisible(true)
-        lastY = window.scrollY
+        lastY = y
         return
       }
 
-      const y = window.scrollY
       const delta = y - lastY
 
       if (y < 24) {
@@ -81,20 +116,11 @@ function SiteHeader() {
     <>
       <header
         className={[
-          'fixed inset-x-0 top-0 z-30 transition-transform duration-300 ease-out',
+          'fixed inset-x-0 top-0 z-30 transition-[transform,background,border-color,backdrop-filter] duration-300 ease-out',
           headerHasBg ? 'border-b border-white/10' : 'border-b border-transparent',
           headerVisible ? 'translate-y-0' : '-translate-y-full',
         ].join(' ')}
-        style={
-          headerHasBg
-            ? {
-                background:
-                  'radial-gradient(145.17% 312.16% at 22.07% 0%, #03489B 0%, rgba(3, 72, 155, 0) 100%)',
-                backdropFilter: 'blur(21px)',
-                WebkitBackdropFilter: 'blur(21px)',
-              }
-            : undefined
-        }
+        style={headerHasBg ? HEADER_BG_STYLE : undefined}
       >
         <div className="container-app flex h-[64px] items-center justify-between gap-6 min-[990px]:h-[76px] min-[990px]:gap-8">
           <Link

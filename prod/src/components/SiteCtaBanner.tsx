@@ -26,7 +26,7 @@ function SiteCtaBanner() {
           data-sim-reveal-item
           className="mt-4 max-w-[520px] text-[15px] font-medium leading-relaxed text-white/90 min-[990px]:mt-5 min-[990px]:text-lg"
         >
-          Оставьте заявку и менеджер свяжется с Вами в ближайшее время
+          Оставьте заявку и мы свяжемся с Вами в ближайшее время
         </p>
 
         <div

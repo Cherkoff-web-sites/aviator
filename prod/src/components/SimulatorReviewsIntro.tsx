@@ -9,7 +9,7 @@ function SimulatorReviewsIntro() {
       <div className="container-app mx-auto max-w-[720px] text-center">
         <h2
           data-sim-reveal-item
-          className="text-[26px] font-bold leading-tight tracking-tight text-[#1f69ff] min-[990px]:text-[36px]"
+          className="text-[26px] font-bold leading-tight tracking-tight text-white min-[990px]:text-[36px]"
         >
           О нас говорят...
         </h2>

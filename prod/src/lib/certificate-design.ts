@@ -11,6 +11,8 @@ export type CertificateDesignColor =
 export type CertificateDesignOption = {
   value: CertificateDesignColor
   label: string
+  /** Буквенный префикс серии на бланке (№S123456) */
+  code: string
   swatch: string
   /** Фон в колонке тренажёра — заметный, но читаемый текст */
   rowBg: string
@@ -19,14 +21,25 @@ export type CertificateDesignOption = {
 
 /** Полный список — все цвета из ТЗ. */
 export const CERTIFICATE_DESIGN_OPTIONS: readonly CertificateDesignOption[] = [
-  { value: 'silver', label: 'Серебристый', swatch: '#b8c0c8', rowBg: '#dfe4e8', group: 'Boeing' },
-  { value: 'turquoise', label: 'Бирюзовый', swatch: '#14b8a6', rowBg: '#99f6e4', group: 'Boeing' },
-  { value: 'gold', label: 'Золотой', swatch: '#ca8a04', rowBg: '#fde68a', group: 'Boeing' },
-  { value: 'navy', label: 'Тёмно-синий', swatch: '#1e3a5f', rowBg: '#93c5fd', group: 'Boeing' },
-  { value: 'coral', label: 'Коралловый тёмный', swatch: '#b91c1c', rowBg: '#fca5a5', group: 'Ми-2' },
-  { value: 'emerald', label: 'Изумрудный', swatch: '#047857', rowBg: '#6ee7b7', group: 'Ми-2' },
-  { value: 'lilac', label: 'Тёмно-сиреневый', swatch: '#6b21a8', rowBg: '#d8b4fe', group: 'Сдвоенный' },
+  { value: 'silver', label: 'Серебристый', code: 'S', swatch: '#b8c0c8', rowBg: '#dfe4e8', group: 'Boeing' },
+  { value: 'turquoise', label: 'Бирюзовый', code: 'T', swatch: '#14b8a6', rowBg: '#99f6e4', group: 'Boeing' },
+  { value: 'gold', label: 'Золотой', code: 'G', swatch: '#ca8a04', rowBg: '#fde68a', group: 'Boeing' },
+  { value: 'navy', label: 'Тёмно-синий', code: 'N', swatch: '#1e3a5f', rowBg: '#93c5fd', group: 'Boeing' },
+  { value: 'coral', label: 'Коралловый тёмный', code: 'C', swatch: '#b91c1c', rowBg: '#fca5a5', group: 'Ми-2' },
+  { value: 'emerald', label: 'Изумрудный', code: 'E', swatch: '#047857', rowBg: '#6ee7b7', group: 'Ми-2' },
+  { value: 'lilac', label: 'Тёмно-сиреневый', code: 'L', swatch: '#6b21a8', rowBg: '#d8b4fe', group: 'Сдвоенный' },
 ] as const
+
+/** Собрать полный номер: № + буква серии + цифры */
+export function buildCertificateNumber(code: string, digits: string) {
+  const d = digits.replace(/\D/g, '')
+  return `№${code.toUpperCase()}${d}`
+}
+
+export function designByCode(code: string | undefined | null) {
+  const c = String(code ?? '').toUpperCase()
+  return CERTIFICATE_DESIGN_OPTIONS.find((o) => o.code === c) ?? null
+}
 
 export const CERTIFICATE_DESIGN_BY_SIM: Record<string, readonly CertificateDesignOption[]> = {
   'boeing-737': CERTIFICATE_DESIGN_OPTIONS.filter((o) => o.group === 'Boeing'),

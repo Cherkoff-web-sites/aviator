@@ -295,6 +295,7 @@ h6 {
     animation: pricing-grad-shift 7s ease-in-out infinite;
   }
 
+  /* На десктопе анимацию выключаем — угол градиента ведёт мышь (JS) */
   @media (hover: hover) and (pointer: fine) {
     .pricing-plan-featured {
       animation: none;

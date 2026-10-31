@@ -92,17 +92,17 @@ function SiteFooter() {
                   <h3 className="mb-3 text-[20px] font-bold">Информация</h3>
                   <ul className="space-y-2 text-[15px] font-medium text-white/90">
                     <li>
-                      <Link to="/faq" className={linkClass} target="_blank" rel={externalRel}>
+                      <Link to="/documents/rules" className={linkClass}>
                         Правила посещения авиатренажера
                       </Link>
                     </li>
                     <li>
-                      <Link to="/faq" className={linkClass} target="_blank" rel={externalRel}>
+                      <Link to="/documents/privacy" className={linkClass}>
                         Политика конфиденциальности
                       </Link>
                     </li>
                     <li>
-                      <Link to="/faq" className={linkClass} target="_blank" rel={externalRel}>
+                      <Link to="/documents/agreement" className={linkClass}>
                         Договор публичной оферты
                       </Link>
                     </li>
@@ -233,17 +233,17 @@ function SiteFooter() {
               <h3 className="text-[18px] font-bold">Информация</h3>
               <ul className="mt-4 space-y-3 text-sm text-white/90">
                 <li>
-                  <Link to="/faq" className={linkClass} target="_blank" rel={externalRel}>
+                  <Link to="/documents/rules" className={linkClass}>
                     Правила посещения авиатренажера
                   </Link>
                 </li>
                 <li>
-                  <Link to="/faq" className={linkClass} target="_blank" rel={externalRel}>
+                  <Link to="/documents/privacy" className={linkClass}>
                     Политика конфиденциальности
                   </Link>
                 </li>
                 <li>
-                  <Link to="/faq" className={linkClass} target="_blank" rel={externalRel}>
+                  <Link to="/documents/agreement" className={linkClass}>
                     Договор публичной оферты
                   </Link>
                 </li>

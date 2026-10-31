@@ -20,7 +20,8 @@ const HOME_HERO_SLIDE_IMAGES: Record<string, string> = {
  */
 const HOME_HERO_OBJECT_POS: Record<string, { x: string; y: string }> = {
   'mi-2': { x: '90%', y: '50%' },
-  'boeing-737': { x: '87%', y: '50%' },
+  // Чуть правее фокуса — воздух слева как у Ми-2 (колонка справа со скосом)
+  'boeing-737': { x: '92%', y: '50%' },
   'avia-school': { x: '50%', y: '50%' },
 }
 
@@ -113,13 +114,12 @@ function HomeHero() {
                   objectPosition: 'var(--hero-pos-x) var(--hero-pos-y)',
                   ...(isDesktop
                     ? {
-                        // Ширина = макс. активная: при сужении колонки кадр не зумится,
-                        // просто обрезается; при расширении открывается уже лежащая часть.
+                        // Ширина = макс. активная: при сужении колонка обрезает справа,
+                        // слева кадр как у Ми-2 (отступ/воздух не съедается).
                         width: `${ACTIVE_W_VW}vw`,
                         height: '100%',
                         maxWidth: 'none',
-                        left: isFirst ? 0 : undefined,
-                        right: isLast ? 0 : undefined,
+                        left: 0,
                       }
                     : undefined),
                 }}
