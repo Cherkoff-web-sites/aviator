@@ -13,6 +13,8 @@ type AdminFormModalProps = {
   className?: string
   /** Шире для больших форм */
   size?: 'md' | 'lg'
+  /** Нельзя закрыть кликом снаружи или кнопкой X */
+  blocking?: boolean
 }
 
 export default function AdminFormModal({
@@ -23,9 +25,15 @@ export default function AdminFormModal({
   children,
   className,
   size = 'lg',
+  blocking = false,
 }: AdminFormModalProps) {
   return (
-    <Dialog.Root open={open} onOpenChange={(v) => !v && onClose()}>
+    <Dialog.Root
+      open={open}
+      onOpenChange={(v) => {
+        if (!v && !blocking) onClose()
+      }}
+    >
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-[200] bg-black/40" />
         <Dialog.Content
@@ -46,16 +54,18 @@ export default function AdminFormModal({
                 <Dialog.Description className="sr-only">{title}</Dialog.Description>
               )}
             </div>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              className="size-8 shrink-0"
-              onClick={onClose}
-              aria-label="Закрыть"
-            >
-              <X className="size-4" />
-            </Button>
+            {blocking ? null : (
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="size-8 shrink-0"
+                onClick={onClose}
+                aria-label="Закрыть"
+              >
+                <X className="size-4" />
+              </Button>
+            )}
           </div>
           {children}
         </Dialog.Content>

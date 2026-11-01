@@ -19,6 +19,12 @@ export const ADMIN_NAV_MAIN: AdminNavMainItem[] = [
     iconSrc: icon('nav_staff_schedule'),
     iconSlot: 'nav_staff_schedule',
   },
+  {
+    title: 'Часы пилотов',
+    to: '/admin/pilot-hours',
+    iconSrc: icon('nav_staff_schedule'),
+    iconSlot: 'nav_pilot_hours',
+  },
   { title: 'Сертификаты', to: '/admin/certificates', iconSrc: icon('nav_certificates'), iconSlot: 'nav_certificates' },
   {
     title: 'Зал ожидания',
@@ -45,6 +51,12 @@ export const ADMIN_NAV_MAIN: AdminNavMainItem[] = [
     iconSlot: 'nav_accounts',
   },
   { title: 'Аналитика', to: '/admin/analytics', iconSrc: icon('nav_analytics'), iconSlot: 'nav_analytics' },
+  {
+    title: 'Обратная связь',
+    to: '/admin/feedback',
+    iconSrc: icon('nav_home'),
+    iconSlot: 'nav_feedback',
+  },
   {
     title: 'Управление активными записями',
     to: '/admin/maintenance',

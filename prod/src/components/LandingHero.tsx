@@ -35,16 +35,23 @@ function LandingHero() {
           </h1>
           <p className="mt-4 max-w-[520px] text-[15px] leading-relaxed text-white/85 min-[990px]:mt-5 min-[990px]:text-lg">
             Погрузитесь в небо и откройте для себя увлекательный мир авиации – почувствуйте себя
-            пилотом Boeing 737 или вертолета Ми-2.
+            пилотом самолета Boeing 737 или вертолета Ми-2.
           </p>
 
-          <div className="mt-8 flex flex-col gap-3 min-[520px]:flex-row min-[520px]:items-center min-[990px]:mt-10">
+          <div className="mt-8 flex flex-col gap-3 min-[520px]:flex-row min-[520px]:flex-wrap min-[520px]:items-center min-[990px]:mt-10">
             <button
               type="button"
               onClick={() => openBooking()}
               className="btn-book-flight h-12 px-10 text-lg font-medium"
             >
               Забронировать полёт
+            </button>
+            <button
+              type="button"
+              onClick={() => openGiftCertificate()}
+              className="btn-outline-light h-12 px-9 text-lg font-medium"
+            >
+              Подарить полёт
             </button>
             <Link
               to="/simulators"
@@ -53,14 +60,6 @@ function LandingHero() {
               Посмотреть тренажеры <span className="ml-2">→</span>
             </Link>
           </div>
-
-          <button
-            type="button"
-            onClick={() => openGiftCertificate()}
-            className="mt-5 text-left text-[15px] font-medium text-white/80 underline-offset-4 transition-colors hover:text-white hover:underline min-[990px]:text-base"
-          >
-            Подарите небо родным и близким →
-          </button>
         </div>
       </div>
     </section>

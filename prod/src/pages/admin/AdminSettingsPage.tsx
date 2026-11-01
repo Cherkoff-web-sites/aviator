@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { useLiveData } from '@/hooks/useLiveData'
 import { apiFetch } from '@/lib/api'
+import { FOOTER_SOCIAL_ICONS } from '@/data/socialAssets'
 
 const GALLERY_SECTIONS = [
   { id: 'boeing-737', title: 'Boeing 737NG' },
@@ -93,6 +94,32 @@ export default function AdminSettingsPage() {
   })
   const [galleryVersion, setGalleryVersion] = React.useState(0)
 
+  const { data: generalSettings, reload: reloadGeneral } = useLiveData(
+    () =>
+      apiFetch<{
+        bookingWindowMonths: number
+        bookingGapMin: number
+        footerSocialLinks: Record<string, string>
+      }>('/api/admin/settings'),
+    [],
+  )
+  const [gapMin, setGapMin] = React.useState(15)
+  const [socialLinks, setSocialLinks] = React.useState<Record<string, string>>({})
+  React.useEffect(() => {
+    if (generalSettings) {
+      setGapMin(generalSettings.bookingGapMin)
+      setSocialLinks(generalSettings.footerSocialLinks ?? {})
+    }
+  }, [generalSettings])
+
+  const saveGeneral = async () => {
+    await apiFetch('/api/admin/settings', {
+      method: 'PATCH',
+      body: JSON.stringify({ bookingGapMin: gapMin, footerSocialLinks: socialLinks }),
+    })
+    void reloadGeneral()
+  }
+
   const { data: optionListsData, reload: reloadOptionLists } = useLiveData(
     () =>
       apiFetch<{
@@ -143,6 +170,49 @@ export default function AdminSettingsPage() {
 
   return (
     <div className="flex w-full min-w-0 flex-col gap-6">
+      <Card className="border-border/80 shadow-sm">
+        <CardHeader className="space-y-0 pb-4 pt-6">
+          <CardTitle className="text-base font-semibold text-foreground">Бронирование и подвал сайта</CardTitle>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-4 pb-6">
+          <label className="text-sm">
+            <span className="text-muted-foreground">Пауза между полётами на одном тренажёре (мин)</span>
+            <Input
+              type="number"
+              min={0}
+              max={120}
+              className="mt-1 h-9 max-w-[8rem]"
+              value={gapMin}
+              onChange={(e) => setGapMin(Math.max(0, Number(e.target.value) || 0))}
+            />
+          </label>
+          <div>
+            <p className="text-sm font-medium text-foreground">Ссылки соцсетей в подвале</p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Пустое поле — используется значение по умолчанию на сайте.
+            </p>
+            <div className="mt-3 grid gap-2 sm:grid-cols-2">
+              {FOOTER_SOCIAL_ICONS.map((s) => (
+                <label key={s.label} className="text-sm">
+                  <span className="text-muted-foreground">{s.label}</span>
+                  <Input
+                    className="mt-1 h-9"
+                    value={socialLinks[s.label] ?? ''}
+                    placeholder={s.href}
+                    onChange={(e) =>
+                      setSocialLinks((prev) => ({ ...prev, [s.label]: e.target.value }))
+                    }
+                  />
+                </label>
+              ))}
+            </div>
+          </div>
+          <Button type="button" size="sm" className="w-fit" onClick={() => void saveGeneral()}>
+            Сохранить
+          </Button>
+        </CardContent>
+      </Card>
+
       <Card className="border-border/80 shadow-sm">
         <CardHeader className="space-y-0 pb-4 pt-6">
           <CardTitle className="text-base font-semibold text-foreground">Документы</CardTitle>

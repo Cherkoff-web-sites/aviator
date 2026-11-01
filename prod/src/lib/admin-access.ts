@@ -28,6 +28,12 @@ export function settingsNavForRole(role: UserRole) {
       iconSrc: ADMIN_NAV_SETTINGS_ICON,
       iconSlot: 'nav_settings',
     },
+    {
+      title: 'Журнал',
+      url: '/admin/logs',
+      iconSrc: ADMIN_NAV_SETTINGS_ICON,
+      iconSlot: 'nav_logs',
+    },
   ]
 }
 
@@ -47,6 +53,8 @@ export function canAccessRoute(role: UserRole, pathname: string) {
 
   const hidden = role === 'PILOT' ? PILOT_HIDDEN : role === 'MANAGER' ? MANAGER_HIDDEN : new Set<string>()
   if (pathname.startsWith('/admin/settings') && role !== 'ADMIN') return false
+  if (pathname.startsWith('/admin/logs') && role !== 'ADMIN') return false
+  if (pathname.startsWith('/admin/feedback') && role === 'PILOT') return false
   if (pathname.startsWith('/admin/notifications')) return true
   /** Архив — только админ и менеджер (секции фильтруются по доступу к страницам). */
   if (pathname.startsWith('/admin/archive')) {

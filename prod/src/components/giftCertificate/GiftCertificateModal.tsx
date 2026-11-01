@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { getCertPriceByn, isPersonNameValid, isPhoneValid } from '../../lib/pricing'
 import type { GiftCertProductChoice } from '../booking/bookingPricing'
 import { apiFetch, type ApiPriceRow } from '../../lib/api'
+import { useBookingModal } from '../../contexts/BookingModalContext'
 import { useGiftCertificateModal } from '../../contexts/GiftCertificateModalContext'
 import {
   clearGiftDraft,
@@ -68,6 +69,7 @@ type Step = 'form' | 'success'
 
 function GiftCertificateModal() {
   const { isOpen, payload, closeGiftCertificate } = useGiftCertificateModal()
+  const { openBooking } = useBookingModal()
   const draftRef = useRef(loadGiftDraft())
   const draft = draftRef.current
 
@@ -184,9 +186,28 @@ function GiftCertificateModal() {
           <div className="relative flex min-h-0 flex-1 flex-col">
             <div className="mb-4 flex shrink-0 items-start justify-between gap-3">
               {step === 'form' ? (
-                <Dialog.Title className="flex-1 pr-10 text-center text-[19px] font-bold leading-tight text-[#002D62] min-[990px]:text-[21px]">
-                  Покупка подарочного сертификата
-                </Dialog.Title>
+                <div className="flex flex-1 flex-col items-center gap-1 pr-10">
+                  <Dialog.Title className="text-center text-[19px] font-bold leading-tight text-[#002D62] min-[990px]:text-[21px]">
+                    Покупка подарочного сертификата
+                  </Dialog.Title>
+                  <button
+                    type="button"
+                    className="text-[13px] font-semibold text-[#0075FF] underline-offset-2 hover:underline"
+                    onClick={() => {
+                      closeGiftCertificate()
+                      openBooking({
+                        simulatorSlug:
+                          product === 'mi-2'
+                            ? 'mi-2'
+                            : product === 'both'
+                              ? undefined
+                              : 'boeing-737',
+                      })
+                    }}
+                  >
+                    Хочу забронировать полёт →
+                  </button>
+                </div>
               ) : (
                 <Dialog.Title className="sr-only">Сертификат оформлен</Dialog.Title>
               )}

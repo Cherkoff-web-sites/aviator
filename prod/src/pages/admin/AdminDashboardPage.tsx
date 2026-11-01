@@ -31,8 +31,11 @@ import { apiFetch, type ApiBooking } from '@/lib/api'
 import { canEditBookings } from '@/lib/admin-access'
 import PaymentMethodIcon from '@/components/admin/PaymentMethodIcon'
 import { BOOKING_STATUS_OPTIONS, PAYMENT_METHOD_OPTIONS } from '@/lib/admin-labels'
+import { BOOKING_TIME_SLOTS } from '@/components/booking/bookingTimeSlots'
 import { clampDurationForSimulator, durationsForSimulator } from '@/lib/flight-durations'
 import { cn } from '@/lib/utils'
+
+const PENCIL = '/assets/admin/certificates_pencil_icon.svg'
 
 const SIM_PLANE = '✈️'
 const SIM_HELI = '🚁'
@@ -92,7 +95,7 @@ const EMPTY_FORM = {
   comment: '',
   paymentMethod: 'OFFLINE' as 'OFFLINE' | 'ONLINE',
   paid: false,
-  status: 'CONFIRMED',
+  status: 'WAITING',
 }
 
 function mapApiBooking(row: ApiBooking): BookingRow {
@@ -166,8 +169,8 @@ function StatusBadge({ status }: { status: BookingStatus }) {
       )
     case 'done':
       return (
-        <span className="inline-flex items-center gap-1.5 rounded-full bg-green-500/[0.04] px-2.5 py-1 text-xs font-medium text-green-700/55 dark:text-green-400/55">
-          <Check className="size-3.5 shrink-0 text-green-700/55 dark:text-green-400/55" />
+        <span className="inline-flex items-center gap-1.5 rounded-full bg-green-500/10 px-2.5 py-1 text-xs font-medium text-green-700 dark:text-green-400">
+          <Check className="size-3.5 shrink-0 text-green-700 dark:text-green-400" />
           Закончили
         </span>
       )
@@ -180,8 +183,8 @@ function StatusBadge({ status }: { status: BookingStatus }) {
       )
     case 'canceled':
       return (
-        <span className="inline-flex items-center gap-1.5 rounded-full bg-destructive/[0.04] px-2.5 py-1 text-xs font-medium text-destructive/55">
-          <Info className="size-3.5 shrink-0 text-destructive/55" />
+        <span className="inline-flex items-center gap-1.5 rounded-full bg-destructive/10 px-2.5 py-1 text-xs font-medium text-destructive">
+          <Info className="size-3.5 shrink-0 text-destructive" />
           Отменен
         </span>
       )
@@ -277,6 +280,27 @@ export default function AdminDashboardPage() {
     () => apiFetch<ApiBooking[]>(`/api/admin/bookings?date=${dateKey}`),
     [dateKey],
   )
+
+  const blockedDatesList = React.useMemo(
+    () => calDays.filter((d) => d.status === 'BLOCKED').map((d) => d.date).sort(),
+    [calDays],
+  )
+  const [unblockDate, setUnblockDate] = React.useState<string | null>(null)
+  const [calBusy, setCalBusy] = React.useState(false)
+
+  const confirmUnblock = async () => {
+    if (!unblockDate || !canEdit) return
+    setCalBusy(true)
+    try {
+      await apiFetch('/api/admin/calendar/toggle-blocked', {
+        method: 'POST',
+        body: JSON.stringify({ dates: [unblockDate] }),
+      })
+      setUnblockDate(null)
+    } finally {
+      setCalBusy(false)
+    }
+  }
 
   const mapped = (apiRows ?? []).map(mapApiBooking)
   const { rowProps } = useHighlightRow(apiRows !== null)
@@ -390,6 +414,10 @@ export default function AdminDashboardPage() {
         onSelect={selectDate}
         locale={ru}
         className="w-fit max-w-full rounded-lg border"
+        classNames={{
+          // Как outside (дни соседнего месяца): читаемо, без opacity-50
+          disabled: 'text-muted-foreground',
+        }}
         disabled={(d) => {
           const key = format(d, 'yyyy-MM-dd')
           if (blockedKeys.has(key)) return true
@@ -402,6 +430,41 @@ export default function AdminDashboardPage() {
         modifiersClassNames={{
           holiday: '[&_button]:text-destructive [&_button]:font-semibold',
         }}
+      />
+
+      {blockedDatesList.length > 0 ? (
+        <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3">
+          <p className="text-xs font-medium uppercase tracking-wide text-destructive">
+            Заблокированные даты
+          </p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            {blockedDatesList.map((d) => (
+              <button
+                key={d}
+                type="button"
+                disabled={!canEdit}
+                className="inline-flex rounded-md border border-destructive/40 bg-background px-2 py-1 text-xs font-medium text-destructive transition-colors hover:bg-destructive/10 disabled:opacity-50"
+                onClick={() => canEdit && setUnblockDate(d)}
+              >
+                {d} — снять блок
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
+      <ConfirmDialog
+        open={!!unblockDate}
+        title="Снять блокировку даты?"
+        description={
+          unblockDate
+            ? `Дата ${unblockDate} снова станет доступна для брони на обоих тренажёрах.`
+            : undefined
+        }
+        confirmLabel="Снять блокировку"
+        busy={calBusy}
+        onConfirm={() => void confirmUnblock()}
+        onCancel={() => setUnblockDate(null)}
       />
 
       <div className="flex flex-col gap-4 rounded-lg border bg-background p-4">
@@ -435,7 +498,6 @@ export default function AdminDashboardPage() {
                 ['name', 'Имя'],
                 ['phone', 'Телефон'],
                 ['email', 'Email'],
-                ['startTime', 'Время начала'],
                 ['comment', 'Комментарий'],
               ] as const
             ).map(([key, label]) => (
@@ -448,6 +510,20 @@ export default function AdminDashboardPage() {
                 />
               </label>
             ))}
+            <label className="text-sm">
+              <span className="text-muted-foreground">Время начала</span>
+              <select
+                className="mt-1 h-9 w-full rounded-md border bg-background px-2 text-sm"
+                value={form.startTime}
+                onChange={(e) => setForm((f) => ({ ...f, startTime: e.target.value }))}
+              >
+                {BOOKING_TIME_SLOTS.map((t) => (
+                  <option key={t} value={t}>
+                    {t}
+                  </option>
+                ))}
+              </select>
+            </label>
             <label className="text-sm">
               <span className="text-muted-foreground">Статус</span>
               <select
@@ -560,7 +636,56 @@ export default function AdminDashboardPage() {
           onCancel={() => setDeleteTarget(null)}
         />
 
-        {mapped.length > 0 ? (
+        {mapped.length > 0 && isMobile ? (
+          <ul className="flex flex-col gap-3">
+            {mapped.map((row) => (
+              <li
+                key={row.id}
+                {...rowProps(row.id, cn('rounded-lg border bg-muted/30 p-3', row.muted && 'opacity-80'))}
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <p className={cn('font-semibold', row.muted && 'text-muted-foreground')}>{row.name}</p>
+                    <p className="text-sm text-muted-foreground">{row.phone}</p>
+                  </div>
+                  {canEdit ? (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="size-8 shrink-0"
+                      onClick={() => openEdit(row)}
+                      aria-label="Редактировать"
+                    >
+                      <img src={PENCIL} alt="" className="size-4" width={16} height={16} />
+                    </Button>
+                  ) : null}
+                </div>
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <SimulatorIcons type={row.simulator} />
+                  <StatusBadge status={row.status} />
+                  <PayCell paid={row.paid} />
+                  <PaymentMethodIcon method={row.method} />
+                </div>
+                <p className="mt-2 text-sm font-medium">{row.time}</p>
+                {row.comment ? (
+                  <p className="mt-1 text-xs leading-snug text-muted-foreground">{row.comment}</p>
+                ) : null}
+                {canEdit ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="mt-3 h-8 text-destructive"
+                    onClick={() => setDeleteTarget(row)}
+                  >
+                    Удалить
+                  </Button>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        ) : mapped.length > 0 ? (
           <div className="-mx-4 max-w-[calc(100vw-2rem)] overflow-x-auto sm:mx-0 sm:max-w-none">
             <Table>
               <TableHeader>
@@ -580,7 +705,7 @@ export default function AdminDashboardPage() {
                 {mapped.map((row) => (
                   <TableRow
                     key={row.id}
-                    {...rowProps(row.id, cn(row.muted && 'text-muted-foreground/70 opacity-70'))}
+                    {...rowProps(row.id, cn(row.muted && 'text-muted-foreground'))}
                   >
                     <TableCell className={cn('whitespace-nowrap', !row.muted && 'font-semibold text-foreground')}>
                       {row.name}
@@ -602,23 +727,34 @@ export default function AdminDashboardPage() {
                     <TableCell className="max-w-[220px] text-sm leading-snug">{row.comment}</TableCell>
                     {canEdit ? (
                       <TableCell className="pr-2 text-right">
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" size="icon" className="size-8">
-                              <MoreHorizontal className="size-4" />
-                              <span className="sr-only">Действия</span>
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end">
-                            <DropdownMenuItem onClick={() => openEdit(row)}>Редактировать</DropdownMenuItem>
-                            <DropdownMenuItem
-                              className="text-destructive focus:bg-destructive/10 focus:text-destructive"
-                              onClick={() => setDeleteTarget(row)}
-                            >
-                              Удалить
-                            </DropdownMenuItem>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
+                        <div className="flex justify-end gap-0.5">
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="size-8"
+                            onClick={() => openEdit(row)}
+                            aria-label="Редактировать"
+                          >
+                            <img src={PENCIL} alt="" className="size-4" width={16} height={16} />
+                          </Button>
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button variant="ghost" size="icon" className="size-8">
+                                <MoreHorizontal className="size-4" />
+                                <span className="sr-only">Ещё</span>
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                              <DropdownMenuItem
+                                className="text-destructive focus:bg-destructive/10 focus:text-destructive"
+                                onClick={() => setDeleteTarget(row)}
+                              >
+                                Удалить
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        </div>
                       </TableCell>
                     ) : null}
                   </TableRow>

@@ -104,7 +104,7 @@ function HomeHero() {
               style={desktopStyle}
               className={[
                 'group relative overflow-hidden',
-                'min-[990px]:h-full min-[990px]:flex-none min-[990px]:cursor-pointer min-[990px]:transition-[width,margin] min-[990px]:duration-500 min-[990px]:ease-out',
+                'min-[990px]:h-full min-[990px]:flex-none min-[990px]:[container-type:size] min-[990px]:cursor-pointer min-[990px]:transition-[width,margin] min-[990px]:duration-500 min-[990px]:ease-out',
               ].join(' ')}
             >
               <img
@@ -136,10 +136,19 @@ function HomeHero() {
               <div
                 style={
                   isDesktop
-                    ? { paddingRight: isLast ? '40px' : `calc(${slantVw}vw + 24px)` }
+                    ? {
+                        /*
+                          Левая грань клипа: (slant,0) → (0,100%). Надпись внизу —
+                          берём x диагонали на высоте текста (~72px от низа), + 40px воздуха.
+                        */
+                        paddingLeft: isFirst
+                          ? '40px'
+                          : `calc(${slantVw}vw * 72px / 100cqh + 40px)`,
+                        paddingRight: isLast ? '40px' : `calc(${slantVw}vw + 24px)`,
+                      }
                     : undefined
                 }
-                className="absolute inset-x-0 bottom-0 z-10 hidden items-center justify-between gap-4 px-10 pb-8 pt-20 min-[990px]:flex"
+                className="absolute inset-x-0 bottom-0 z-10 hidden items-center justify-between gap-4 px-10 pb-8 pt-20 min-[990px]:flex min-[990px]:px-0"
               >
                 <h2 className="whitespace-nowrap text-[min(2.6vw,38px)] font-bold leading-none tracking-tight text-white">
                   {slide.title}

@@ -25,3 +25,8 @@ export function getIo() {
 export function emitAdmin(event: string, payload: unknown) {
   getIo().to('admin').emit(event, payload)
 }
+
+/** Всем клиентам (публичный календарь брони + админка). */
+export function emitAll(event: string, payload: unknown) {
+  getIo().emit(event, payload)
+}

@@ -6,6 +6,7 @@ import GiftCertificateModal from './components/giftCertificate/GiftCertificateMo
 import ScrollToTop from './components/ScrollToTop'
 import SiteThemeSync from './components/SiteThemeSync'
 import { AdminAuthProvider } from './contexts/AdminAuthContext'
+import ModalExclusiveBridge from './components/ModalExclusiveBridge'
 import { BookingModalProvider } from './contexts/BookingModalContext'
 import { GiftCertificateModalProvider } from './contexts/GiftCertificateModalContext'
 import AdminLayout from './pages/admin/AdminLayout'
@@ -23,6 +24,9 @@ import AdminStaffSchedulePage from './pages/admin/AdminStaffSchedulePage'
 import AdminScheduleSettingsPage from './pages/admin/AdminScheduleSettingsPage'
 import AdminWaitingRoomPage from './pages/admin/AdminWaitingRoomPage'
 import AdminArchivePage from './pages/admin/AdminArchivePage'
+import AdminFeedbackPage from './pages/admin/AdminFeedbackPage'
+import AdminLogsPage from './pages/admin/AdminLogsPage'
+import AdminPilotHoursPage from './pages/admin/AdminPilotHoursPage'
 import { ADMIN_NAV_MAIN } from './data/adminNav'
 import AgreementPage from './pages/AgreementPage'
 import ContactsPage from './pages/ContactsPage'
@@ -46,6 +50,7 @@ function App() {
           <GiftCertificateModalProvider>
             <ScrollToTop />
             <SiteThemeSync />
+            <ModalExclusiveBridge />
             <div className="flex min-h-0 flex-1 flex-col">
               <Routes>
                 <Route path="/admin/login" element={<AdminLoginPage />} />
@@ -62,6 +67,9 @@ function App() {
                   <Route path="analytics" element={<AdminAnalyticsPage />} />
                   <Route path="notifications" element={<AdminNotificationsPage />} />
                   <Route path="archive" element={<AdminArchivePage />} />
+                  <Route path="feedback" element={<AdminFeedbackPage />} />
+                  <Route path="logs" element={<AdminLogsPage />} />
+                  <Route path="pilot-hours" element={<AdminPilotHoursPage />} />
                   {ADMIN_NAV_MAIN.filter(
                     (item) =>
                       item.to !== '/admin' &&
@@ -72,7 +80,9 @@ function App() {
                       item.to !== '/admin/prices-promos' &&
                       item.to !== '/admin/accounts' &&
                       item.to !== '/admin/maintenance' &&
-                      item.to !== '/admin/analytics',
+                      item.to !== '/admin/analytics' &&
+                      item.to !== '/admin/feedback' &&
+                      item.to !== '/admin/pilot-hours',
                   ).map((item) => (
                     <Route
                       key={item.to}

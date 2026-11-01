@@ -23,12 +23,11 @@ function ContactsPage() {
       <SiteHeader />
       <main className="flex min-h-0 flex-1 flex-col pb-14 pt-[96px] text-white min-[990px]:pb-20 min-[990px]:pt-[112px]">
         <div className="container-app flex flex-col gap-6 min-[990px]:gap-8">
-          <h1 className="text-[26px] font-bold leading-tight tracking-tight min-[990px]:text-[36px] min-[990px]:leading-[1.15]">
-            Удобная локация в центре города
-          </h1>
-
-          <div className="flex flex-col gap-8 min-[990px]:grid min-[990px]:grid-cols-2 min-[990px]:items-start min-[990px]:gap-12">
+          <div className="flex flex-col gap-8 min-[990px]:grid min-[990px]:grid-cols-2 min-[990px]:items-start min-[990px]:gap-x-12 min-[990px]:gap-y-8">
             <div className="flex min-w-0 flex-col gap-6 min-[990px]:col-start-1 min-[990px]:row-start-1">
+              <h1 className="text-[26px] font-bold leading-tight tracking-tight min-[990px]:text-[36px] min-[990px]:leading-[1.15]">
+                Удобная локация в центре города
+              </h1>
               <p className="text-[15px] font-medium leading-relaxed text-white/85 min-[990px]:text-[17px]">
                 Наши авиатренажеры расположены в центре Минска, что позволяет с комфортом добраться из любой точки
                 города, не затрачивая лишних усилий
@@ -76,7 +75,8 @@ function ContactsPage() {
               </ul>
             </div>
 
-            <YandexConstructorMap className="shrink-0 min-[990px]:col-start-2 min-[990px]:row-start-1 min-[990px]:row-span-2 min-[990px]:min-h-[min(100%,520px)]" />
+            {/* Карта ниже заголовка по вертикали: row начинается после h1-колонки визуально через align + отступ сверху на десктопе */}
+            <YandexConstructorMap className="shrink-0 min-[990px]:col-start-2 min-[990px]:row-start-1 min-[990px]:row-span-2 min-[990px]:mt-[3.25rem] min-[990px]:min-h-[min(100%,520px)]" />
 
             <div className="flex flex-col gap-4 min-[990px]:col-start-1 min-[990px]:row-start-2">
               <h2 className="text-[18px] font-bold leading-tight min-[990px]:text-[20px]">Наши соцсети</h2>

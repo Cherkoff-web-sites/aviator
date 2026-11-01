@@ -231,6 +231,8 @@ type Props = {
 }
 
 function defaultPlanIndex(block: SimulatorPricingBlock) {
+  // Одна карточка (2в1): по умолчанию idle, CTA только по hover
+  if (block.plans.length <= 1) return -1
   const idx = block.plans.findIndex((p) => p.highlighted)
   return idx >= 0 ? idx : 0
 }
@@ -351,9 +353,9 @@ function SimulatorPricingSection({
               data-sim-reveal-head
               type="button"
               onClick={() => openGiftCertificate({ product: giftProduct })}
-              className="btn-solid-light shrink-0 self-start px-5 py-2.5 text-[14px] font-semibold min-[990px]:px-6 min-[990px]:py-3 min-[990px]:text-[15px]"
+              className="btn-solid-light shrink-0 self-start px-6 py-3 text-[15px] font-bold shadow-[0_8px_28px_rgba(255,255,255,0.22)] min-[990px]:px-8 min-[990px]:py-3.5 min-[990px]:text-[16px]"
             >
-              Подарить полет
+              Подарить полёт
             </button>
           ) : null}
         </header>
@@ -361,7 +363,7 @@ function SimulatorPricingSection({
         {/* Запас my-5 — место под absolute-выступ featured (только если тарифов > 1) */}
         <div
           className={`relative flex min-[990px]:justify-center ${planCount > 1 ? 'min-[990px]:my-5' : ''}`}
-          onMouseLeave={planCount > 1 ? resetToDefaultSoon : undefined}
+          onMouseLeave={resetToDefaultSoon}
         >
           <div
             className="pricing-plans-shell relative overflow-visible"

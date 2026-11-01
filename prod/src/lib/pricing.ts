@@ -80,8 +80,11 @@ export function effectiveDayStatus(
   date: Date,
   dayStatus?: CalendarStatus,
 ): CalendarStatus {
-  if (dayStatus) return dayStatus
-  return isWeekend(date) ? 'HOLIDAY' : 'OPEN'
+  if (isWeekend(date)) {
+    if (dayStatus === 'BLOCKED') return 'BLOCKED'
+    return 'HOLIDAY'
+  }
+  return dayStatus ?? 'OPEN'
 }
 
 /**

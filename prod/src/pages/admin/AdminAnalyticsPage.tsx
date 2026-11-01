@@ -45,7 +45,7 @@ const FLIGHT_SIM_FILTERS = [
 const CERT_SIM_FILTERS = [
   { value: 'boeing-737', label: 'Boeing 737' },
   { value: 'mi-2', label: 'Ми-2' },
-  { value: 'combo', label: 'Комбинированные' },
+  { value: 'combo', label: 'Boeing + Ми-2' },
   { value: 'all', label: 'Общее количество' },
 ] as const
 

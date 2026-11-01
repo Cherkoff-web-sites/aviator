@@ -1,6 +1,8 @@
 import { useEffect, useMemo } from 'react'
 import { Navigate, Outlet, useLocation } from 'react-router-dom'
 
+import AdminToastHost from '@/components/admin/AdminToastHost'
+import StatusConfirmHost from '@/components/admin/StatusConfirmHost'
 import DemoDataButton from '@/components/admin/DemoDataButton'
 import { AppSidebar } from '@/components/app-sidebar'
 import { ADMIN_NAV_MAIN } from '@/data/adminNav'
@@ -35,6 +37,9 @@ export default function AdminLayout() {
     if (pathname.startsWith('/admin/settings')) return 'Настройки'
     if (pathname.startsWith('/admin/notifications')) return 'Уведомления'
     if (pathname.startsWith('/admin/archive')) return 'Архив'
+    if (pathname.startsWith('/admin/feedback')) return 'Обратная связь'
+    if (pathname.startsWith('/admin/logs')) return 'Журнал'
+    if (pathname.startsWith('/admin/pilot-hours')) return 'Часы пилотов'
     const hit = ADMIN_NAV_MAIN.find((i) => i.to === pathname)
     return hit?.title ?? 'Раздел'
   }, [pathname])
@@ -73,6 +78,8 @@ export default function AdminLayout() {
           </div>
         </SidebarInset>
         <DemoDataButton />
+        <AdminToastHost />
+        <StatusConfirmHost />
       </SidebarProvider>
     </AdminUndoProvider>
   )

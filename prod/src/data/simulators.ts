@@ -14,7 +14,7 @@ export interface SimulatorContentSection {
 
 export interface SimulatorPricingPlan {
   durationLabel: string
-  /** Как на макете, напр. «Б 170 BYN» */
+  /** Как на макете, напр. «170 BYN» */
   priceDisplay: string
   /** Текст между разделителями (например «Базовый минимум») */
   ribbon?: string
@@ -176,7 +176,7 @@ export const simulators: Simulator[] = [
       plans: [
         {
           durationLabel: '30 минут',
-          priceDisplay: 'Б 170 BYN',
+          priceDisplay: '170 BYN',
           ribbon: 'Идеально для первого знакомства с авиатренажером',
           features: [
             'Знакомство с кабиной и инструктаж (3-5 мин)',
@@ -188,7 +188,7 @@ export const simulators: Simulator[] = [
         },
         {
           durationLabel: '60 минут',
-          priceDisplay: 'Б 300 BYN',
+          priceDisplay: '300 BYN',
           highlighted: true,
           ribbon: 'Полноценный полет',
           features: [
@@ -274,7 +274,7 @@ export const simulators: Simulator[] = [
       plans: [
         {
           durationLabel: '30 минут',
-          priceDisplay: 'Б 170 BYN',
+          priceDisplay: '170 BYN',
           ribbon: 'Ознакомительный полет',
           features: [
             'Знакомство с кабиной и инструктаж (3-5 мин)',
@@ -286,7 +286,7 @@ export const simulators: Simulator[] = [
         },
         {
           durationLabel: '60 минут',
-          priceDisplay: 'Б 300 BYN',
+          priceDisplay: '300 BYN',
           ribbon: 'Полноценный полет',
           features: [
             'Инструктаж (7-15 мин) с запуском двигателей',
@@ -298,7 +298,7 @@ export const simulators: Simulator[] = [
         },
         {
           durationLabel: '90 минут',
-          priceDisplay: 'Б 400 BYN',
+          priceDisplay: '400 BYN',
           highlighted: true,
           ribbon: 'Для ценителей авиации',
           features: [
@@ -312,7 +312,7 @@ export const simulators: Simulator[] = [
         },
         {
           durationLabel: '120 минут',
-          priceDisplay: 'Б 450 BYN',
+          priceDisplay: '450 BYN',
           ribbon: 'Для настоящих фанатов',
           features: [
             'Полноценное выполнение рейса со всеми процедурами',
@@ -393,15 +393,15 @@ export const simulators: Simulator[] = [
       headingSubtitle: 'Обучение и практика на профессиональных тренажёрах',
       features: [...SCHOOL_PRICING_FEATURES],
       plans: [
-        { durationLabel: '1 занятие', priceDisplay: 'Б 150 BYN', ribbon: 'Базовый минимум' },
-        { durationLabel: '4 занятия', priceDisplay: 'Б 520 BYN', ribbon: 'Базовый минимум' },
+        { durationLabel: '1 занятие', priceDisplay: '150 BYN', ribbon: 'Базовый минимум' },
+        { durationLabel: '4 занятия', priceDisplay: '520 BYN', ribbon: 'Базовый минимум' },
         {
           durationLabel: '8 занятий',
-          priceDisplay: 'Б 960 BYN',
+          priceDisplay: '960 BYN',
           highlighted: true,
           ribbon: 'Базовый минимум',
         },
-        { durationLabel: '12 занятий', priceDisplay: 'Б 1320 BYN', ribbon: 'Базовый минимум' },
+        { durationLabel: '12 занятий', priceDisplay: '1320 BYN', ribbon: 'Базовый минимум' },
       ],
     },
     sections: [
@@ -454,7 +454,7 @@ export const COMBO_PRICING_BLOCK: SimulatorPricingBlock = {
   plans: [
     {
       durationLabel: '60 минут',
-      priceDisplay: 'Б 370 BYN',
+      priceDisplay: '370 BYN',
       highlighted: true,
       ribbon: '30 мин Boeing 737NG + 30 мин Ми-2',
       features: [

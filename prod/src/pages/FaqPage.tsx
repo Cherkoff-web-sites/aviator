@@ -1,7 +1,6 @@
 import { Link } from 'react-router-dom'
 
 import FaqAccordion from '../components/FaqAccordion'
-import PageGradientTitle from '../components/PageGradientTitle'
 import SiteCtaBanner from '../components/SiteCtaBanner'
 import SiteFooter from '../components/SiteFooter'
 import SiteHeader from '../components/SiteHeader'
@@ -11,8 +10,12 @@ function FaqPage() {
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <SiteHeader />
-      <main className="flex min-h-0 flex-1 flex-col pb-12 pt-[72px] text-white min-[990px]:pb-16 min-[990px]:pt-[84px]">
-        <PageGradientTitle title="Вопросы и ответы" className="pb-6 min-[990px]:pb-10" />
+      <main className="flex min-h-0 flex-1 flex-col pb-12 pt-[96px] text-white min-[990px]:pb-16 min-[990px]:pt-[112px]">
+        <div className="container-app pb-6 min-[990px]:pb-10">
+          <h1 className="text-[26px] font-bold leading-tight tracking-tight min-[990px]:text-[36px] min-[990px]:leading-[1.15]">
+            Вопросы и ответы
+          </h1>
+        </div>
         <div className="container-app max-w-[800px]">
           <FaqAccordion items={FAQ_ITEMS} defaultOpenId="gift-certificate" />
           <section className="mt-10 text-center min-[990px]:mt-14">

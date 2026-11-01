@@ -1,4 +1,5 @@
 import { addMonths, format, getDay, parseISO, startOfDay, subMonths } from 'date-fns'
+import { format as fmtDate } from 'date-fns'
 import type { CalendarDayStatus, DataStore, UserRole } from '../types.js'
 
 export function toDateKey(d: Date | string) {
@@ -18,9 +19,15 @@ export function calendarRangeForRole(role: UserRole, anchor = new Date()) {
 }
 
 export function getDayStatus(store: DataStore, dateKey: string): CalendarDayStatus {
-  if (store.calendar[dateKey]) return store.calendar[dateKey]
+  const override = store.calendar[dateKey]
   const d = parseISO(dateKey)
-  return isWeekend(d) ? 'HOLIDAY' : 'OPEN'
+  // Сб/Вс всегда выходные: OPEN-override на выходных игнорируем (баг «7 ноября раб. день»).
+  // BLOCKED (ТО) на выходных сохраняем.
+  if (isWeekend(d)) {
+    if (override === 'BLOCKED') return 'BLOCKED'
+    return 'HOLIDAY'
+  }
+  return override ?? 'OPEN'
 }
 
 export function buildCalendarDays(store: DataStore, from: Date, to: Date) {
@@ -45,6 +52,27 @@ export function addMinutesToTime(time: string, minutes: number) {
 
 export function generateCode(_len = 6) {
   return '123456'
+}
+
+export function timeToMinsLocal(t: string): number {
+  const [h, m] = t.split(':').map(Number)
+  return (h ?? 0) * 60 + (m ?? 0)
+}
+
+/** IN_PROGRESS → DONE, если дата/время окончания уже прошли. */
+export function autoCompletePastBookings(store: DataStore) {
+  const today = toDateKey(new Date())
+  const nowMins = timeToMinsLocal(fmtDate(new Date(), 'HH:mm'))
+  const nowIso = new Date().toISOString()
+  for (const b of store.bookings) {
+    if (b.status !== 'IN_PROGRESS') continue
+    const endPassed =
+      b.date < today || (b.date === today && timeToMinsLocal(b.endTime) <= nowMins)
+    if (endPassed) {
+      b.status = 'DONE'
+      b.updatedAt = nowIso
+    }
+  }
 }
 
 export function filterBookingsForRole(

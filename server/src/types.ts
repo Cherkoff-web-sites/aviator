@@ -47,6 +47,10 @@ export type Booking = {
   certificateNumber?: string
   promoNote?: string
   holdExpiresAt?: string
+  /** Связка двух ног комбо 2в1 */
+  comboGroupId?: string
+  /** Пилот, подтвердивший/провёдший полёт */
+  pilotUserId?: string
   createdAt: string
   updatedAt: string
 }
@@ -100,6 +104,8 @@ export type PriceRow = {
   durationMin: number
   simulatorSlug: string
   priceByn: number
+  /** CTA-тариф по умолчанию на сайте */
+  highlighted?: boolean
 }
 
 export type Promo = {
@@ -153,6 +159,27 @@ export type FeedbackRequest = {
   phone: string
   message: string
   createdAt: string
+}
+
+export type AppLogEntry = {
+  id: string
+  level: 'info' | 'warn' | 'error'
+  message: string
+  context?: string
+  meta?: Record<string, string>
+  createdAt: string
+}
+
+/** Учёт часов пилотов по месяцу и тренажёру. */
+export type PilotHourEntry = {
+  id: string
+  /** yyyy-MM */
+  month: string
+  userId: string
+  simulatorSlug: 'boeing-737' | 'mi-2'
+  minutes: number
+  comment: string
+  updatedAt: string
 }
 
 export type NotificationKind =
@@ -225,11 +252,19 @@ export type DataStore = {
   workHours: WorkHourEntry[]
   maintenance: MaintenanceEntry[]
   optionLists: Record<string, OptionItem[]>
-  settings: { bookingWindowMonths: number }
+  settings: {
+    bookingWindowMonths: number
+    /** Пауза между полётами на одном тренажёре, минут (по умолчанию 15). */
+    bookingGapMin?: number
+    /** Соцсети футера: label → url */
+    footerSocialLinks?: Record<string, string>
+  }
   counters: { certificate: number }
   pendingCodes: { bookingId: string; code: string; expiresAt: string; sentAt: string }[]
   feedbackRequests?: FeedbackRequest[]
   notifications?: AdminNotification[]
+  appLogs?: AppLogEntry[]
+  pilotHours?: PilotHourEntry[]
   /** Удалённые записи (хранятся 30 дней). */
   archive?: ArchiveEntry[]
 }

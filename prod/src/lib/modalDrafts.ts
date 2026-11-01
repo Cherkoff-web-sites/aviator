@@ -6,7 +6,7 @@ const BOOKING_DRAFT_KEY = 'aviator.bookingModal.draft'
 const GIFT_DRAFT_KEY = 'aviator.giftCertificateModal.draft'
 
 export type BookingModalDraft = {
-  aircraft: 'boeing-737' | 'mi-2'
+  aircraft: 'boeing-737' | 'mi-2' | 'combo'
   durationMin: FlightDurationMin
   /** Номер сертификата помним, но переключатель при открытии не включаем */
   giftCertNumber: string

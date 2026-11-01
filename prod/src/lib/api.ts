@@ -90,6 +90,8 @@ export type ApiBooking = {
   certificateNumber?: string
   promoNote?: string | null
   holdExpiresAt?: string
+  comboGroupId?: string
+  pilotUserId?: string
   createdAt?: string
   updatedAt?: string
 }
@@ -112,7 +114,13 @@ export type ApiCertificate = {
 }
 
 export type ApiWaiting = { id: string; date: string; line: string; createdAt?: string }
-export type ApiPriceRow = { id: string; durationMin: number; simulatorSlug: string; priceByn: number }
+export type ApiPriceRow = {
+  id: string
+  durationMin: number
+  simulatorSlug: string
+  priceByn: number
+  highlighted?: boolean
+}
 export type ApiPromo = {
   id: string
   name: string

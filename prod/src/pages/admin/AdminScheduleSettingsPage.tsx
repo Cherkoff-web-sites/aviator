@@ -1,4 +1,5 @@
 import * as React from 'react'
+import { Link } from 'react-router-dom'
 import { MoreVertical, Plus, Trash2 } from 'lucide-react'
 import { format, isWeekend } from 'date-fns'
 import { ru } from 'date-fns/locale'
@@ -59,6 +60,7 @@ export default function AdminScheduleSettingsPage() {
     startTime: '12:00',
     endTime: '14:00',
     notes: 'ТО / блокировка интервала',
+    simulatorSlug: 'all' as 'all' | 'boeing-737' | 'mi-2',
   })
   const { session } = useAdminAuth()
   const { pushUndo } = useAdminUndo()
@@ -100,13 +102,7 @@ export default function AdminScheduleSettingsPage() {
   const intervalBlocks = React.useMemo(() => {
     const today = format(new Date(), 'yyyy-MM-dd')
     return (maintPayload?.items ?? [])
-      .filter(
-        (m) =>
-          !m.simulatorSlug &&
-          m.startTime &&
-          m.endTime &&
-          m.date >= today,
-      )
+      .filter((m) => m.startTime && m.endTime && m.date >= today)
       .sort((a, b) => a.date.localeCompare(b.date) || String(a.startTime).localeCompare(String(b.startTime)))
   }, [maintPayload])
 
@@ -172,9 +168,17 @@ export default function AdminScheduleSettingsPage() {
     if (rangeForm.from > rangeForm.to || rangeForm.startTime >= rangeForm.endTime) return
     setBusy(true)
     try {
+      const body = {
+        from: rangeForm.from,
+        to: rangeForm.to,
+        startTime: rangeForm.startTime,
+        endTime: rangeForm.endTime,
+        notes: rangeForm.notes,
+        simulatorSlug: rangeForm.simulatorSlug === 'all' ? undefined : rangeForm.simulatorSlug,
+      }
       const result = await apiFetch<{ items: MaintenanceRow[] }>('/api/admin/maintenance/range', {
         method: 'POST',
-        body: JSON.stringify(rangeForm),
+        body: JSON.stringify(body),
       })
       const ids = result.items.map((i) => i.id)
       pushUndo({
@@ -359,6 +363,14 @@ export default function AdminScheduleSettingsPage() {
         </p>
       </div>
 
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        {canEdit ? (
+          <Button type="button" variant="destructive" size="sm" className="h-9 w-fit gap-2" asChild>
+            <Link to="/admin/maintenance">Добавить ТО</Link>
+          </Button>
+        ) : null}
+      </div>
+
       <div className="rounded-lg border border-border bg-background p-4">
         <h3 className="text-sm font-semibold text-foreground">Блокировка интервала (ТО)</h3>
         <p className="mt-1 text-xs text-muted-foreground">
@@ -392,6 +404,23 @@ export default function AdminScheduleSettingsPage() {
                 value={rangeForm.notes}
                 onChange={(e) => setRangeForm((f) => ({ ...f, notes: e.target.value }))}
               />
+            </label>
+            <label className="text-sm sm:col-span-2 lg:col-span-1">
+              Тренажёр
+              <select
+                className={selectClass}
+                value={rangeForm.simulatorSlug}
+                onChange={(e) =>
+                  setRangeForm((f) => ({
+                    ...f,
+                    simulatorSlug: e.target.value as 'all' | 'boeing-737' | 'mi-2',
+                  }))
+                }
+              >
+                <option value="all">Оба тренажёра</option>
+                <option value="boeing-737">Boeing 737</option>
+                <option value="mi-2">Ми-2</option>
+              </select>
             </label>
             <label className="text-sm">
               Время с
@@ -453,7 +482,12 @@ export default function AdminScheduleSettingsPage() {
                     {m.date} · {m.startTime}–{m.endTime}
                   </p>
                   <p className="text-xs text-muted-foreground">
-                    Оба тренажёра{m.notes ? ` · ${m.notes}` : ''}
+                    {m.simulatorSlug === 'mi-2'
+                      ? 'Ми-2'
+                      : m.simulatorSlug === 'boeing-737'
+                        ? 'Boeing 737'
+                        : 'Оба тренажёра'}
+                    {m.notes ? ` · ${m.notes}` : ''}
                   </p>
                 </div>
                 {canEdit ? (

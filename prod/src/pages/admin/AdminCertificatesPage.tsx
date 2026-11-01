@@ -28,6 +28,7 @@ import {
 } from '@/lib/admin-labels'
 import { durationsForSimulator, FLIGHT_DURATIONS } from '@/lib/flight-durations'
 import {
+  certificateStatusBadgeClass,
   certificateUrgency,
   defaultDesignForSim,
   designMeta,
@@ -101,8 +102,17 @@ export default function AdminCertificatesPage() {
       .includes(q)
   })
 
+  const loadNextNumber = async (simulatorSlug: string, designColor: CertificateDesignColor) => {
+    const { number } = await apiFetch<{ number: string }>(
+      `/api/admin/certificates/next-number?simulatorSlug=${encodeURIComponent(simulatorSlug)}&designColor=${encodeURIComponent(designColor)}`,
+    )
+    return number
+  }
+
   const openCreate = () => {
     setEditId(null)
+    const simulatorSlug = 'boeing-737'
+    const designColor = defaultDesignForSim(simulatorSlug)
     setForm({
       number: '',
       phone: '',
@@ -112,12 +122,15 @@ export default function AdminCertificatesPage() {
       paymentStatus: 'PAID',
       validFrom: format(new Date(), 'yyyy-MM-dd'),
       validTo: format(addMonths(new Date(), 3), 'yyyy-MM-dd'),
-      simulatorSlug: 'boeing-737',
-      designColor: defaultDesignForSim('boeing-737'),
+      simulatorSlug,
+      designColor,
       status: 'ACTIVE',
       comment: '',
     })
     setFormOpen(true)
+    void loadNextNumber(simulatorSlug, designColor).then((number) =>
+      setForm((f) => (f.number ? f : { ...f, number })),
+    )
   }
 
   const openEdit = (row: ApiCertificate) => {
@@ -229,7 +242,7 @@ export default function AdminCertificatesPage() {
         <Input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="Поиск по номеру или телефону"
+          placeholder="Поиск по номеру, телефону или ФИО"
           className="h-10 pl-9"
         />
       </div>
@@ -247,7 +260,7 @@ export default function AdminCertificatesPage() {
         <div className="grid gap-3 sm:grid-cols-2">
           {(
             [
-              ['number', 'Номер'],
+              ['number', editId ? 'Номер' : 'Номер (следующий)'],
               ['fullName', 'ФИО'],
               ['phone', 'Телефон'],
               ['validFrom', 'С', 'date'],
@@ -261,8 +274,10 @@ export default function AdminCertificatesPage() {
                 type={type ?? 'text'}
                 className="mt-1 h-9"
                 value={String(form[key as keyof typeof form] ?? '')}
+                readOnly={!editId && key === 'number'}
                 onChange={(e) => {
                   const value = e.target.value
+                  if (!editId && key === 'number') return
                   if (key === 'validFrom') {
                     const from = parseISO(value)
                     setForm((f) => ({
@@ -288,20 +303,27 @@ export default function AdminCertificatesPage() {
               onChange={(e) => {
                 const simulatorSlug = e.target.value
                 const nextColors = designOptionsForSim(simulatorSlug)
-                setForm((f) => ({
-                  ...f,
-                  simulatorSlug,
-                  durationMin:
-                    simulatorSlug === 'combo'
-                      ? 60
-                      : f.durationMin > 60 && simulatorSlug === 'mi-2'
-                        ? 60
-                        : f.durationMin,
-                  // Цвет только из палитры нового тренажёра
-                  designColor: nextColors.some((o) => o.value === f.designColor)
+                setForm((f) => {
+                  const designColor = nextColors.some((o) => o.value === f.designColor)
                     ? f.designColor
-                    : defaultDesignForSim(simulatorSlug),
-                }))
+                    : defaultDesignForSim(simulatorSlug)
+                  if (!editId) {
+                    void loadNextNumber(simulatorSlug, designColor).then((number) =>
+                      setForm((cur) => ({ ...cur, number })),
+                    )
+                  }
+                  return {
+                    ...f,
+                    simulatorSlug,
+                    durationMin:
+                      simulatorSlug === 'combo'
+                        ? 60
+                        : f.durationMin > 60 && simulatorSlug === 'mi-2'
+                          ? 60
+                          : f.durationMin,
+                    designColor,
+                  }
+                })
               }}
             >
               {CERT_SIMULATOR_OPTIONS.map((o) => (
@@ -492,18 +514,19 @@ export default function AdminCertificatesPage() {
                     <span
                       className={cn(
                         'inline-flex rounded-md border px-2 py-0.5 text-xs font-semibold',
+                        certificateStatusBadgeClass(row.status),
+                      )}
+                    >
+                      {labelOf(CERTIFICATE_STATUS_OPTIONS, row.status)}
+                    </span>
+                    <span
+                      className={cn(
+                        'mt-1 inline-flex rounded-md border px-2 py-0.5 text-[11px] font-medium',
                         URGENCY_BADGE_CLASS[urgency.tone],
                       )}
                     >
                       {urgency.label}
                     </span>
-                    {!urgency.expired &&
-                    row.status !== 'ACTIVE' &&
-                    row.status !== 'PARTIAL' ? (
-                      <span className="mt-1 block text-[11px] text-muted-foreground">
-                        {labelOf(CERTIFICATE_STATUS_OPTIONS, row.status)}
-                      </span>
-                    ) : null}
                   </TableCell>
                   {canEdit ? (
                     <TableCell>

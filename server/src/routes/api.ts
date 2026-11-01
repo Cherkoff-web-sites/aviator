@@ -5,12 +5,14 @@ import {
   addMinutesToTime,
   buildCalendarDays,
   calendarRangeForRole,
+  autoCompletePastBookings,
   filterBookingsForRole,
   generateCode,
   getDayStatus,
   toDateKey,
 } from '../lib/helpers.js'
-import { emitAdmin } from '../lib/socket.js'
+import { pushLog } from '../lib/app-log.js'
+import { emitAdmin, emitAll } from '../lib/socket.js'
 import {
   pushNotification,
   notificationsForUser,
@@ -85,17 +87,24 @@ function timeToMins(t: string): number {
   return (h ?? 0) * 60 + (m ?? 0)
 }
 
+/** Пересечение слотов с паузой gapMin после каждого полёта. */
 function intervalsOverlap(
   aStart: string,
   aDur: number,
   bStart: string,
   bDur: number,
+  gapMin = 0,
 ): boolean {
   const a0 = timeToMins(aStart)
   const a1 = a0 + aDur
   const b0 = timeToMins(bStart)
   const b1 = b0 + (bDur || 0)
-  return a0 < b1 && b0 < a1
+  return a0 < b1 + gapMin && b0 < a1 + gapMin
+}
+
+function bookingGapMin(store: { settings?: { bookingGapMin?: number } }) {
+  const g = store.settings?.bookingGapMin
+  return typeof g === 'number' && g >= 0 ? g : 15
 }
 
 function isBookingOccupyingSlot(b: Booking, nowIso: string): boolean {
@@ -169,7 +178,9 @@ function hideFromPilots(req: Request, res: Response, next: NextFunction) {
 }
 
 function broadcast() {
-  emitAdmin('store:updated', { at: new Date().toISOString() })
+  const payload = { at: new Date().toISOString() }
+  emitAdmin('store:updated', payload)
+  emitAll('store:updated', payload)
 }
 
 function archiveActor(req: Request) {
@@ -261,7 +272,17 @@ apiRouter.get('/public/availability', (req, res) => {
       endTime: b.endTime,
       durationMin: b.durationMin,
     }))
-  res.json({ busy })
+  const gapMin = bookingGapMin(store)
+  res.json({ busy, gapMin })
+})
+
+apiRouter.get('/public/settings', (_req, res) => {
+  const s = readStore()
+  res.json({
+    bookingWindowMonths: s.settings.bookingWindowMonths ?? 12,
+    bookingGapMin: bookingGapMin(s),
+    footerSocialLinks: s.settings.footerSocialLinks ?? {},
+  })
 })
 
 apiRouter.get('/public/prices/flights', (_req, res) => {
@@ -303,8 +324,13 @@ apiRouter.post('/public/feedback', async (req, res) => {
       kind: 'feedback',
       title: 'Новая заявка обратной связи',
       body: `${name}, ${phone}${message ? ` — ${message.slice(0, 80)}` : ''}`,
-      href: notifHref('/admin', entry.id),
+      href: notifHref('/admin/feedback', entry.id),
       audienceRoles: ROLES_STAFF,
+      meta: { feedbackId: entry.id },
+    })
+    pushLog(s, {
+      message: `Обратная связь: ${name}, ${phone}`,
+      context: 'feedback',
       meta: { feedbackId: entry.id },
     })
   })
@@ -374,16 +400,38 @@ apiRouter.post('/public/bookings', async (req, res) => {
     return
   }
   const nowIso = new Date().toISOString()
+  const gapMin = bookingGapMin(storeCheck)
+  const dayStatus = getDayStatus(storeCheck, booking.date)
+  if (dayStatus === 'BLOCKED') {
+    res.status(400).json({
+      error: 'Эта дата заблокирована (ТО). Выберите другой день.',
+      code: 'DATE_BLOCKED',
+    })
+    return
+  }
+  if (dayStatus === 'HOLIDAY' && body.isHappyHoursPromo) {
+    res.status(400).json({
+      error: 'Счастливые часы не действуют в выходные и праздники.',
+      code: 'DATE_HOLIDAY',
+    })
+    return
+  }
   const overlap = storeCheck.bookings.some(
     (b) =>
       b.date === booking.date &&
       b.simulatorSlug === booking.simulatorSlug &&
       isBookingOccupyingSlot(b, nowIso) &&
-      intervalsOverlap(booking.startTime, booking.durationMin, b.startTime, b.durationMin),
+      intervalsOverlap(
+        booking.startTime,
+        booking.durationMin,
+        b.startTime,
+        b.durationMin,
+        gapMin,
+      ),
   )
   if (overlap) {
     res.status(409).json({
-      error: 'Это время уже занято. Выберите другое время.',
+      error: `Это время уже занято (нужен интервал ${gapMin} мин между полётами). Выберите другое время.`,
       code: 'SLOT_TAKEN',
     })
     return
@@ -413,6 +461,140 @@ apiRouter.post('/public/bookings', async (req, res) => {
   res.status(201).json({ bookingId: booking.id, holdExpiresAt })
 })
 
+/** Комбо 2в1: две записи по 30 мин (Boeing + Ми-2) с паузой bookingGapMin между ними. */
+apiRouter.post('/public/bookings/combo', async (req, res) => {
+  const body = req.body
+  const date = String(body.date ?? '')
+  const startTime = String(body.startTime ?? '')
+  const name = String(body.name ?? '').trim()
+  const phone = String(body.phone ?? '').trim()
+  const email = String(body.email ?? '').trim()
+  if (!date || !startTime || !name || !phone || !email) {
+    return res.status(400).json({ error: 'Заполните дату, время, имя, телефон и email', code: 'VALIDATION' })
+  }
+
+  const storeCheck = readStore()
+  const gapMin = bookingGapMin(storeCheck)
+  const firstDur = 30
+  const secondStart = addMinutesToTime(startTime, firstDur + gapMin)
+  const sims = ['boeing-737', 'mi-2'] as const
+  const nowIso = new Date().toISOString()
+  const dayStatus = getDayStatus(storeCheck, date)
+  if (dayStatus === 'BLOCKED') {
+    return res.status(400).json({ error: 'Эта дата заблокирована (ТО).', code: 'DATE_BLOCKED' })
+  }
+
+  const legs = [
+    { simulatorSlug: sims[0], startTime, durationMin: firstDur },
+    { simulatorSlug: sims[1], startTime: secondStart, durationMin: firstDur },
+  ]
+
+  for (const leg of legs) {
+    if (
+      isSlotBlockedByMaintenance(
+        storeCheck,
+        date,
+        leg.startTime,
+        leg.durationMin,
+        leg.simulatorSlug,
+      )
+    ) {
+      return res.status(400).json({
+        error: `Слот ${leg.startTime} на ${leg.simulatorSlug === 'mi-2' ? 'Ми-2' : 'Boeing'} недоступен (ТО).`,
+        code: 'MAINTENANCE',
+      })
+    }
+    const overlap = storeCheck.bookings.some(
+      (b) =>
+        b.date === date &&
+        b.simulatorSlug === leg.simulatorSlug &&
+        isBookingOccupyingSlot(b, nowIso) &&
+        intervalsOverlap(leg.startTime, leg.durationMin, b.startTime, b.durationMin, gapMin),
+    )
+    if (overlap) {
+      return res.status(409).json({
+        error: `Время ${leg.startTime} на ${leg.simulatorSlug === 'mi-2' ? 'Ми-2' : 'Boeing'} занято (интервал ${gapMin} мин).`,
+        code: 'SLOT_TAKEN',
+      })
+    }
+  }
+
+  const holdExpiresAt = new Date(Date.now() + 30 * 60_000).toISOString()
+  const code = generateCode(6)
+  const comboGroupId = newId()
+  const notes: string[] = ['2в1']
+  if (body.isHappyHoursPromo) notes.push('Счастливые часы -10%')
+  if (body.isBirthdayPromo) notes.push('ДР-15%')
+  const promoNote = notes.join(', ')
+  let comment = String(body.comment ?? '')
+  if (!comment.includes('2в1')) {
+    comment = comment.trim() ? `2в1. ${comment.trim()}` : '2в1'
+  }
+  if (body.isHappyHoursPromo && !comment.includes('«Счастливые часы»')) {
+    comment = `«Счастливые часы». ${comment}`
+  }
+
+  const bookings = legs.map((leg) => ({
+    id: newId(),
+    date,
+    startTime: leg.startTime,
+    endTime: addMinutesToTime(leg.startTime, leg.durationMin),
+    durationMin: leg.durationMin,
+    simulatorSlug: leg.simulatorSlug,
+    name,
+    phone,
+    email,
+    status: 'PENDING_CONFIRMATION' as const,
+    paid: false,
+    paymentMethod: body.paymentMethod ?? 'OFFLINE',
+    comment,
+    isBirthdayPromo: !!body.isBirthdayPromo,
+    birthdayDate: body.birthdayDate,
+    certificateNumber: body.certificateNumber,
+    promoNote,
+    holdExpiresAt,
+    comboGroupId,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  }))
+
+  await updateStore((s) => {
+    for (const booking of bookings) {
+      s.bookings.push(booking as Booking)
+    }
+    s.pendingCodes.push({
+      bookingId: bookings[0].id,
+      code,
+      expiresAt: holdExpiresAt,
+      sentAt: new Date().toISOString(),
+    })
+    // второй id тоже подтверждается тем же кодом
+    s.pendingCodes.push({
+      bookingId: bookings[1].id,
+      code,
+      expiresAt: holdExpiresAt,
+      sentAt: new Date().toISOString(),
+    })
+    pushNotification(s, {
+      kind: 'booking',
+      title: 'Новая бронь 2в1 с сайта',
+      body: `${name} · ${date} ${startTime}+${secondStart} · Boeing+Ми-2`,
+      href: notifHref('/admin', bookings[0].id, { date }),
+      audienceRoles: ROLES_STAFF,
+      meta: { bookingId: bookings[0].id, date, comboGroupId },
+    })
+  })
+
+  console.log(`[BOOKING CODE COMBO] ${email}: ${code}`)
+  broadcast()
+  res.status(201).json({
+    bookingId: bookings[0].id,
+    bookingIds: bookings.map((b) => b.id),
+    holdExpiresAt,
+    comboGroupId,
+  })
+})
+
 apiRouter.post('/public/bookings/:id/confirm', async (req, res) => {
   const id = String(req.params.id)
   const code = String(req.body.code ?? '')
@@ -427,9 +609,19 @@ apiRouter.post('/public/bookings/:id/confirm', async (req, res) => {
   await updateStore((s) => {
     const b = s.bookings.find((x) => x.id === id)
     if (b) {
-      b.status = 'CONFIRMED'
-      b.holdExpiresAt = undefined
-      b.updatedAt = new Date().toISOString()
+      // После OTP — статус «Ожидаем»; связанные комбо-записи с тем же кодом тоже
+      const groupIds = new Set<string>([id])
+      const groupCode = match.code
+      for (const pc of s.pendingCodes) {
+        if (pc.code === groupCode) groupIds.add(pc.bookingId)
+      }
+      for (const bid of groupIds) {
+        const row = s.bookings.find((x) => x.id === bid)
+        if (!row) continue
+        row.status = 'WAITING'
+        row.holdExpiresAt = undefined
+        row.updatedAt = new Date().toISOString()
+      }
       pushNotification(s, {
         kind: 'booking',
         title: 'Бронь подтверждена',
@@ -439,7 +631,7 @@ apiRouter.post('/public/bookings/:id/confirm', async (req, res) => {
         meta: { bookingId: b.id, date: b.date },
       })
     }
-    s.pendingCodes = s.pendingCodes.filter((c) => c.bookingId !== id)
+    s.pendingCodes = s.pendingCodes.filter((c) => c.bookingId !== id && c.code !== match.code)
   })
   broadcast()
   res.json(readStore().bookings.find((b) => b.id === id))
@@ -521,8 +713,11 @@ apiRouter.get('/auth/me', sessionMiddleware, (req, res) => {
 // --- Admin (authenticated) ---
 apiRouter.use('/admin', sessionMiddleware)
 
-apiRouter.get('/admin/bookings', (req, res) => {
+apiRouter.get('/admin/bookings', async (req, res) => {
   const date = req.query.date ? String(req.query.date) : toDateKey(new Date())
+  await updateStore((s) => {
+    autoCompletePastBookings(s)
+  })
   const store = readStore()
   res.json(filterBookingsForRole(store, req.session!.role, req.session!.userId, date))
 })
@@ -543,7 +738,7 @@ apiRouter.post('/admin/bookings', requireRoles('ADMIN', 'MANAGER'), async (req, 
     name: body.name,
     phone: body.phone,
     email: body.email ?? '',
-    status: body.status ?? 'CONFIRMED',
+    status: body.status ?? 'WAITING',
     paid: !!body.paid,
     paymentMethod: body.paymentMethod ?? 'OFFLINE',
     comment: body.comment ?? '',
@@ -552,8 +747,33 @@ apiRouter.post('/admin/bookings', requireRoles('ADMIN', 'MANAGER'), async (req, 
     certificateNumber: body.certificateNumber,
     promoNote: body.promoNote,
     holdExpiresAt: body.holdExpiresAt,
+    pilotUserId: body.pilotUserId,
+    comboGroupId: body.comboGroupId,
     createdAt: body.createdAt ?? new Date().toISOString(),
     updatedAt: new Date().toISOString(),
+  }
+  const storePre = readStore()
+  const gapAdmin = bookingGapMin(storePre)
+  const nowAdmin = new Date().toISOString()
+  const adminOverlap = storePre.bookings.some(
+    (b) =>
+      b.id !== booking.id &&
+      b.date === booking.date &&
+      b.simulatorSlug === booking.simulatorSlug &&
+      isBookingOccupyingSlot(b, nowAdmin) &&
+      intervalsOverlap(
+        booking.startTime,
+        booking.durationMin,
+        b.startTime,
+        b.durationMin,
+        gapAdmin,
+      ),
+  )
+  if (adminOverlap) {
+    return res.status(409).json({
+      error: `Слот пересекается с другой записью (нужен интервал ${gapAdmin} мин).`,
+      code: 'SLOT_TAKEN',
+    })
   }
   await updateStore((s) => {
     if (body.id) {
@@ -1228,6 +1448,115 @@ apiRouter.delete('/admin/accounts/:id', requireRoles('ADMIN'), async (req, res) 
   res.json(removed)
 })
 
+apiRouter.get('/admin/settings', requireRoles('ADMIN'), (_req, res) => {
+  const s = readStore()
+  res.json({
+    bookingWindowMonths: s.settings.bookingWindowMonths ?? 12,
+    bookingGapMin: bookingGapMin(s),
+    footerSocialLinks: s.settings.footerSocialLinks ?? {},
+  })
+})
+
+apiRouter.patch('/admin/settings', requireRoles('ADMIN'), async (req, res) => {
+  const body = req.body as {
+    bookingWindowMonths?: number
+    bookingGapMin?: number
+    footerSocialLinks?: Record<string, string>
+  }
+  await updateStore((s) => {
+    if (typeof body.bookingWindowMonths === 'number' && body.bookingWindowMonths >= 1) {
+      s.settings.bookingWindowMonths = Math.min(24, Math.floor(body.bookingWindowMonths))
+    }
+    if (typeof body.bookingGapMin === 'number' && body.bookingGapMin >= 0) {
+      s.settings.bookingGapMin = Math.min(120, Math.floor(body.bookingGapMin))
+    }
+    if (body.footerSocialLinks && typeof body.footerSocialLinks === 'object') {
+      const next: Record<string, string> = { ...(s.settings.footerSocialLinks ?? {}) }
+      for (const [k, v] of Object.entries(body.footerSocialLinks)) {
+        next[k] = String(v ?? '').trim()
+      }
+      s.settings.footerSocialLinks = next
+    }
+    pushLog(s, { message: 'Обновлены общие настройки', context: 'settings' })
+  })
+  broadcast()
+  const s = readStore()
+  res.json({
+    bookingWindowMonths: s.settings.bookingWindowMonths ?? 12,
+    bookingGapMin: bookingGapMin(s),
+    footerSocialLinks: s.settings.footerSocialLinks ?? {},
+  })
+})
+
+apiRouter.get('/admin/feedback', requireRoles('ADMIN', 'MANAGER'), (_req, res) => {
+  const store = readStore()
+  res.json(store.feedbackRequests ?? [])
+})
+
+apiRouter.get('/admin/logs', requireRoles('ADMIN'), (_req, res) => {
+  res.json(readStore().appLogs ?? [])
+})
+
+apiRouter.get('/admin/certificates/next-number', requireRoles('ADMIN', 'MANAGER'), (req, res) => {
+  const store = readStore()
+  const designColor = defaultDesignColor(
+    String(req.query.simulatorSlug ?? 'boeing-737'),
+    String(req.query.designColor ?? ''),
+  )
+  res.json({
+    number: nextCertificateNumber(store.counters.certificate, designColor),
+  })
+})
+
+apiRouter.get('/admin/pilot-hours', (req, res) => {
+  const month = String(req.query.month ?? '').trim()
+  if (!/^\d{4}-\d{2}$/.test(month)) {
+    res.status(400).json({ error: 'MONTH_REQUIRED' })
+    return
+  }
+  const store = readStore()
+  const role = req.session!.role
+  const userId = req.session!.userId
+  let rows = (store.pilotHours ?? []).filter((r) => r.month === month)
+  if (role === 'PILOT') {
+    rows = rows.filter((r) => r.userId === userId)
+  }
+  res.json(rows)
+})
+
+apiRouter.put('/admin/pilot-hours', requireRoles('ADMIN', 'MANAGER'), async (req, res) => {
+  const month = String(req.body.month ?? '').trim()
+  const rows = Array.isArray(req.body.rows) ? req.body.rows : []
+  if (!/^\d{4}-\d{2}$/.test(month)) {
+    res.status(400).json({ error: 'MONTH_REQUIRED' })
+    return
+  }
+  await updateStore((s) => {
+    if (!Array.isArray(s.pilotHours)) s.pilotHours = []
+    s.pilotHours = s.pilotHours.filter((r) => r.month !== month)
+    const nowIso = new Date().toISOString()
+    for (const raw of rows) {
+      const userId = String(raw.userId ?? '')
+      const simulatorSlug =
+        raw.simulatorSlug === 'mi-2' ? 'mi-2' : ('boeing-737' as const)
+      if (!userId) continue
+      const minutes = Math.max(0, Math.min(9999, Number(raw.minutes) || 0))
+      s.pilotHours.push({
+        id: typeof raw.id === 'string' && raw.id ? raw.id : newId(),
+        month,
+        userId,
+        simulatorSlug,
+        minutes,
+        comment: String(raw.comment ?? '').slice(0, 500),
+        updatedAt: nowIso,
+      })
+    }
+    pushLog(s, { message: `Сохранены часы пилотов за ${month}`, context: 'pilot-hours' })
+  })
+  broadcast()
+  res.json(readStore().pilotHours?.filter((r) => r.month === month) ?? [])
+})
+
 apiRouter.get('/admin/settings/option-lists', requireRoles('ADMIN'), (_req, res) => {
   res.json(readStore().optionLists)
 })
@@ -1582,6 +1911,10 @@ apiRouter.post('/admin/maintenance/range', requireRoles('ADMIN', 'MANAGER'), asy
     return res.status(400).json({ error: 'DATE_RANGE_INVALID' })
   }
 
+  const simRaw = req.body.simulatorSlug
+  const simulatorSlug =
+    simRaw === 'boeing-737' || simRaw === 'mi-2' ? simRaw : null
+
   const created: MaintenanceEntry[] = []
   let cursor = from
   const nowIso = new Date().toISOString()
@@ -1589,7 +1922,7 @@ apiRouter.post('/admin/maintenance/range', requireRoles('ADMIN', 'MANAGER'), asy
     created.push({
       id: newId(),
       date: cursor,
-      simulatorSlug: null,
+      simulatorSlug,
       startTime,
       endTime,
       notes,
@@ -1606,7 +1939,9 @@ apiRouter.post('/admin/maintenance/range', requireRoles('ADMIN', 'MANAGER'), asy
     pushNotification(s, {
       kind: 'maintenance',
       title: 'Заблокирован интервал',
-      body: `${from}–${to} · ${startTime}–${endTime} · оба тренажёра (${created.length} дн.)`,
+      body: `${from}–${to} · ${startTime}–${endTime} · ${
+        simulatorSlug === 'mi-2' ? 'Ми-2' : simulatorSlug === 'boeing-737' ? 'Boeing 737' : 'оба тренажёра'
+      } (${created.length} дн.)`,
       href: '/admin/schedule-settings',
       audienceRoles: ROLES_STAFF,
       meta: { from, to, startTime, endTime, count: String(created.length) },

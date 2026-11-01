@@ -113,6 +113,20 @@ export function certificateUrgency(
   return { tone: 'green', label: `Осталось ${daysLeft} дн.`, daysLeft, expired: false }
 }
 
+/** Бейдж статуса сертификата (ACTIVE / EXPIRED / USED / …). */
+export function certificateStatusBadgeClass(status: string): string {
+  if (status === 'ACTIVE' || status === 'PARTIAL') {
+    return 'bg-emerald-100 text-emerald-800 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300'
+  }
+  if (status === 'EXPIRED') {
+    return 'bg-red-100 text-red-800 border-red-200 dark:bg-red-950/40 dark:text-red-300'
+  }
+  if (status === 'USED' || status === 'CANCELLED') {
+    return 'bg-muted text-muted-foreground border-border'
+  }
+  return 'bg-muted text-muted-foreground border-border'
+}
+
 export const URGENCY_BADGE_CLASS: Record<CertUrgencyTone, string> = {
   green: 'bg-emerald-100 text-emerald-800 border-emerald-200',
   yellow: 'bg-amber-100 text-amber-900 border-amber-200',

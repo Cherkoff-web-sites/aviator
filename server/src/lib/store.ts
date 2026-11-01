@@ -36,6 +36,11 @@ function normalizeStore(raw: DataStore): DataStore {
     }
   }
   if (!Array.isArray(raw.archive)) raw.archive = []
+  if (!Array.isArray(raw.appLogs)) raw.appLogs = []
+  if (!Array.isArray(raw.pilotHours)) raw.pilotHours = []
+  if (!raw.settings) raw.settings = { bookingWindowMonths: 12 }
+  if (typeof raw.settings.bookingGapMin !== 'number') raw.settings.bookingGapMin = 15
+  if (!raw.settings.footerSocialLinks) raw.settings.footerSocialLinks = {}
   return raw
 }
 

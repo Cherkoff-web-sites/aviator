@@ -1,8 +1,10 @@
+import { useMemo } from 'react'
 import { Link } from 'react-router-dom'
 
 import { useGiftCertificateModal } from '../contexts/GiftCertificateModalContext'
 import { FOOTER_SOCIAL_ICONS, SOCIAL_ASSETS } from '../data/socialAssets'
 import { phoneToTelHref, usePublicContacts } from '../hooks/usePublicContacts'
+import { usePublicSettings } from '../hooks/usePublicSettings'
 
 const footerLogoPath = '/assets/header/logo.svg'
 const paymentStripPath = SOCIAL_ASSETS.payments
@@ -17,6 +19,14 @@ const externalRel = 'noopener noreferrer'
 function SiteFooter() {
   const { openGiftCertificate } = useGiftCertificateModal()
   const contacts = usePublicContacts()
+  const settings = usePublicSettings()
+  const socialLinks = useMemo(() => {
+    const fromStore = settings?.footerSocialLinks ?? {}
+    return FOOTER_SOCIAL_ICONS.map((s) => {
+      const custom = fromStore[s.label]?.trim()
+      return custom ? { ...s, href: custom } : s
+    }).filter((s) => s.href)
+  }, [settings?.footerSocialLinks])
   const phoneHref = phoneToTelHref(contacts.phone)
   const emailHref = `mailto:${contacts.email}`
 
@@ -125,7 +135,7 @@ function SiteFooter() {
                   </div>
 
                   <div className="mt-4 flex items-center gap-2">
-                    {FOOTER_SOCIAL_ICONS.map((s) => (
+                    {socialLinks.map((s) => (
                       <a
                         key={s.label}
                         href={s.href}
@@ -202,7 +212,7 @@ function SiteFooter() {
                 </p>
               </div>
               <div className="mt-5 flex flex-wrap items-center gap-2">
-                {FOOTER_SOCIAL_ICONS.map((s) => (
+                {socialLinks.map((s) => (
                   <a
                     key={s.label}
                     href={s.href}

@@ -237,7 +237,7 @@ export default function AdminMaintenancePage() {
           </p>
         </div>
         {canEdit ? (
-          <Button type="button" size="sm" className="h-9 shrink-0 gap-2" onClick={openCreate}>
+          <Button type="button" variant="destructive" size="sm" className="h-9 shrink-0 gap-2" onClick={openCreate}>
             <Plus className="size-4" />
             Добавить ТО
           </Button>

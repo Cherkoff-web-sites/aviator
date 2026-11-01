@@ -201,6 +201,7 @@ function EditablePriceTable({
             <tr className="border-b">
               <th className="py-2 text-left">Минуты</th>
               <th className="py-2 text-left">Тренажёр</th>
+              <th className="py-2 text-left">CTA</th>
               <th className="py-2 text-left">Цена BYN</th>
               {canEdit ? <th className="w-10" /> : null}
             </tr>
@@ -251,11 +252,33 @@ function EditablePriceTable({
                       <option value="boeing-737">boeing-737</option>
                       <option value="mi-2">mi-2</option>
                       {title.toLowerCase().includes('сертификат') ? (
-                        <option value="combo">combo</option>
+                        <option value="combo">Boeing + Ми-2</option>
                       ) : null}
                     </select>
                   ) : (
                     r.simulatorSlug
+                  )}
+                </td>
+                <td className="py-2">
+                  {canEdit ? (
+                    <input
+                      type="checkbox"
+                      className="size-4 accent-primary"
+                      checked={!!r.highlighted}
+                      title="Тариф по умолчанию (CTA) на сайте"
+                      onChange={(e) => {
+                        const next = local.map((row, j) =>
+                          row.simulatorSlug === r.simulatorSlug
+                            ? { ...row, highlighted: j === i ? e.target.checked : false }
+                            : row,
+                        )
+                        setLocal(next)
+                      }}
+                    />
+                  ) : r.highlighted ? (
+                    'да'
+                  ) : (
+                    '—'
                   )}
                 </td>
                 <td className="py-2">

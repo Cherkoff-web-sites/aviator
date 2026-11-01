@@ -34,8 +34,7 @@ const arrowIconPath = '/assets/icons/arrow_right.svg'
 const menuIconPath = '/assets/icons/menu.svg'
 const closeIconPath = '/assets/icons/close.svg'
 
-/** Чёрные / тёмные страницы: шапка прозрачная у верха, синяя после скролла.
- *  Светлые (`/documents/*`) — синий фон всегда. */
+/** Тёмные страницы: шапка прозрачная у верха, синяя после скролла */
 function isDarkHeroPath(pathname: string) {
   return (
     pathname === '/' ||
@@ -44,7 +43,8 @@ function isDarkHeroPath(pathname: string) {
     pathname === '/gallery' ||
     pathname === '/faq' ||
     pathname === '/contacts' ||
-    pathname.startsWith('/simulator/')
+    pathname.startsWith('/simulator/') ||
+    pathname.startsWith('/documents/')
   )
 }
 

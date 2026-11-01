@@ -1,5 +1,6 @@
 import * as React from 'react'
 import {
+  addDays,
   addMonths,
   eachDayOfInterval,
   endOfMonth,
@@ -499,22 +500,46 @@ export default function AdminStaffSchedulePage() {
         </Button>
       </div>
 
-      <div className="overflow-x-auto">
-        <div className="min-w-[760px] space-y-3">
-          <div className="grid grid-cols-7 gap-2 px-0.5">
-            {WEEKDAY_LABELS.map((w) => (
-              <div
-                key={w}
-                className="px-1 text-center text-[11px] font-medium uppercase tracking-wide text-muted-foreground"
-              >
-                {w}
-              </div>
-            ))}
-          </div>
+      {/* Пилот: 3 ближайших дня без горизонтального скролла */}
+      {session?.role === 'PILOT' ? (
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          {[0, 1, 2].map((offset) => {
+            const day = addDays(startOfToday(), offset)
+            const key = dateKey(day)
+            const shifts = shiftsByDate.get(key) ?? []
+            return (
+              <DayCard
+                key={key}
+                day={day}
+                displayMonth={day}
+                shifts={shifts}
+                expanded
+                onToggleExpand={() => {}}
+                onAddDay={() => {}}
+                onRequestDelete={setDeleteTarget}
+                highlightId={highlightId}
+              />
+            )
+          })}
+        </div>
+      ) : (
+        <div className="overflow-x-auto md:overflow-visible">
+          <div className="min-w-0 space-y-3 md:min-w-0">
+            <div className="hidden grid-cols-7 gap-2 px-0.5 md:grid">
+              {WEEKDAY_LABELS.map((w) => (
+                <div
+                  key={w}
+                  className="px-1 text-center text-[11px] font-medium uppercase tracking-wide text-muted-foreground"
+                >
+                  {w}
+                </div>
+              ))}
+            </div>
 
-          {weeks.map((week) => (
-            <div key={dateKey(week[0])} className="grid grid-cols-7 gap-2">
-              {week.map((day) => {
+            {/* Mobile manager: вертикальный список дней месяца без min-width scroll */}
+            <div className="flex flex-col gap-2 md:hidden">
+              {weeks.flat().map((day) => {
+                if (!isSameMonth(day, viewMonth)) return null
                 const key = dateKey(day)
                 const shifts = shiftsByDate.get(key) ?? []
                 return (
@@ -523,7 +548,7 @@ export default function AdminStaffSchedulePage() {
                     day={day}
                     displayMonth={viewMonth}
                     shifts={shifts}
-                    expanded={!!expandedByKey[key]}
+                    expanded={!!expandedByKey[key] || shifts.length > 0}
                     onToggleExpand={() =>
                       setExpandedByKey((prev) => ({ ...prev, [key]: !prev[key] }))
                     }
@@ -534,9 +559,35 @@ export default function AdminStaffSchedulePage() {
                 )
               })}
             </div>
-          ))}
+
+            <div className="hidden md:block">
+              {weeks.map((week) => (
+                <div key={dateKey(week[0])} className="mb-2 grid grid-cols-7 gap-2">
+                  {week.map((day) => {
+                    const key = dateKey(day)
+                    const shifts = shiftsByDate.get(key) ?? []
+                    return (
+                      <DayCard
+                        key={key}
+                        day={day}
+                        displayMonth={viewMonth}
+                        shifts={shifts}
+                        expanded={!!expandedByKey[key]}
+                        onToggleExpand={() =>
+                          setExpandedByKey((prev) => ({ ...prev, [key]: !prev[key] }))
+                        }
+                        onAddDay={() => tryAddDay(key)}
+                        onRequestDelete={setDeleteTarget}
+                        highlightId={highlightId}
+                      />
+                    )
+                  })}
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
-      </div>
+      )}
 
       <div className="flex flex-wrap items-center gap-4 text-xs text-muted-foreground">
         <span className="inline-flex items-center gap-1.5">

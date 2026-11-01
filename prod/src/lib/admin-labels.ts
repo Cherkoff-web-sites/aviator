@@ -51,7 +51,7 @@ export const SIMULATOR_OPTIONS = [
 
 export const CERT_SIMULATOR_OPTIONS = [
   ...SIMULATOR_OPTIONS,
-  { value: 'combo', label: 'Комбо (Boeing + Ми-2)' },
+  { value: 'combo', label: 'Boeing + Ми-2' },
 ] as const
 
 /** Значения API: ONLINE / OFFLINE; в UI селектов — словесные подписи. */
