@@ -17,6 +17,8 @@ export type BookingOpenPayload = {
   simulatorSlug?: BookingSimulatorSlug | null
   durationMin?: 30 | 60 | 90 | 120 | null
   promo?: BookingPromo | null
+  /** Полёт 2в1: 30 мин Boeing + 30 мин Ми-2. */
+  combo?: boolean
 }
 
 type BookingModalContextValue = {

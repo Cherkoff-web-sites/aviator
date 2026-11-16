@@ -1,11 +1,14 @@
 import { useEffect, useRef, useState } from 'react'
 import { useParams } from 'react-router-dom'
+import { Swiper, SwiperSlide } from 'swiper/react'
 
 import type { BookingSimulatorSlug } from '../contexts/BookingModalContext'
 import { useBookingModal } from '../contexts/BookingModalContext'
 import { useGiftCertificateModal } from '../contexts/GiftCertificateModalContext'
 import type { GiftCertProductChoice } from './booking/bookingPricing'
 import type { SimulatorPricingBlock, SimulatorPricingPlan } from '../data/simulators'
+
+import 'swiper/css'
 
 const ARROW_RIGHT_SRC = '/assets/icons/arrow_right.svg'
 
@@ -55,6 +58,10 @@ function PricingPlanCard({
   onSelect,
   /** Несколько тарифов: absolute-рост. Одна карточка (2в1) — в потоке, без выступа из shell. */
   expand,
+  /** На моб. слайдере CTA задаёт active slide, не hover. */
+  selectOnHover = true,
+  /** Маркер для GSAP; у моб. дубликата сетки — false, чтобы не анимировать дважды. */
+  reveal = true,
 }: {
   plan: SimulatorPricingPlan
   features: string[]
@@ -63,6 +70,8 @@ function PricingPlanCard({
   selected: boolean
   onSelect: () => void
   expand: boolean
+  selectOnHover?: boolean
+  reveal?: boolean
 }) {
   const hi = selected
   const cardRef = useRef<HTMLElement>(null)
@@ -93,33 +102,26 @@ function PricingPlanCard({
     (у idle — прозрачная). Featured шире на 0.75rem с каждой стороны (-inset-x-3) и ровно
     на столько же больше боковой padding (px-5 + 0.75rem = px-8) — текст не переносится иначе.
   */
-  const featuredClass = expand
-    ? [
-        'pricing-plan-featured z-10 flex min-h-0 flex-col px-5 py-7 text-white outline-none',
-        'relative transition-[top,bottom,left,right,padding,box-shadow] duration-300 ease-out',
-        'min-[990px]:absolute min-[990px]:-inset-x-3 min-[990px]:-top-5 min-[990px]:-bottom-5 min-[990px]:px-8 min-[990px]:py-9',
-      ].join(' ')
-    : [
-        'pricing-plan-featured relative z-10 flex h-full min-h-0 flex-col px-5 py-7 text-white outline-none',
-        'min-[990px]:py-9',
-      ].join(' ')
+  /* Одна карточка (2в1): размер не меняем — градиент через слой с opacity. */
+  const singleCardBase =
+    'relative z-10 flex h-full min-h-0 flex-col overflow-hidden rounded-[12px] border border-transparent px-5 py-7 text-white outline-none min-[990px]:py-9'
+
+  const featuredClass = [
+    'pricing-plan-featured z-10 flex min-h-0 flex-col px-5 py-7 text-white outline-none',
+    'relative transition-[top,bottom,left,right,padding,box-shadow] duration-300 ease-out',
+    'min-[990px]:absolute min-[990px]:-inset-x-3 min-[990px]:-top-5 min-[990px]:-bottom-5 min-[990px]:px-8 min-[990px]:py-9',
+  ].join(' ')
 
   const idleDivider = !isFirst
     ? 'border-t-white/25 min-[990px]:border-t-transparent min-[990px]:border-l-white/25'
     : ''
 
-  const idleClass = expand
-    ? [
-        'relative z-0 flex h-full min-h-0 cursor-pointer flex-col border border-transparent px-5 py-6 text-white outline-none',
-        'transition-[top,bottom,left,right,padding,background-color] duration-300 ease-out hover:bg-white/[0.06]',
-        'min-[990px]:absolute min-[990px]:inset-x-0 min-[990px]:top-0 min-[990px]:bottom-0 min-[990px]:h-auto min-[990px]:py-7',
-        idleDivider,
-      ].join(' ')
-    : [
-        'relative z-0 flex h-full min-h-0 cursor-pointer flex-col border border-transparent px-5 py-6 text-white outline-none',
-        'hover:bg-white/[0.06] min-[990px]:py-7',
-        idleDivider,
-      ].join(' ')
+  const idleClass = [
+    'relative z-0 flex h-full min-h-0 cursor-pointer flex-col border border-transparent px-5 py-6 text-white outline-none',
+    'transition-[top,bottom,left,right,padding,background-color] duration-300 ease-out hover:bg-white/[0.06]',
+    'min-[990px]:absolute min-[990px]:inset-x-0 min-[990px]:top-0 min-[990px]:bottom-0 min-[990px]:h-auto min-[990px]:py-7',
+    idleDivider,
+  ].join(' ')
 
   return (
     /*
@@ -152,12 +154,21 @@ function PricingPlanCard({
 
       <article
         ref={cardRef}
-        data-sim-reveal-item
-        onMouseEnter={onSelect}
-        onFocus={onSelect}
+        {...(reveal ? { 'data-sim-reveal-item': true } : {})}
+        onMouseEnter={selectOnHover ? onSelect : undefined}
+        onFocus={selectOnHover ? onSelect : undefined}
         tabIndex={0}
-        className={hi ? featuredClass : idleClass}
+        className={expand ? (hi ? featuredClass : idleClass) : singleCardBase}
       >
+        {!expand ? (
+          <div
+            aria-hidden
+            className={[
+              'pricing-plan-featured pointer-events-none absolute inset-0 -z-10 transition-opacity duration-300 ease-out',
+              hi ? 'opacity-100' : 'opacity-0',
+            ].join(' ')}
+          />
+        ) : null}
         <h3 className="text-[22px] font-bold leading-tight tracking-tight min-[990px]:text-[24px]">
           {plan.durationLabel}
         </h3>
@@ -226,8 +237,8 @@ type Props = {
   bookingSimulatorSlug?: BookingSimulatorSlug
   /** Кнопка «Подарить» / действие «Летим» как сертификат (для 2в1 — `both`). */
   giftProduct?: GiftCertProductChoice | null
-  /** «Летим» открывает сертификат вместо бронирования полёта. */
-  primaryAction?: 'booking' | 'gift'
+  /** `gift` — сертификат вместо брони; `combo` — бронь с выбранным «2в1». */
+  primaryAction?: 'booking' | 'gift' | 'combo'
 }
 
 function defaultPlanIndex(block: SimulatorPricingBlock) {
@@ -298,6 +309,10 @@ function SimulatorPricingSection({
       openGiftCertificate({ product: giftProduct })
       return
     }
+    if (primaryAction === 'combo') {
+      openBooking({ combo: true })
+      return
+    }
 
     const m = plan.durationLabel.match(/(\d+)\s*минут/)
     if (!m) {
@@ -328,60 +343,96 @@ function SimulatorPricingSection({
         <div className="absolute inset-0 bg-[#002D62]/35" />
       </div>
 
-      <div className={`relative z-[1] ${isContained ? 'px-4 min-[990px]:px-8' : 'container-app'}`}>
-        <header className="mb-8 flex flex-col gap-4 min-[640px]:mb-12 min-[640px]:flex-row min-[640px]:items-start min-[640px]:justify-between min-[640px]:gap-6">
-          <div data-sim-reveal-head className="flex min-w-0 max-w-[640px] gap-4 min-[990px]:gap-5">
-            <img
-              src={block.headingIcon}
-              alt=""
-              className="h-[52px] w-[52px] shrink-0 object-contain min-[990px]:h-14 min-[990px]:w-14"
-              width={56}
-              height={56}
-            />
-            <div className="min-w-0 pt-0.5">
-              <h2 className="text-[22px] font-bold leading-tight tracking-tight text-white drop-shadow-[0_2px_12px_rgba(0,0,0,0.55)] min-[990px]:text-[32px]">
-                {block.headingTitle}
-              </h2>
-              <p className="mt-1.5 text-[14px] font-medium leading-relaxed text-white/95 drop-shadow-[0_1px_8px_rgba(0,0,0,0.5)] min-[990px]:mt-2 min-[990px]:text-[17px]">
-                {block.headingSubtitle}
-              </p>
+      <div className="relative z-[1]">
+        <div className={isContained ? 'px-4 min-[990px]:px-8' : 'container-app'}>
+          <header className="mb-8 flex flex-col gap-4 min-[640px]:mb-12 min-[640px]:flex-row min-[640px]:items-start min-[640px]:justify-between min-[640px]:gap-6">
+            <div data-sim-reveal-head className="flex min-w-0 max-w-[640px] gap-4 min-[990px]:gap-5">
+              <img
+                src={block.headingIcon}
+                alt=""
+                className="h-[52px] w-[52px] shrink-0 object-contain min-[990px]:h-14 min-[990px]:w-14"
+                width={56}
+                height={56}
+              />
+              <div className="min-w-0 pt-0.5">
+                <h2 className="text-[22px] font-bold leading-tight tracking-tight text-white drop-shadow-[0_2px_12px_rgba(0,0,0,0.55)] min-[990px]:text-[32px]">
+                  {block.headingTitle}
+                </h2>
+                <p className="mt-1.5 text-[14px] font-medium leading-relaxed text-white/95 drop-shadow-[0_1px_8px_rgba(0,0,0,0.5)] min-[990px]:mt-2 min-[990px]:text-[17px]">
+                  {block.headingSubtitle}
+                </p>
+              </div>
             </div>
-          </div>
 
-          {giftProduct ? (
-            <button
-              data-sim-reveal-head
-              type="button"
-              onClick={() => openGiftCertificate({ product: giftProduct })}
-              className="btn-solid-light shrink-0 self-start px-6 py-3 text-[15px] font-bold shadow-[0_8px_28px_rgba(255,255,255,0.22)] min-[990px]:px-8 min-[990px]:py-3.5 min-[990px]:text-[16px]"
+            {giftProduct ? (
+              <button
+                data-sim-reveal-head
+                type="button"
+                onClick={() => openGiftCertificate({ product: giftProduct })}
+                className="btn-solid-light shrink-0 self-start px-6 py-3 text-[15px] font-bold shadow-[0_8px_28px_rgba(255,255,255,0.22)] min-[990px]:px-8 min-[990px]:py-3.5 min-[990px]:text-[16px]"
+              >
+                Подарить полёт
+              </button>
+            ) : null}
+          </header>
+        </div>
+
+        {/* Моб: на всю ширину экрана (~1.2 слайда, CTA по центру). */}
+        {planCount > 1 ? (
+          <div className="relative left-1/2 w-screen max-w-[100vw] -translate-x-1/2 min-[990px]:hidden">
+            <Swiper
+              className="pricing-plans-mobile"
+              slidesPerView={1.4}
+              spaceBetween={12}
+              centeredSlides
+              initialSlide={Math.max(0, defaultIdxRef.current)}
+              onSlideChange={(swiper) => selectPlan(swiper.activeIndex)}
             >
-              Подарить полёт
-            </button>
-          ) : null}
-        </header>
-
-        {/* Запас my-5 — место под absolute-выступ featured (только если тарифов > 1) */}
-        <div
-          className={`relative flex min-[990px]:justify-center ${planCount > 1 ? 'min-[990px]:my-5' : ''}`}
-          onMouseLeave={resetToDefaultSoon}
-        >
-          <div
-            className="pricing-plans-shell relative overflow-visible"
-            style={{ ['--plan-count' as string]: String(planCount) }}
-          >
-            <div className="pricing-plans-shell__grid items-stretch">
               {block.plans.map((plan, index) => (
-                <PricingPlanCard
-                  key={plan.durationLabel}
-                  plan={plan}
-                  features={plan.features?.length ? plan.features : block.features}
-                  isFirst={index === 0}
-                  selected={index === selectedIdx}
-                  onSelect={() => selectPlan(index)}
-                  onBook={() => handleBookPlan(plan)}
-                  expand={planCount > 1}
-                />
+                <SwiperSlide key={plan.durationLabel} className="!h-auto">
+                  <div className="pricing-plans-shell h-full overflow-hidden">
+                    <PricingPlanCard
+                      plan={plan}
+                      features={plan.features?.length ? plan.features : block.features}
+                      isFirst
+                      selected={index === selectedIdx}
+                      onSelect={() => selectPlan(index)}
+                      onBook={() => handleBookPlan(plan)}
+                      expand={false}
+                      selectOnHover={false}
+                      reveal={false}
+                    />
+                  </div>
+                </SwiperSlide>
               ))}
+            </Swiper>
+          </div>
+        ) : null}
+
+        {/* Десктоп / одиночный тариф: сетка в контейнере. */}
+        <div className={isContained ? 'px-4 min-[990px]:px-8' : 'container-app'}>
+          <div
+            className={`relative ${planCount > 1 ? 'hidden min-[990px]:flex min-[990px]:justify-center min-[990px]:my-5' : 'flex min-[990px]:justify-center'}`}
+          >
+            <div
+              className="pricing-plans-shell relative overflow-visible"
+              style={{ ['--plan-count' as string]: String(planCount) }}
+              onMouseLeave={resetToDefaultSoon}
+            >
+              <div className="pricing-plans-shell__grid items-stretch">
+                {block.plans.map((plan, index) => (
+                  <PricingPlanCard
+                    key={plan.durationLabel}
+                    plan={plan}
+                    features={plan.features?.length ? plan.features : block.features}
+                    isFirst={index === 0}
+                    selected={index === selectedIdx}
+                    onSelect={() => selectPlan(index)}
+                    onBook={() => handleBookPlan(plan)}
+                    expand={planCount > 1}
+                  />
+                ))}
+              </div>
             </div>
           </div>
         </div>
@@ -393,7 +444,7 @@ function SimulatorPricingSection({
     return (
       <section
         data-sim-reveal="pricing"
-        className="relative isolate w-full overflow-visible rounded-[40px] py-10 min-[990px]:py-12"
+        className="relative isolate w-full overflow-x-visible rounded-[40px] py-10 min-[990px]:py-12"
       >
         {inner}
       </section>
@@ -403,7 +454,7 @@ function SimulatorPricingSection({
   return (
     <section
       data-sim-reveal="pricing"
-      className="relative isolate overflow-visible py-12 min-[990px]:py-[4.5rem]"
+        className="relative isolate overflow-x-visible py-12 min-[990px]:py-[4.5rem]"
     >
       {inner}
     </section>

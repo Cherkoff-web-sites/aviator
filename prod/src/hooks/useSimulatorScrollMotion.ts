@@ -1,21 +1,33 @@
 import gsap from 'gsap'
 import { ScrollTrigger } from 'gsap/ScrollTrigger'
-import { useEffect, type RefObject } from 'react'
+import { useLayoutEffect, type RefObject } from 'react'
 
 gsap.registerPlugin(ScrollTrigger)
 
 const EASE = 'power3.out'
 const START = 'top 84%'
 
+const REVEAL_SELECTOR = [
+  '[data-sim-hero] [data-sim-reveal-item]',
+  '[data-sim-reveal] [data-sim-reveal-item]',
+  '[data-sim-reveal] [data-sim-reveal-head]',
+  '[data-sim-reveal] [data-sim-reveal-copy]',
+  '[data-sim-reveal] [data-sim-reveal-media]',
+  '[data-sim-reveal] [data-sim-reveal-bullet]',
+].join(', ')
+
 /**
  * Лёгкий ScrollTrigger-reveal для страниц тренажёров:
  * hero на входе, секции — fade/slide + stagger внутри.
+ *
+ * Важно: только fromTo → autoAlpha: 1. Нельзя сочетать CSS opacity:0 с gsap.from():
+ * then «to» = текущие 0 и текст навсегда невидимый (место остаётся).
  */
 export function useSimulatorScrollMotion(
   rootRef: RefObject<HTMLElement | null>,
   deps: unknown[] = [],
 ) {
-  useEffect(() => {
+  useLayoutEffect(() => {
     const root = rootRef.current
     if (!root) return
 
@@ -24,6 +36,11 @@ export function useSimulatorScrollMotion(
     }
 
     const ctx = gsap.context(() => {
+      const revealNodes = root.querySelectorAll<HTMLElement>(REVEAL_SELECTOR)
+      if (revealNodes.length) {
+        gsap.set(revealNodes, { autoAlpha: 0 })
+      }
+
       const hero = root.querySelector<HTMLElement>('[data-sim-hero]')
       if (hero) {
         const media = hero.querySelector<HTMLElement>('[data-sim-hero-media]')
@@ -38,15 +55,20 @@ export function useSimulatorScrollMotion(
         }
 
         if (items.length) {
-          gsap.from(items, {
-            y: 36,
-            autoAlpha: 0,
-            duration: 0.85,
-            stagger: 0.12,
-            ease: EASE,
-            delay: 0.12,
-            clearProps: 'transform',
-          })
+          gsap.fromTo(
+            items,
+            { y: 36, autoAlpha: 0 },
+            {
+              y: 0,
+              autoAlpha: 1,
+              duration: 0.85,
+              stagger: 0.12,
+              ease: EASE,
+              delay: 0.12,
+              immediateRender: true,
+              clearProps: 'transform',
+            },
+          )
         }
       }
 
@@ -68,49 +90,39 @@ export function useSimulatorScrollMotion(
           })
 
           if (text) {
-            tl.from(
+            tl.fromTo(
               text,
-              {
-                x: fromLeft ? -40 : 40,
-                autoAlpha: 0,
-                duration: 0.8,
-                ease: EASE,
-              },
+              { x: fromLeft ? -40 : 40, autoAlpha: 0 },
+              { x: 0, autoAlpha: 1, duration: 0.8, ease: EASE },
               0,
             )
           }
 
           if (mediaWrap) {
             const img = mediaWrap.querySelector('img') ?? mediaWrap
-            tl.from(
+            tl.fromTo(
               mediaWrap,
-              {
-                x: fromLeft ? 48 : -48,
-                autoAlpha: 0,
-                duration: 0.9,
-                ease: EASE,
-              },
+              { x: fromLeft ? 48 : -48, autoAlpha: 0 },
+              { x: 0, autoAlpha: 1, duration: 0.9, ease: EASE },
               0.08,
             )
             if (img) {
-              tl.from(
+              tl.fromTo(
                 img,
-                {
-                  scale: 1.08,
-                  duration: 1.1,
-                  ease: 'power2.out',
-                },
+                { scale: 1.08 },
+                { scale: 1, duration: 1.1, ease: 'power2.out' },
                 0.08,
               )
             }
           }
 
           if (bullets.length) {
-            tl.from(
+            tl.fromTo(
               bullets,
+              { x: -16, autoAlpha: 0 },
               {
-                x: -16,
-                autoAlpha: 0,
+                x: 0,
+                autoAlpha: 1,
                 duration: 0.45,
                 stagger: 0.07,
                 ease: 'power2.out',
@@ -136,22 +148,27 @@ export function useSimulatorScrollMotion(
           })
 
           if (head.length) {
-            tl.from(head, {
-              y: 28,
-              autoAlpha: 0,
-              duration: 0.7,
-              stagger: 0.1,
-              ease: EASE,
-              clearProps: 'transform',
-            })
+            tl.fromTo(
+              head,
+              { y: 28, autoAlpha: 0 },
+              {
+                y: 0,
+                autoAlpha: 1,
+                duration: 0.7,
+                stagger: 0.1,
+                ease: EASE,
+                clearProps: 'transform',
+              },
+            )
           }
 
           if (slides.length) {
-            tl.from(
+            tl.fromTo(
               slides,
+              { x: 48, autoAlpha: 0 },
               {
-                x: 48,
-                autoAlpha: 0,
+                x: 0,
+                autoAlpha: 1,
                 duration: 0.75,
                 stagger: 0.1,
                 ease: EASE,
@@ -168,19 +185,23 @@ export function useSimulatorScrollMotion(
           const cards = section.querySelectorAll<HTMLElement>('[data-sim-reveal-item]')
           if (!cards.length) return
 
-          gsap.from(cards, {
-            scrollTrigger: {
-              trigger: section,
-              start: START,
-              once: true,
+          gsap.fromTo(
+            cards,
+            { y: 40, autoAlpha: 0 },
+            {
+              y: 0,
+              autoAlpha: 1,
+              duration: 0.7,
+              stagger: 0.12,
+              ease: EASE,
+              clearProps: 'transform',
+              scrollTrigger: {
+                trigger: section,
+                start: START,
+                once: true,
+              },
             },
-            y: 40,
-            autoAlpha: 0,
-            duration: 0.7,
-            stagger: 0.12,
-            ease: EASE,
-            clearProps: 'transform',
-          })
+          )
           return
         }
 
@@ -197,22 +218,27 @@ export function useSimulatorScrollMotion(
           })
 
           if (head.length) {
-            tl.from(head, {
-              y: 24,
-              autoAlpha: 0,
-              duration: 0.65,
-              stagger: 0.08,
-              ease: EASE,
-              clearProps: 'transform',
-            })
+            tl.fromTo(
+              head,
+              { y: 24, autoAlpha: 0 },
+              {
+                y: 0,
+                autoAlpha: 1,
+                duration: 0.65,
+                stagger: 0.08,
+                ease: EASE,
+                clearProps: 'transform',
+              },
+            )
           }
 
           if (cards.length) {
-            tl.from(
+            tl.fromTo(
               cards,
+              { y: 48, autoAlpha: 0 },
               {
-                y: 48,
-                autoAlpha: 0,
+                y: 0,
+                autoAlpha: 1,
                 duration: 0.7,
                 stagger: 0.1,
                 ease: EASE,
@@ -228,34 +254,42 @@ export function useSimulatorScrollMotion(
         // default block: title / copy / widget / cta
         const items = section.querySelectorAll<HTMLElement>('[data-sim-reveal-item]')
         if (!items.length) {
-          gsap.from(section, {
+          gsap.fromTo(
+            section,
+            { y: 32, autoAlpha: 0 },
+            {
+              y: 0,
+              autoAlpha: 1,
+              duration: 0.75,
+              ease: EASE,
+              clearProps: 'transform',
+              scrollTrigger: {
+                trigger: section,
+                start: START,
+                once: true,
+              },
+            },
+          )
+          return
+        }
+
+        gsap.fromTo(
+          items,
+          { y: 32, autoAlpha: 0 },
+          {
+            y: 0,
+            autoAlpha: 1,
+            duration: 0.7,
+            stagger: 0.1,
+            ease: EASE,
+            clearProps: 'transform',
             scrollTrigger: {
               trigger: section,
               start: START,
               once: true,
             },
-            y: 32,
-            autoAlpha: 0,
-            duration: 0.75,
-            ease: EASE,
-            clearProps: 'transform',
-          })
-          return
-        }
-
-        gsap.from(items, {
-          scrollTrigger: {
-            trigger: section,
-            start: START,
-            once: true,
           },
-          y: 32,
-          autoAlpha: 0,
-          duration: 0.7,
-          stagger: 0.1,
-          ease: EASE,
-          clearProps: 'transform',
-        })
+        )
       })
     }, root)
 

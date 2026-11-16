@@ -12,8 +12,9 @@ const GALLERY_BOEING_COPY = [
 const BOEING_GALLERY_SLIDES = [
   {
     src: '/assets/simulator/sm_1.webp',
-    alt: 'Кабина Boeing 737NG',
+    alt: 'Кабина Boeing 737NG — обзор 360°',
     badge360OnThumb: true,
+    panoramaSrc: '/assets/gallery/360/boeing-737.jpeg',
   },
   { src: '/assets/simulator/sm_2.webp', alt: 'Панель приборов Boeing 737NG' },
   { src: '/assets/simulator/sm_3.webp', alt: 'Boeing 737NG, вид из кабины' },
@@ -25,14 +26,15 @@ const GALLERY_MI2_COPY = [
 ]
 
 const MI2_GALLERY_SLIDES = [
+  {
+    src: '/assets/simulator/mi_2.webp',
+    alt: 'Авиатренажёр Ми-2 — обзор 360°',
+    badge360OnThumb: true,
+    panoramaSrc: '/assets/gallery/360/mi-2.jpeg',
+  },
   { src: '/assets/simulator/sm_4.webp', alt: 'Тренажёр Ми-2' },
   { src: '/assets/simulator/sm_5.webp', alt: 'Кабина вертолёта Ми-2' },
   { src: '/assets/simulator/sm_6.webp', alt: 'Ми-2, приборная панель' },
-  {
-    src: '/assets/simulator/mi_2.webp',
-    alt: 'Авиатренажёр Ми-2',
-    badge360OnThumb: true,
-  },
 ] as const
 
 /* Авиашкола — временно скрыто

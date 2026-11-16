@@ -27,7 +27,11 @@ function SimulatorPage() {
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <SiteHeader />
-      <div ref={motionRootRef} className="flex min-h-0 flex-1 flex-col">
+      <div
+        ref={motionRootRef}
+        data-sim-motion
+        className="flex min-h-0 flex-1 flex-col overflow-x-clip"
+      >
         <SimulatorPageView
           heroImage={simulator.image}
           heading={simulator.pageHeading}

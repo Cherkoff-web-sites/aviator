@@ -396,7 +396,10 @@ function BookingModal() {
       return
     }
 
-    if (payload?.simulatorSlug != null || payload?.durationMin != null) {
+    if (payload?.combo) {
+      setAircraft('combo')
+      setDurationMin(60)
+    } else if (payload?.simulatorSlug != null || payload?.durationMin != null) {
       const { aircraft: ac, durationMin: d } = applyOpenPayload(payload)
       if (payload.simulatorSlug != null) setAircraft(ac)
       if (payload.durationMin != null) {

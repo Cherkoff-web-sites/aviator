@@ -116,13 +116,19 @@ function SiteHeader() {
     <>
       <header
         className={[
-          'fixed inset-x-0 top-0 z-30 transition-[transform,background,border-color,backdrop-filter] duration-300 ease-out',
-          headerHasBg ? 'border-b border-white/10' : 'border-b border-transparent',
+          'fixed inset-x-0 top-0 z-30 transition-transform duration-300 ease-out',
           headerVisible ? 'translate-y-0' : '-translate-y-full',
         ].join(' ')}
-        style={headerHasBg ? HEADER_BG_STYLE : undefined}
       >
-        <div className="container-app flex h-[64px] items-center justify-between gap-6 min-[990px]:h-[76px] min-[990px]:gap-8">
+        <div
+          aria-hidden
+          className={[
+            'pointer-events-none absolute inset-0 transition-opacity duration-300 ease-out',
+            headerHasBg ? 'opacity-100' : 'opacity-0',
+          ].join(' ')}
+          style={HEADER_BG_STYLE}
+        />
+        <div className="relative container-app flex h-[64px] items-center justify-between gap-6 min-[990px]:h-[76px] min-[990px]:gap-8">
           <Link
             to="/"
             aria-label="Aviator"

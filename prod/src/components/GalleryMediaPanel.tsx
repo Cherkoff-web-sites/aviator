@@ -14,6 +14,8 @@ export type GallerySlideItem = {
   alt: string
   /** Бейдж 360° поверх миниатюры (как на макете — обычно первый слайд) */
   badge360OnThumb?: boolean
+  /** Equirectangular JPEG для интерактивного просмотра 360° в lightbox */
+  panoramaSrc?: string
 }
 
 export type GalleryMediaPanelProps = {
@@ -69,11 +71,15 @@ function GalleryMediaPanel({ slides, theme = 'dark', className = '' }: GalleryMe
             <button
               type="button"
               onClick={() => openLightbox(index)}
-              aria-label={`Открыть фото: ${slide.alt || index + 1}`}
+              aria-label={
+                slide.panoramaSrc
+                  ? `Открыть обзор 360°: ${slide.alt || index + 1}`
+                  : `Открыть фото: ${slide.alt || index + 1}`
+              }
               className={
                 theme === 'dark'
-                  ? 'block w-full cursor-zoom-in overflow-hidden rounded-[20px] shadow-[0_16px_48px_rgba(0,0,0,0.35)] outline-none transition-opacity hover:opacity-95 focus-visible:ring-2 focus-visible:ring-white/50 min-[990px]:rounded-[24px]'
-                  : 'block w-full cursor-zoom-in overflow-hidden rounded-[20px] shadow-[0_12px_40px_rgba(0,45,98,0.12)] outline-none transition-opacity hover:opacity-95 focus-visible:ring-2 focus-visible:ring-[#0075FF]/50 min-[990px]:rounded-[24px]'
+                  ? 'relative block w-full cursor-zoom-in overflow-hidden rounded-[20px] shadow-[0_16px_48px_rgba(0,0,0,0.35)] outline-none transition-opacity hover:opacity-95 focus-visible:ring-2 focus-visible:ring-white/50 min-[990px]:rounded-[24px]'
+                  : 'relative block w-full cursor-zoom-in overflow-hidden rounded-[20px] shadow-[0_12px_40px_rgba(0,45,98,0.12)] outline-none transition-opacity hover:opacity-95 focus-visible:ring-2 focus-visible:ring-[#0075FF]/50 min-[990px]:rounded-[24px]'
               }
             >
               <img
@@ -81,6 +87,16 @@ function GalleryMediaPanel({ slides, theme = 'dark', className = '' }: GalleryMe
                 alt={slide.alt}
                 className="aspect-[16/10] w-full object-cover min-[990px]:min-h-[300px] min-[990px]:max-h-[420px]"
               />
+              {slide.badge360OnThumb || slide.panoramaSrc ? (
+                <span
+                  className="pointer-events-none absolute inset-0 flex items-center justify-center"
+                  aria-hidden
+                >
+                  <span className="rounded-full border-2 border-white bg-black/45 px-3 py-1.5 text-[12px] font-bold uppercase leading-none tracking-wide text-white backdrop-blur-[2px] min-[990px]:px-4 min-[990px]:py-2 min-[990px]:text-sm">
+                    360°
+                  </span>
+                </span>
+              ) : null}
             </button>
           </SwiperSlide>
         ))}
@@ -112,6 +128,25 @@ function GalleryMediaPanel({ slides, theme = 'dark', className = '' }: GalleryMe
             }
           >
             <div
+              role={slide.panoramaSrc ? 'button' : undefined}
+              tabIndex={slide.panoramaSrc ? 0 : undefined}
+              aria-label={
+                slide.panoramaSrc
+                  ? `Открыть обзор 360°: ${slide.alt || index + 1}`
+                  : undefined
+              }
+              onClick={() => {
+                if (!slide.panoramaSrc) return
+                mainRef.current?.slideTo(index)
+                openLightbox(index)
+              }}
+              onKeyDown={(e) => {
+                if (!slide.panoramaSrc) return
+                if (e.key !== 'Enter' && e.key !== ' ') return
+                e.preventDefault()
+                mainRef.current?.slideTo(index)
+                openLightbox(index)
+              }}
               className={
                 theme === 'dark'
                   ? 'relative aspect-square w-full overflow-hidden rounded-xl border-2 border-white/35 bg-white/15 transition-[border-color,box-shadow] min-[990px]:rounded-2xl'
@@ -119,7 +154,7 @@ function GalleryMediaPanel({ slides, theme = 'dark', className = '' }: GalleryMe
               }
             >
               <img src={slide.src} alt="" className="h-full w-full object-cover" loading="lazy" />
-              {slide.badge360OnThumb ? (
+              {slide.badge360OnThumb || slide.panoramaSrc ? (
                 <span
                   className="pointer-events-none absolute inset-0 flex items-center justify-center"
                   aria-hidden

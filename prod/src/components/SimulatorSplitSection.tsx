@@ -29,7 +29,7 @@ function SimulatorSplitSection({
     <section
       data-sim-reveal="split"
       data-sim-from={isImageLeft ? 'right' : 'left'}
-      className="bg-[#002D62] py-12 text-white min-[990px]:py-16"
+      className="overflow-x-clip bg-[#002D62] py-12 text-white min-[990px]:py-16"
     >
       <div className="container-app">
         <div

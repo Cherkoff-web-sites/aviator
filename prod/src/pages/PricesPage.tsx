@@ -31,7 +31,7 @@ function PricesPage() {
             Цены
           </h1>
         </div>
-        <div className="container-app flex flex-col gap-8 min-[990px]:gap-10">
+        <div className="flex flex-col gap-8 overflow-x-clip min-[990px]:container-app min-[990px]:gap-10">
           <SimulatorPricingSection
             layout="contained"
             block={boeingSim.pricingBlock}
@@ -48,7 +48,7 @@ function PricesPage() {
             layout="fullBleed"
             block={COMBO_PRICING_BLOCK}
             giftProduct="both"
-            primaryAction="gift"
+            primaryAction="combo"
           />
         </div>
         <section className="pt-16 pb-8 min-[990px]:pt-24 min-[990px]:pb-12">

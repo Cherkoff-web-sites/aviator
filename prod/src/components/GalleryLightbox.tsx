@@ -2,6 +2,7 @@ import * as Dialog from '@radix-ui/react-dialog'
 import { useCallback, useEffect, useRef } from 'react'
 
 import type { GallerySlideItem } from './GalleryMediaPanel'
+import GalleryPanoramaViewer from './GalleryPanoramaViewer'
 
 type GalleryLightboxProps = {
   open: boolean
@@ -15,6 +16,7 @@ function GalleryLightbox({ open, slides, index, onIndexChange, onClose }: Galler
   const touchStartX = useRef<number | null>(null)
   const count = slides.length
   const slide = slides[index]
+  const isPanorama = Boolean(slide?.panoramaSrc)
 
   const goPrev = useCallback(() => {
     if (count < 2) return
@@ -60,13 +62,22 @@ function GalleryLightbox({ open, slides, index, onIndexChange, onClose }: Galler
           onOpenAutoFocus={(e) => e.preventDefault()}
         >
           <Dialog.Title className="sr-only">
-            Просмотр фото: {slide.alt || `Слайд ${index + 1}`}
+            {isPanorama
+              ? `Обзор 360°: ${slide.alt || `Слайд ${index + 1}`}`
+              : `Просмотр фото: ${slide.alt || `Слайд ${index + 1}`}`}
           </Dialog.Title>
 
           <div className="flex shrink-0 items-center justify-between gap-3 px-4 py-3 min-[990px]:px-6 min-[990px]:py-4">
-            <p className="text-[14px] font-medium text-white/80 min-[990px]:text-[15px]">
-              {index + 1} / {count}
-            </p>
+            <div className="flex min-w-0 items-center gap-2.5">
+              <p className="text-[14px] font-medium text-white/80 min-[990px]:text-[15px]">
+                {index + 1} / {count}
+              </p>
+              {isPanorama ? (
+                <span className="rounded-full border border-white/35 bg-white/10 px-2.5 py-0.5 text-[11px] font-bold uppercase tracking-wide text-white">
+                  360°
+                </span>
+              ) : null}
+            </div>
             <Dialog.Close
               type="button"
               className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-white/10 text-white transition-colors hover:bg-white/20"
@@ -104,35 +115,41 @@ function GalleryLightbox({ open, slides, index, onIndexChange, onClose }: Galler
               </>
             ) : null}
 
-            <div
-              className="flex max-h-full max-w-full items-center justify-center"
-              onTouchStart={(e) => {
-                touchStartX.current = e.changedTouches[0]?.clientX ?? null
-              }}
-              onTouchEnd={(e) => {
-                const start = touchStartX.current
-                const end = e.changedTouches[0]?.clientX
-                touchStartX.current = null
-                if (start == null || end == null || count < 2) return
-                const delta = end - start
-                if (Math.abs(delta) < 48) return
-                if (delta > 0) goPrev()
-                else goNext()
-              }}
-            >
-              <img
-                key={slide.src}
-                src={slide.src}
-                alt={slide.alt}
-                className="max-h-[min(78dvh,900px)] max-w-full rounded-lg object-contain shadow-[0_20px_60px_rgba(0,0,0,0.45)] min-[990px]:rounded-xl"
-                draggable={false}
-              />
-            </div>
+            {isPanorama && slide.panoramaSrc ? (
+              <div className="h-[min(78dvh,900px)] w-full max-w-6xl">
+                <GalleryPanoramaViewer key={slide.panoramaSrc} src={slide.panoramaSrc} />
+              </div>
+            ) : (
+              <div
+                className="flex max-h-full max-w-full items-center justify-center"
+                onTouchStart={(e) => {
+                  touchStartX.current = e.changedTouches[0]?.clientX ?? null
+                }}
+                onTouchEnd={(e) => {
+                  const start = touchStartX.current
+                  const end = e.changedTouches[0]?.clientX
+                  touchStartX.current = null
+                  if (start == null || end == null || count < 2) return
+                  const delta = end - start
+                  if (Math.abs(delta) < 48) return
+                  if (delta > 0) goPrev()
+                  else goNext()
+                }}
+              >
+                <img
+                  key={slide.src}
+                  src={slide.src}
+                  alt={slide.alt}
+                  className="max-h-[min(78dvh,900px)] max-w-full rounded-lg object-contain shadow-[0_20px_60px_rgba(0,0,0,0.45)] min-[990px]:rounded-xl"
+                  draggable={false}
+                />
+              </div>
+            )}
           </div>
 
           {slide.alt ? (
             <p className="shrink-0 px-4 pb-5 text-center text-[13px] font-medium text-white/65 min-[990px]:pb-6 min-[990px]:text-[14px]">
-              {slide.alt}
+              {isPanorama ? `${slide.alt} · тяните мышью или пальцем` : slide.alt}
             </p>
           ) : null}
         </Dialog.Content>
