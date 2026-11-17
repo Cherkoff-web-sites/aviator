@@ -62,6 +62,18 @@ export function sanitizeOtpDigitInput(value: string): string {
   return value.replace(/\D/g, '').slice(-1)
 }
 
+/** Ввод времени HH:mm (админка: список слотов + ручной ввод). */
+export function sanitizeTimeHmInput(value: string): string {
+  const digits = value.replace(/\D/g, '').slice(0, 4)
+  if (digits.length <= 2) return digits
+  return `${digits.slice(0, 2)}:${digits.slice(2)}`
+}
+
+export function isTimeHmValid(value: string): boolean {
+  const m = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(value.trim())
+  return Boolean(m)
+}
+
 /** Имя/фамилия: только буквы (и дефис/апостроф), минимум 2 буквы. */
 export function isPersonNameInputValid(name: string): boolean {
   const t = name.trim()

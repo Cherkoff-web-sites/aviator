@@ -1,7 +1,5 @@
-import { format, parseISO } from 'date-fns'
-import { ru } from 'date-fns/locale'
-
 import { useLiveData } from '@/hooks/useLiveData'
+import { formatAdminDateTime } from '@/lib/admin-date'
 import { apiFetch } from '@/lib/api'
 import { cn } from '@/lib/utils'
 
@@ -20,14 +18,6 @@ const LEVEL_CLASS: Record<LogRow['level'], string> = {
   error: 'text-destructive',
 }
 
-function formatWhen(iso: string) {
-  try {
-    return format(parseISO(iso), 'd MMM yyyy, HH:mm:ss', { locale: ru })
-  } catch {
-    return iso
-  }
-}
-
 export default function AdminLogsPage() {
   const { data } = useLiveData(() => apiFetch<LogRow[]>('/api/admin/logs'), [])
   const rows = data ?? []
@@ -35,7 +25,7 @@ export default function AdminLogsPage() {
   return (
     <div className="flex w-full min-w-0 flex-col gap-4">
       <p className="text-sm text-muted-foreground">
-        Журнал событий для поддержки (последние {rows.length} записей на сервере).
+        Журнал событий для поддержки (брони, сертификаты, ТО, настройки). Записей: {rows.length}.
       </p>
       {rows.length === 0 ? (
         <p className="text-sm text-muted-foreground">Записей пока нет.</p>
@@ -45,7 +35,7 @@ export default function AdminLogsPage() {
             {rows.map((row) => (
               <li key={row.id} className="px-3 py-2.5">
                 <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
-                  <span className="text-muted-foreground">{formatWhen(row.createdAt)}</span>
+                  <span className="text-muted-foreground">{formatAdminDateTime(row.createdAt)}</span>
                   <span className={cn('font-semibold uppercase', LEVEL_CLASS[row.level])}>{row.level}</span>
                   {row.context ? (
                     <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">

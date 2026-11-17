@@ -4,6 +4,7 @@ import { Bell, CheckCheck } from 'lucide-react'
 import { Link } from 'react-router-dom'
 
 import { Button } from '@/components/ui/button'
+import { useAdminAuth } from '@/contexts/AdminAuthContext'
 import { useLiveData } from '@/hooks/useLiveData'
 import { ADMIN_NAV_MAIN, ADMIN_NAV_SETTINGS_ICON } from '@/data/adminNav'
 import { apiFetch } from '@/lib/api'
@@ -55,13 +56,26 @@ function formatWhen(iso: string) {
   }
 }
 
+function roleHint(role: string | undefined) {
+  if (role === 'ADMIN') return 'Вам доступны все уведомления системы.'
+  if (role === 'MANAGER') {
+    return 'Показаны уведомления по разделам, к которым у вас есть доступ (без настроек и аккаунтов).'
+  }
+  if (role === 'PILOT') {
+    return 'Показаны только ваши события графика работы (назначение и снятие смен).'
+  }
+  return null
+}
+
 export default function AdminNotificationsPage() {
+  const { session } = useAdminAuth()
   const { data, reload } = useLiveData(
     () => apiFetch<NotificationsPayload>('/api/admin/notifications'),
     [],
   )
   const items = data?.items ?? []
   const unread = data?.unread ?? 0
+  const accessHint = roleHint(session?.role)
 
   const markRead = async (id: string) => {
     await apiFetch(`/api/admin/notifications/${id}/read`, { method: 'POST' })
@@ -80,6 +94,7 @@ export default function AdminNotificationsPage() {
           <h2 className="text-base font-semibold text-foreground">Уведомления</h2>
           <p className="mt-0.5 text-sm text-muted-foreground">
             {unread > 0 ? `Непрочитанных: ${unread}` : 'Все уведомления прочитаны'}
+            {accessHint ? ` · ${accessHint}` : null}
           </p>
         </div>
         {unread > 0 ? (

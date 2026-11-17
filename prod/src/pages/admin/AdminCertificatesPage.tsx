@@ -1,18 +1,14 @@
 import * as React from 'react'
 import { format, addMonths, isValid, parseISO } from 'date-fns'
-import { Search, Trash2 } from 'lucide-react'
+import { Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table'
 import AdminFormModal from '@/components/admin/AdminFormModal'
 import ConfirmDialog from '@/components/admin/ConfirmDialog'
+import {
+  AdminDataTable,
+  type AdminColumnDef,
+} from '@/components/admin/AdminDataTable'
 import { useHighlightRow } from '@/hooks/useHighlightRow'
 import { useLiveData } from '@/hooks/useLiveData'
 import { apiFetch, type ApiCertificate } from '@/lib/api'
@@ -28,14 +24,13 @@ import {
 } from '@/lib/admin-labels'
 import { durationsForSimulator, FLIGHT_DURATIONS } from '@/lib/flight-durations'
 import {
-  certificateStatusBadgeClass,
-  certificateUrgency,
+  certificateDisplayStatus,
   defaultDesignForSim,
   designMeta,
   designOptionsForSim,
-  URGENCY_BADGE_CLASS,
   type CertificateDesignColor,
 } from '@/lib/certificate-design'
+import { formatAdminDate } from '@/lib/admin-date'
 import { cn } from '@/lib/utils'
 
 const PENCIL = '/assets/admin/certificates_pencil_icon.svg'
@@ -44,7 +39,6 @@ const selectClass =
   'mt-1 flex h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm shadow-sm'
 
 export default function AdminCertificatesPage() {
-  const [query, setQuery] = React.useState('')
   const [formOpen, setFormOpen] = React.useState(false)
   const [editId, setEditId] = React.useState<string | null>(null)
   const [saveConfirmOpen, setSaveConfirmOpen] = React.useState(false)
@@ -84,23 +78,6 @@ export default function AdminCertificatesPage() {
       : form.simulatorSlug === 'mi-2'
         ? durationsForSimulator('mi-2')
         : FLIGHT_DURATIONS
-
-  const filtered = rows.filter((r) => {
-    const q = query.trim().toLowerCase()
-    if (!q) return true
-    const urgency = certificateUrgency(r.validTo, r.status)
-    return [
-      r.number,
-      r.phone,
-      r.fullName,
-      r.simulatorSlug,
-      labelOf(CERTIFICATE_STATUS_OPTIONS, r.status),
-      urgency.label,
-    ]
-      .join(' ')
-      .toLowerCase()
-      .includes(q)
-  })
 
   const loadNextNumber = async (simulatorSlug: string, designColor: CertificateDesignColor) => {
     const { number } = await apiFetch<{ number: string }>(
@@ -156,6 +133,132 @@ export default function AdminCertificatesPage() {
     })
     setFormOpen(true)
   }
+
+  const columns: AdminColumnDef<ApiCertificate>[] = [
+    {
+      id: 'number',
+      header: 'Номер',
+      accessor: 'number',
+      className: 'font-medium',
+    },
+    { id: 'phone', header: 'Телефон', accessor: 'phone' },
+    { id: 'fullName', header: 'ФИО', accessor: 'fullName' },
+    { id: 'durationMin', header: 'Минуты', accessor: 'durationMin', filterType: 'number' },
+    {
+      id: 'payment',
+      header: 'Оплата',
+      accessor: (r) => r.paymentMethod,
+      filterType: 'enum',
+      enumOptions: [...PAYMENT_METHOD_OPTIONS],
+      filterValue: (r) => `Оплачен ${r.paymentMethod}`,
+      cell: (row) => (
+        <span className="inline-flex items-center gap-1.5 text-sm font-medium text-emerald-700">
+          Оплачен
+          <PaymentMethodIcon method={row.paymentMethod} />
+        </span>
+      ),
+    },
+    {
+      id: 'period',
+      header: 'Период',
+      accessor: (r) => r.validFrom,
+      filterValue: (r) => `${r.validFrom} ${r.validTo}`,
+      cell: (row) => (
+        <>
+          {row.validFrom} — {row.validTo}
+        </>
+      ),
+    },
+    {
+      id: 'simulatorSlug',
+      header: 'Тренажёр',
+      accessor: 'simulatorSlug',
+      filterType: 'enum',
+      enumOptions: [...CERT_SIMULATOR_OPTIONS],
+      filterValue: (r) => labelOf(CERT_SIMULATOR_OPTIONS, r.simulatorSlug),
+      cell: (row) => {
+        const design = designMeta(row.designColor || defaultDesignForSim(row.simulatorSlug))
+        return (
+          <span
+            className="inline-flex items-center gap-1.5 rounded-md px-2 py-1"
+            style={{ backgroundColor: design.rowBg }}
+            title={design.label}
+          >
+            <span
+              className="inline-block size-2.5 shrink-0 rounded-full border border-black/10"
+              style={{ backgroundColor: design.swatch }}
+            />
+            {labelOf(CERT_SIMULATOR_OPTIONS, row.simulatorSlug)}
+          </span>
+        )
+      },
+    },
+    {
+      id: 'status',
+      header: 'Срок / статус',
+      accessor: 'status',
+      filterType: 'enum',
+      enumOptions: [...CERTIFICATE_STATUS_OPTIONS],
+      filterValue: (r) => certificateDisplayStatus(r.validTo, r.status).label,
+      cell: (row) => {
+        const display = certificateDisplayStatus(row.validTo, row.status)
+        const toneClass =
+          display.tone === 'green'
+            ? 'bg-emerald-100 text-emerald-800 border-emerald-200'
+            : display.tone === 'red'
+              ? 'bg-red-100 text-red-800 border-red-200'
+              : 'bg-muted text-muted-foreground border-border'
+        return (
+          <div className="flex flex-col gap-1">
+            <span className="text-xs text-muted-foreground">
+              {formatAdminDate(row.validFrom)} – {formatAdminDate(row.validTo)}
+            </span>
+            <span
+              className={cn(
+                'inline-flex w-fit rounded-md border px-2 py-0.5 text-xs font-semibold',
+                toneClass,
+              )}
+            >
+              {display.label}
+            </span>
+          </div>
+        )
+      },
+    },
+    ...(canEdit
+      ? ([
+          {
+            id: 'actions',
+            header: '',
+            sortable: false,
+            filterable: false,
+            headerClassName: 'w-24',
+            cell: (row: ApiCertificate) => (
+              <div className="flex gap-1">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="size-8"
+                  onClick={() => openEdit(row)}
+                >
+                  <img src={PENCIL} alt="" className="size-4" width={16} height={16} />
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="size-8 text-destructive"
+                  onClick={() => setDeleteTarget(row)}
+                >
+                  <Trash2 className="size-4" />
+                </Button>
+              </div>
+            ),
+          },
+        ] satisfies AdminColumnDef<ApiCertificate>[])
+      : []),
+  ]
 
   const save = async () => {
     setActionBusy(true)
@@ -237,19 +340,9 @@ export default function AdminCertificatesPage() {
         </Button>
       ) : null}
 
-      <div className="relative">
-        <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-        <Input
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Поиск по номеру, телефону или ФИО"
-          className="h-10 pl-9"
-        />
-      </div>
-
       <p className="text-xs text-muted-foreground">
         Статус по сроку: зелёный (&gt;30 дн.), жёлтый (≤30), красный (≤7 или просрочен) — для обзвона.
-        Фон строки — цвет бланка тренажёра.
+        Фон строки — цвет бланка тренажёра. Клик по заголовку — сортировка; поиск и фильтры — над таблицей.
       </p>
 
       <AdminFormModal
@@ -458,106 +551,20 @@ export default function AdminCertificatesPage() {
         onCancel={() => setDeleteTarget(null)}
       />
 
-      <div className="rounded-lg border bg-background p-2 sm:p-4">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Номер</TableHead>
-              <TableHead>Телефон</TableHead>
-              <TableHead>ФИО</TableHead>
-              <TableHead>Минуты</TableHead>
-              <TableHead>Оплата</TableHead>
-              <TableHead>Период</TableHead>
-              <TableHead>Тренажёр</TableHead>
-              <TableHead>Срок / статус</TableHead>
-              {canEdit ? <TableHead className="w-24" /> : null}
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {filtered.map((row) => {
-              const urgency = certificateUrgency(row.validTo, row.status)
-              const design = designMeta(row.designColor || defaultDesignForSim(row.simulatorSlug))
-              const props = rowProps(row.id)
-              return (
-                <TableRow
-                  key={row.id}
-                  data-highlight-id={props['data-highlight-id']}
-                  className={cn(props.className)}
-                >
-                  <TableCell className="font-medium">{row.number}</TableCell>
-                  <TableCell>{row.phone}</TableCell>
-                  <TableCell>{row.fullName}</TableCell>
-                  <TableCell>{row.durationMin}</TableCell>
-                  <TableCell>
-                    <span className="inline-flex items-center gap-1.5 text-sm font-medium text-emerald-700">
-                      Оплачен
-                      <PaymentMethodIcon method={row.paymentMethod} />
-                    </span>
-                  </TableCell>
-                  <TableCell>
-                    {row.validFrom} — {row.validTo}
-                  </TableCell>
-                  <TableCell>
-                    <span
-                      className="inline-flex items-center gap-1.5 rounded-md px-2 py-1"
-                      style={{ backgroundColor: design.rowBg }}
-                      title={design.label}
-                    >
-                      <span
-                        className="inline-block size-2.5 shrink-0 rounded-full border border-black/10"
-                        style={{ backgroundColor: design.swatch }}
-                      />
-                      {labelOf(CERT_SIMULATOR_OPTIONS, row.simulatorSlug)}
-                    </span>
-                  </TableCell>
-                  <TableCell>
-                    <span
-                      className={cn(
-                        'inline-flex rounded-md border px-2 py-0.5 text-xs font-semibold',
-                        certificateStatusBadgeClass(row.status),
-                      )}
-                    >
-                      {labelOf(CERTIFICATE_STATUS_OPTIONS, row.status)}
-                    </span>
-                    <span
-                      className={cn(
-                        'mt-1 inline-flex rounded-md border px-2 py-0.5 text-[11px] font-medium',
-                        URGENCY_BADGE_CLASS[urgency.tone],
-                      )}
-                    >
-                      {urgency.label}
-                    </span>
-                  </TableCell>
-                  {canEdit ? (
-                    <TableCell>
-                      <div className="flex gap-1">
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon"
-                          className="size-8"
-                          onClick={() => openEdit(row)}
-                        >
-                          <img src={PENCIL} alt="" className="size-4" width={16} height={16} />
-                        </Button>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon"
-                          className="size-8 text-destructive"
-                          onClick={() => setDeleteTarget(row)}
-                        >
-                          <Trash2 className="size-4" />
-                        </Button>
-                      </div>
-                    </TableCell>
-                  ) : null}
-                </TableRow>
-              )
-            })}
-          </TableBody>
-        </Table>
-      </div>
+      <AdminDataTable
+        rows={rows}
+        columns={columns}
+        rowKey={(row) => row.id}
+        searchPlaceholder="Поиск по номеру, телефону или ФИО"
+        emptyText="Сертификаты не найдены"
+        getRowProps={(row) => {
+          const props = rowProps(row.id)
+          return {
+            'data-highlight-id': props['data-highlight-id'],
+            className: props.className,
+          }
+        }}
+      />
     </div>
   )
 }

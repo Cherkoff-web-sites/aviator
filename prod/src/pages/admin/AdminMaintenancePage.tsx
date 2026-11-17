@@ -16,6 +16,8 @@ import { canEditBookings } from '@/lib/admin-access'
 import { BOOKING_TIME_SLOTS } from '@/components/booking/bookingTimeSlots'
 import { cn } from '@/lib/utils'
 
+const PENCIL = '/assets/admin/certificates_pencil_icon.svg'
+
 type MaintenanceRow = {
   id: string
   date: string
@@ -38,6 +40,15 @@ const selectClass =
 
 const END_SLOTS = [...BOOKING_TIME_SLOTS, '19:00', '20:00', '21:00'] as const
 
+const EMPTY_FORM = {
+  date: format(new Date(), 'yyyy-MM-dd'),
+  sim: 'boeing-737' as SimScope,
+  fullDay: false,
+  startTime: '12:00',
+  endTime: '13:00',
+  notes: '',
+}
+
 function simLabel(slug?: string | null) {
   if (slug === 'mi-2') return 'Ми-2'
   if (slug === 'boeing-737') return 'Boeing 737'
@@ -59,6 +70,31 @@ function formatDateRu(iso: string) {
   }
 }
 
+function formFromRow(row: MaintenanceRow) {
+  const fullDay = !row.startTime || !row.endTime
+  return {
+    date: row.date,
+    sim: (row.simulatorSlug === 'mi-2' || row.simulatorSlug === 'boeing-737'
+      ? row.simulatorSlug
+      : 'all') as SimScope,
+    fullDay,
+    startTime: row.startTime || '12:00',
+    endTime: row.endTime || '13:00',
+    notes: row.notes || '',
+  }
+}
+
+function bodyFromForm(form: typeof EMPTY_FORM) {
+  const body: Record<string, unknown> = {
+    date: form.date,
+    notes: form.notes.trim() || 'Техническое обслуживание',
+    simulatorSlug: form.sim === 'all' ? null : form.sim,
+    startTime: form.fullDay ? null : form.startTime,
+    endTime: form.fullDay ? null : form.endTime,
+  }
+  return body
+}
+
 export default function AdminMaintenancePage() {
   const { session } = useAdminAuth()
   const { pushUndo } = useAdminUndo()
@@ -73,16 +109,11 @@ export default function AdminMaintenancePage() {
   const { rowProps } = useHighlightRow(data !== null)
 
   const [formOpen, setFormOpen] = React.useState(false)
+  const [editId, setEditId] = React.useState<string | null>(null)
+  const [editSnapshot, setEditSnapshot] = React.useState<MaintenanceRow | null>(null)
   const [deleteTarget, setDeleteTarget] = React.useState<MaintenanceRow | null>(null)
   const [busy, setBusy] = React.useState(false)
-  const [form, setForm] = React.useState({
-    date: format(new Date(), 'yyyy-MM-dd'),
-    sim: 'boeing-737' as SimScope,
-    fullDay: false,
-    startTime: '12:00',
-    endTime: '13:00',
-    notes: '',
-  })
+  const [form, setForm] = React.useState(EMPTY_FORM)
 
   const siteClosedDates = React.useMemo(() => {
     const set = new Set(blockedDates)
@@ -103,15 +134,26 @@ export default function AdminMaintenancePage() {
   }, [items])
 
   const openCreate = () => {
+    setEditId(null)
+    setEditSnapshot(null)
     setForm({
+      ...EMPTY_FORM,
       date: format(new Date(), 'yyyy-MM-dd'),
-      sim: 'boeing-737',
-      fullDay: false,
-      startTime: '12:00',
-      endTime: '13:00',
-      notes: '',
     })
     setFormOpen(true)
+  }
+
+  const openEdit = (row: MaintenanceRow) => {
+    setEditId(row.id)
+    setEditSnapshot(row)
+    setForm(formFromRow(row))
+    setFormOpen(true)
+  }
+
+  const closeForm = () => {
+    setFormOpen(false)
+    setEditId(null)
+    setEditSnapshot(null)
   }
 
   const save = async () => {
@@ -119,27 +161,45 @@ export default function AdminMaintenancePage() {
     if (!form.fullDay && form.startTime >= form.endTime) return
     setBusy(true)
     try {
-      const body: Record<string, unknown> = {
-        date: form.date,
-        notes: form.notes.trim() || 'Техническое обслуживание',
+      const body = bodyFromForm(form)
+      if (editId) {
+        const previous = editSnapshot
+        await apiFetch<MaintenanceRow>(`/api/admin/maintenance/${editId}`, {
+          method: 'PATCH',
+          body: JSON.stringify(body),
+        })
+        if (previous) {
+          pushUndo({
+            label: 'Отменить изменение ТО',
+            run: async () => {
+              await apiFetch(`/api/admin/maintenance/${previous.id}`, {
+                method: 'PATCH',
+                body: JSON.stringify({
+                  date: previous.date,
+                  simulatorSlug: previous.simulatorSlug ?? null,
+                  startTime: previous.startTime ?? null,
+                  endTime: previous.endTime ?? null,
+                  notes: previous.notes,
+                }),
+              })
+              void reload()
+            },
+          })
+        }
+      } else {
+        const created = await apiFetch<MaintenanceRow>('/api/admin/maintenance', {
+          method: 'POST',
+          body: JSON.stringify(body),
+        })
+        pushUndo({
+          label: 'Отменить добавление ТО',
+          run: async () => {
+            await apiFetch(`/api/admin/maintenance/${created.id}`, { method: 'DELETE' })
+            void reload()
+          },
+        })
       }
-      if (form.sim !== 'all') body.simulatorSlug = form.sim
-      if (!form.fullDay) {
-        body.startTime = form.startTime
-        body.endTime = form.endTime
-      }
-      const created = await apiFetch<MaintenanceRow>('/api/admin/maintenance', {
-        method: 'POST',
-        body: JSON.stringify(body),
-      })
-      pushUndo({
-        label: 'Отменить добавление ТО',
-        run: async () => {
-          await apiFetch(`/api/admin/maintenance/${created.id}`, { method: 'DELETE' })
-          void reload()
-        },
-      })
-      setFormOpen(false)
+      closeForm()
       void reload()
     } finally {
       setBusy(false)
@@ -208,16 +268,28 @@ export default function AdminMaintenancePage() {
                 ) : null}
               </div>
               {canEdit ? (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  className="size-8 shrink-0 text-muted-foreground hover:text-destructive"
-                  aria-label="Удалить"
-                  onClick={() => setDeleteTarget(row)}
-                >
-                  <Trash2 className="size-4" />
-                </Button>
+                <div className="flex shrink-0 gap-0.5">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="size-8 text-muted-foreground"
+                    aria-label="Редактировать"
+                    onClick={() => openEdit(row)}
+                  >
+                    <img src={PENCIL} alt="" className="size-4" width={16} height={16} />
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="size-8 text-muted-foreground hover:text-destructive"
+                    aria-label="Удалить"
+                    onClick={() => setDeleteTarget(row)}
+                  >
+                    <Trash2 className="size-4" />
+                  </Button>
+                </div>
               ) : null}
             </li>
           )
@@ -276,9 +348,15 @@ export default function AdminMaintenancePage() {
 
       <AdminFormModal
         open={formOpen}
-        onClose={() => setFormOpen(false)}
-        title="Новое ТО"
-        description="Тренажёр + дата + время с/по. Можно закрыть весь день."
+        onClose={() => {
+          if (!busy) closeForm()
+        }}
+        title={editId ? 'Редактировать ТО' : 'Новое ТО'}
+        description={
+          editId
+            ? 'Измените дату, тренажёр, интервал или комментарий.'
+            : 'Тренажёр + дата + время с/по. Можно закрыть весь день.'
+        }
         size="md"
       >
         <div className="flex flex-col gap-4">
@@ -305,13 +383,20 @@ export default function AdminMaintenancePage() {
             </select>
           </label>
 
-          <label className="flex items-center gap-2 text-sm">
+          <label className="flex items-center justify-between gap-3 rounded-md border border-border px-3 py-2.5 text-sm">
+            <span>
+              <span className="font-medium text-foreground">Блокировка интервала (ТО)</span>
+              <span className="mt-0.5 block text-xs text-muted-foreground">
+                Вкл. — указать время «С»/«По». Выкл. — весь день.
+              </span>
+            </span>
             <input
               type="checkbox"
-              checked={form.fullDay}
-              onChange={(e) => setForm((f) => ({ ...f, fullDay: e.target.checked }))}
+              className="size-5 accent-primary"
+              checked={!form.fullDay}
+              onChange={(e) => setForm((f) => ({ ...f, fullDay: !e.target.checked }))}
+              aria-label="Блокировка интервала"
             />
-            Весь день (без интервала)
           </label>
 
           {!form.fullDay ? (
@@ -372,7 +457,7 @@ export default function AdminMaintenancePage() {
           </label>
 
           <div className="flex justify-end gap-2 pt-2">
-            <Button type="button" variant="outline" onClick={() => setFormOpen(false)}>
+            <Button type="button" variant="outline" onClick={closeForm} disabled={busy}>
               Отмена
             </Button>
             <Button
@@ -380,7 +465,7 @@ export default function AdminMaintenancePage() {
               disabled={busy || (!form.fullDay && form.startTime >= form.endTime)}
               onClick={() => void save()}
             >
-              Сохранить
+              {editId ? 'Сохранить' : 'Создать'}
             </Button>
           </div>
         </div>

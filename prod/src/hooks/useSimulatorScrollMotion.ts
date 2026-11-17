@@ -136,48 +136,28 @@ export function useSimulatorScrollMotion(
         }
 
         if (kind === 'slider') {
+          // Горизонтальный скролл ленты — в SimulatorPhotoSlider (pin + scrub).
+          // Здесь только появление заголовка/описания.
           const head = section.querySelectorAll<HTMLElement>('[data-sim-reveal-item]')
-          const slides = section.querySelectorAll<HTMLElement>('.swiper-slide img')
+          if (!head.length) return
 
-          const tl = gsap.timeline({
-            scrollTrigger: {
-              trigger: section,
-              start: START,
-              once: true,
+          gsap.fromTo(
+            head,
+            { y: 28, autoAlpha: 0 },
+            {
+              y: 0,
+              autoAlpha: 1,
+              duration: 0.7,
+              stagger: 0.1,
+              ease: EASE,
+              clearProps: 'transform',
+              scrollTrigger: {
+                trigger: section,
+                start: START,
+                once: true,
+              },
             },
-          })
-
-          if (head.length) {
-            tl.fromTo(
-              head,
-              { y: 28, autoAlpha: 0 },
-              {
-                y: 0,
-                autoAlpha: 1,
-                duration: 0.7,
-                stagger: 0.1,
-                ease: EASE,
-                clearProps: 'transform',
-              },
-            )
-          }
-
-          if (slides.length) {
-            tl.fromTo(
-              slides,
-              { x: 48, autoAlpha: 0 },
-              {
-                x: 0,
-                autoAlpha: 1,
-                duration: 0.75,
-                stagger: 0.1,
-                ease: EASE,
-                clearProps: 'transform',
-              },
-              0.15,
-            )
-          }
-
+          )
           return
         }
 

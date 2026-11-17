@@ -448,7 +448,7 @@ export const simulators: Simulator[] = [
 export const COMBO_PRICING_BLOCK: SimulatorPricingBlock = {
   backgroundImage: '/assets/simulator/sm_price_2.webp',
   headingIcon: '/assets/icons/rocket.svg',
-  headingTitle: 'Полёт 2в1',
+  headingTitle: 'Boeing + Ми-2',
   headingSubtitle: '30 минут самолёт + 30 минут вертолёт — один сертификат',
   features: [],
   plans: [

@@ -198,9 +198,12 @@ export type AdminNotification = {
   title: string
   body: string
   href: string
-  /** Кому показывать по роли. Пусто = никому (не используется). */
+  /**
+   * Кому адресовано по роли (матрица kind на сервере).
+   * ADMIN при выдаче видит все уведомления независимо от этого поля.
+   */
   audienceRoles: UserRole[]
-  /** Если задано — видно только этому пользователю (поверх ролей). */
+  /** Личное: видно адресату; ADMIN тоже видит. */
   targetUserId?: string
   /** userId → когда прочитано */
   readBy: Record<string, string>
@@ -235,6 +238,46 @@ export type ArchiveEntry = {
   sourcePath: string
 }
 
+/** Слайд публичной галереи (фото + опционально 360°). */
+export type GallerySlideImage = {
+  src: string
+  alt: string
+  badge360OnThumb?: boolean
+  panoramaSrc?: string
+}
+
+/** Набор картинок одного тренажёра. */
+export type SimulatorImageSet = {
+  hero: string
+  sections: [string, string, string]
+  photoSlider: [string, string, string]
+  pricingBackground: string
+}
+
+/**
+ * Все редактируемые медиа сайта.
+ * Слоты независимы: одна и та же картинка может стоять в нескольких местах по умолчанию,
+ * но правка слота меняет только его.
+ */
+export type SiteImages = {
+  heroes: {
+    landing: string
+    homeMi2: string
+    homeBoeing: string
+    homeSchool: string
+  }
+  simulators: {
+    'boeing-737': SimulatorImageSet
+    'mi-2': SimulatorImageSet
+    'avia-school': SimulatorImageSet
+  }
+  gallery: {
+    'boeing-737': GallerySlideImage[]
+    'mi-2': GallerySlideImage[]
+  }
+  comboPricingBackground: string
+}
+
 export type DataStore = {
   version: 1
   users: User[]
@@ -248,7 +291,10 @@ export type DataStore = {
   promos: Promo[]
   documents: { key: string; title: string; content: string }[]
   contacts: { phone: string; email: string; hours: string }
+  /** @deprecated Используйте siteImages.gallery */
   gallery: Record<string, string[]>
+  /** Медиа публичного сайта (герои, тренажёры, галерея). */
+  siteImages?: SiteImages
   workHours: WorkHourEntry[]
   maintenance: MaintenanceEntry[]
   optionLists: Record<string, OptionItem[]>

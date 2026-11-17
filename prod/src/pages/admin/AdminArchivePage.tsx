@@ -2,19 +2,20 @@ import * as React from 'react'
 import { format, parseISO, isValid } from 'date-fns'
 import { Archive, RotateCcw, Trash2 } from 'lucide-react'
 import ConfirmDialog from '@/components/admin/ConfirmDialog'
-import { Button } from '@/components/ui/button'
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table'
+  AdminDataTable,
+  type AdminColumnDef,
+} from '@/components/admin/AdminDataTable'
+import { Button } from '@/components/ui/button'
 import { useLiveData } from '@/hooks/useLiveData'
 import { useAdminAuth } from '@/contexts/AdminAuthContext'
 import { apiFetch } from '@/lib/api'
-import { labelOf, CERT_SIMULATOR_OPTIONS, ACCOUNT_ROLE_OPTIONS } from '@/lib/admin-labels'
+import {
+  labelOf,
+  CERT_SIMULATOR_OPTIONS,
+  ACCOUNT_ROLE_OPTIONS,
+  BOOKING_STATUS_OPTIONS,
+} from '@/lib/admin-labels'
 import { cn } from '@/lib/utils'
 
 type ArchiveEntry = {
@@ -142,14 +143,12 @@ export default function AdminArchivePage() {
           {section.items.length === 0 ? (
             <p className="text-sm text-muted-foreground">Удалённых записей из этого раздела нет.</p>
           ) : (
-            <div className="-mx-4 max-w-[calc(100vw-2rem)] overflow-x-auto sm:mx-0 sm:max-w-none">
-              <ArchiveSectionTable
-                sectionKey={section.key}
-                items={section.items}
-                onRestore={setRestoreId}
-                onPurge={setPurgeId}
-              />
-            </div>
+            <ArchiveSectionTable
+              sectionKey={section.key}
+              items={section.items}
+              onRestore={setRestoreId}
+              onPurge={setPurgeId}
+            />
           )}
         </section>
       ))}
@@ -223,20 +222,273 @@ function Actions({
   )
 }
 
-function MetaCells({ entry }: { entry: ArchiveEntry }) {
-  return (
-    <>
-      <TableCell className="whitespace-nowrap text-xs text-muted-foreground">
-        {fmtDate(entry.deletedAt)}
-        {entry.deletedByName ? (
-          <span className="mt-0.5 block">{entry.deletedByName}</span>
-        ) : null}
-      </TableCell>
-      <TableCell className="whitespace-nowrap text-xs text-muted-foreground">
-        {daysLeft(entry.expiresAt)} дн.
-      </TableCell>
-    </>
-  )
+function archiveKindLabel(kind: string | undefined) {
+  if (kind === 'flight_prices') return 'Цена полёта'
+  if (kind === 'cert_prices') return 'Цена сертификата'
+  if (kind === 'promos') return 'Акция'
+  return kind ?? '—'
+}
+
+function metaColumns(
+  onRestore: (id: string) => void,
+  onPurge: (id: string) => void,
+): AdminColumnDef<ArchiveEntry>[] {
+  return [
+    {
+      id: 'deletedAt',
+      header: 'Удалено',
+      accessor: 'deletedAt',
+      filterValue: (e) =>
+        `${fmtDate(e.deletedAt)}${e.deletedByName ? ` ${e.deletedByName}` : ''}`,
+      cell: (entry) => (
+        <span className="whitespace-nowrap text-xs text-muted-foreground">
+          {fmtDate(entry.deletedAt)}
+          {entry.deletedByName ? (
+            <span className="mt-0.5 block">{entry.deletedByName}</span>
+          ) : null}
+        </span>
+      ),
+    },
+    {
+      id: 'expiresAt',
+      header: 'Осталось',
+      accessor: 'expiresAt',
+      filterValue: (e) => `${daysLeft(e.expiresAt)} дн.`,
+      cell: (entry) => (
+        <span className="whitespace-nowrap text-xs text-muted-foreground">
+          {daysLeft(entry.expiresAt)} дн.
+        </span>
+      ),
+    },
+    {
+      id: 'actions',
+      header: '',
+      sortable: false,
+      filterable: false,
+      headerClassName: 'w-[88px] text-right',
+      cell: (entry) => <Actions entry={entry} onRestore={onRestore} onPurge={onPurge} />,
+    },
+  ]
+}
+
+function archiveColumnsForSection(
+  sectionKey: string,
+  onRestore: (id: string) => void,
+  onPurge: (id: string) => void,
+): AdminColumnDef<ArchiveEntry>[] {
+  const tail = metaColumns(onRestore, onPurge)
+
+  if (sectionKey === 'bookings') {
+    return [
+      {
+        id: 'name',
+        header: 'Имя',
+        accessor: (e) => payloadStr(e.payload, 'name'),
+        className: 'font-semibold',
+      },
+      { id: 'phone', header: 'Телефон', accessor: (e) => payloadStr(e.payload, 'phone') },
+      {
+        id: 'datetime',
+        header: 'Дата / время',
+        accessor: (e) => payloadStr(e.payload, 'date'),
+        filterValue: (e) => {
+          const p = e.payload
+          return `${payloadStr(p, 'date')} ${payloadStr(p, 'startTime')} ${payloadStr(p, 'endTime')}`
+        },
+        cell: (entry) => {
+          const p = entry.payload
+          return (
+            <span className="whitespace-nowrap text-sm">
+              {payloadStr(p, 'date')} {payloadStr(p, 'startTime')}–{payloadStr(p, 'endTime')}
+            </span>
+          )
+        },
+      },
+      {
+        id: 'simulator',
+        header: 'Тренажёр',
+        accessor: (e) => String(e.payload.simulatorSlug ?? ''),
+        filterValue: (e) =>
+          e.payload.simulatorSlug === 'mi-2' ? 'Ми-2' : 'Boeing 737',
+        cell: (entry) =>
+          entry.payload.simulatorSlug === 'mi-2' ? 'Ми-2' : 'Boeing 737',
+      },
+      {
+        id: 'status',
+        header: 'Статус',
+        accessor: (e) => String(e.payload.status ?? ''),
+        filterType: 'enum',
+        enumOptions: [...BOOKING_STATUS_OPTIONS],
+        filterValue: (e) => labelOf(BOOKING_STATUS_OPTIONS, String(e.payload.status ?? '')),
+        cell: (entry) => payloadStr(entry.payload, 'status'),
+      },
+      {
+        id: 'comment',
+        header: 'Комментарий',
+        accessor: (e) => payloadStr(e.payload, 'comment'),
+        className: 'max-w-[200px] text-sm',
+      },
+      ...tail,
+    ]
+  }
+
+  if (sectionKey === 'certificates') {
+    return [
+      {
+        id: 'number',
+        header: 'Номер',
+        accessor: (e) => payloadStr(e.payload, 'number'),
+        className: 'font-medium',
+      },
+      { id: 'fullName', header: 'ФИО', accessor: (e) => payloadStr(e.payload, 'fullName') },
+      { id: 'phone', header: 'Телефон', accessor: (e) => payloadStr(e.payload, 'phone') },
+      {
+        id: 'durationMin',
+        header: 'Минуты',
+        accessor: (e) => payloadStr(e.payload, 'durationMin'),
+        filterType: 'number',
+      },
+      {
+        id: 'simulator',
+        header: 'Тренажёр',
+        accessor: (e) => String(e.payload.simulatorSlug ?? ''),
+        filterType: 'enum',
+        enumOptions: [...CERT_SIMULATOR_OPTIONS],
+        filterValue: (e) => labelOf(CERT_SIMULATOR_OPTIONS, String(e.payload.simulatorSlug ?? '')),
+        cell: (entry) => labelOf(CERT_SIMULATOR_OPTIONS, String(entry.payload.simulatorSlug ?? '')),
+      },
+      {
+        id: 'period',
+        header: 'Период',
+        accessor: (e) => payloadStr(e.payload, 'validFrom'),
+        filterValue: (e) =>
+          `${payloadStr(e.payload, 'validFrom')} ${payloadStr(e.payload, 'validTo')}`,
+        cell: (entry) => (
+          <span className="text-sm">
+            {payloadStr(entry.payload, 'validFrom')} — {payloadStr(entry.payload, 'validTo')}
+          </span>
+        ),
+      },
+      ...tail,
+    ]
+  }
+
+  if (sectionKey === 'waiting_room') {
+    return [
+      {
+        id: 'date',
+        header: 'Дата',
+        accessor: (e) => payloadStr(e.payload, 'date'),
+        className: 'whitespace-nowrap',
+      },
+      {
+        id: 'line',
+        header: 'Текст',
+        accessor: (e) => payloadStr(e.payload, 'line'),
+        className: 'max-w-[420px] text-sm leading-snug',
+      },
+      ...tail,
+    ]
+  }
+
+  if (sectionKey === 'staff_shifts') {
+    return [
+      {
+        id: 'pilot',
+        header: 'Пилот',
+        accessor: (e) => payloadStr(e.payload, 'userName'),
+        filterValue: (e) =>
+          payloadStr(e.payload, 'userName') !== '—' ? payloadStr(e.payload, 'userName') : e.title,
+        cell: (entry) => {
+          const p = entry.payload
+          return payloadStr(p, 'userName') !== '—' ? payloadStr(p, 'userName') : entry.title
+        },
+        className: 'font-medium',
+      },
+      { id: 'date', header: 'Дата', accessor: (e) => payloadStr(e.payload, 'date') },
+      {
+        id: 'simulator',
+        header: 'Тренажёр',
+        accessor: (e) => String(e.payload.simulatorSlug ?? ''),
+        filterValue: (e) =>
+          e.payload.simulatorSlug === 'mi-2' ? 'Ми-2' : 'Boeing 737',
+        cell: (entry) =>
+          entry.payload.simulatorSlug === 'mi-2' ? 'Ми-2' : 'Boeing 737',
+      },
+      ...tail,
+    ]
+  }
+
+  if (sectionKey === 'accounts') {
+    return [
+      {
+        id: 'fullName',
+        header: 'ФИО',
+        accessor: (e) => payloadStr(e.payload, 'fullName'),
+        className: 'font-semibold',
+      },
+      {
+        id: 'login',
+        header: 'Логин',
+        accessor: (e) => payloadStr(e.payload, 'login'),
+        className: 'font-mono text-[13px]',
+      },
+      {
+        id: 'role',
+        header: 'Роль',
+        accessor: (e) => String(e.payload.role ?? ''),
+        filterType: 'enum',
+        enumOptions: [...ACCOUNT_ROLE_OPTIONS],
+        filterValue: (e) => labelOf(ACCOUNT_ROLE_OPTIONS, String(e.payload.role ?? '')),
+        cell: (entry) => labelOf(ACCOUNT_ROLE_OPTIONS, String(entry.payload.role ?? '')),
+      },
+      { id: 'phone', header: 'Телефон', accessor: (e) => payloadStr(e.payload, 'phone') },
+      ...tail,
+    ]
+  }
+
+  if (sectionKey === 'prices_promos') {
+    return [
+      {
+        id: 'kind',
+        header: 'Тип',
+        accessor: (e) => e.kind ?? '',
+        filterValue: (e) => archiveKindLabel(e.kind),
+        cell: (entry) => (
+          <span className="whitespace-nowrap text-sm">{archiveKindLabel(entry.kind)}</span>
+        ),
+      },
+      {
+        id: 'title',
+        header: 'Название / строка',
+        accessor: 'title',
+        className: 'font-medium',
+      },
+      {
+        id: 'summary',
+        header: 'Детали',
+        accessor: 'summary',
+        className: 'max-w-[280px] text-sm',
+      },
+      ...tail,
+    ]
+  }
+
+  return [
+    {
+      id: 'title',
+      header: 'Запись',
+      accessor: 'title',
+      className: cn('whitespace-nowrap font-medium'),
+    },
+    {
+      id: 'summary',
+      header: 'Текст / детали',
+      accessor: 'summary',
+      className: 'max-w-[360px] text-sm leading-snug',
+    },
+    ...tail,
+  ]
 }
 
 function ArchiveSectionTable({
@@ -250,262 +502,19 @@ function ArchiveSectionTable({
   onRestore: (id: string) => void
   onPurge: (id: string) => void
 }) {
-  if (sectionKey === 'bookings') {
-    return (
-      <Table>
-        <TableHeader>
-          <TableRow className="bg-muted/40 hover:bg-muted/40">
-            <TableHead>Имя</TableHead>
-            <TableHead>Телефон</TableHead>
-            <TableHead>Дата / время</TableHead>
-            <TableHead>Тренажёр</TableHead>
-            <TableHead>Статус</TableHead>
-            <TableHead>Комментарий</TableHead>
-            <TableHead>Удалено</TableHead>
-            <TableHead>Осталось</TableHead>
-            <TableHead className="w-[88px] text-right" />
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {items.map((entry) => {
-            const p = entry.payload
-            return (
-              <TableRow key={entry.id}>
-                <TableCell className="font-semibold">{payloadStr(p, 'name')}</TableCell>
-                <TableCell>{payloadStr(p, 'phone')}</TableCell>
-                <TableCell className="whitespace-nowrap text-sm">
-                  {payloadStr(p, 'date')} {payloadStr(p, 'startTime')}–{payloadStr(p, 'endTime')}
-                </TableCell>
-                <TableCell>
-                  {p.simulatorSlug === 'mi-2' ? 'Ми-2' : 'Boeing 737'}
-                </TableCell>
-                <TableCell>{payloadStr(p, 'status')}</TableCell>
-                <TableCell className="max-w-[200px] text-sm">{payloadStr(p, 'comment')}</TableCell>
-                <MetaCells entry={entry} />
-                <TableCell className="text-right">
-                  <Actions entry={entry} onRestore={onRestore} onPurge={onPurge} />
-                </TableCell>
-              </TableRow>
-            )
-          })}
-        </TableBody>
-      </Table>
-    )
-  }
+  const columns = React.useMemo(
+    () => archiveColumnsForSection(sectionKey, onRestore, onPurge),
+    [sectionKey, onRestore, onPurge],
+  )
 
-  if (sectionKey === 'certificates') {
-    return (
-      <Table>
-        <TableHeader>
-          <TableRow className="bg-muted/40 hover:bg-muted/40">
-            <TableHead>Номер</TableHead>
-            <TableHead>ФИО</TableHead>
-            <TableHead>Телефон</TableHead>
-            <TableHead>Минуты</TableHead>
-            <TableHead>Тренажёр</TableHead>
-            <TableHead>Период</TableHead>
-            <TableHead>Удалено</TableHead>
-            <TableHead>Осталось</TableHead>
-            <TableHead className="w-[88px] text-right" />
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {items.map((entry) => {
-            const p = entry.payload
-            return (
-              <TableRow key={entry.id}>
-                <TableCell className="font-medium">{payloadStr(p, 'number')}</TableCell>
-                <TableCell>{payloadStr(p, 'fullName')}</TableCell>
-                <TableCell>{payloadStr(p, 'phone')}</TableCell>
-                <TableCell>{payloadStr(p, 'durationMin')}</TableCell>
-                <TableCell>
-                  {labelOf(CERT_SIMULATOR_OPTIONS, String(p.simulatorSlug ?? ''))}
-                </TableCell>
-                <TableCell className="text-sm">
-                  {payloadStr(p, 'validFrom')} — {payloadStr(p, 'validTo')}
-                </TableCell>
-                <MetaCells entry={entry} />
-                <TableCell className="text-right">
-                  <Actions entry={entry} onRestore={onRestore} onPurge={onPurge} />
-                </TableCell>
-              </TableRow>
-            )
-          })}
-        </TableBody>
-      </Table>
-    )
-  }
-
-  if (sectionKey === 'waiting_room') {
-    return (
-      <Table>
-        <TableHeader>
-          <TableRow className="bg-muted/40 hover:bg-muted/40">
-            <TableHead>Дата</TableHead>
-            <TableHead>Текст</TableHead>
-            <TableHead>Удалено</TableHead>
-            <TableHead>Осталось</TableHead>
-            <TableHead className="w-[88px] text-right" />
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {items.map((entry) => (
-            <TableRow key={entry.id}>
-              <TableCell className="whitespace-nowrap">{payloadStr(entry.payload, 'date')}</TableCell>
-              <TableCell className="max-w-[420px] text-sm leading-snug">
-                {payloadStr(entry.payload, 'line')}
-              </TableCell>
-              <MetaCells entry={entry} />
-              <TableCell className="text-right">
-                <Actions entry={entry} onRestore={onRestore} onPurge={onPurge} />
-              </TableCell>
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
-    )
-  }
-
-  if (sectionKey === 'staff_shifts') {
-    return (
-      <Table>
-        <TableHeader>
-          <TableRow className="bg-muted/40 hover:bg-muted/40">
-            <TableHead>Пилот</TableHead>
-            <TableHead>Дата</TableHead>
-            <TableHead>Тренажёр</TableHead>
-            <TableHead>Удалено</TableHead>
-            <TableHead>Осталось</TableHead>
-            <TableHead className="w-[88px] text-right" />
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {items.map((entry) => {
-            const p = entry.payload
-            return (
-              <TableRow key={entry.id}>
-                <TableCell className="font-medium">
-                  {payloadStr(p, 'userName') !== '—'
-                    ? payloadStr(p, 'userName')
-                    : entry.title}
-                </TableCell>
-                <TableCell>{payloadStr(p, 'date')}</TableCell>
-                <TableCell>
-                  {p.simulatorSlug === 'mi-2' ? 'Ми-2' : 'Boeing 737'}
-                </TableCell>
-                <MetaCells entry={entry} />
-                <TableCell className="text-right">
-                  <Actions entry={entry} onRestore={onRestore} onPurge={onPurge} />
-                </TableCell>
-              </TableRow>
-            )
-          })}
-        </TableBody>
-      </Table>
-    )
-  }
-
-  if (sectionKey === 'accounts') {
-    return (
-      <Table>
-        <TableHeader>
-          <TableRow className="bg-muted/40 hover:bg-muted/40">
-            <TableHead>ФИО</TableHead>
-            <TableHead>Логин</TableHead>
-            <TableHead>Роль</TableHead>
-            <TableHead>Телефон</TableHead>
-            <TableHead>Удалено</TableHead>
-            <TableHead>Осталось</TableHead>
-            <TableHead className="w-[88px] text-right" />
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {items.map((entry) => {
-            const p = entry.payload
-            return (
-              <TableRow key={entry.id}>
-                <TableCell className="font-semibold">{payloadStr(p, 'fullName')}</TableCell>
-                <TableCell className="font-mono text-[13px]">{payloadStr(p, 'login')}</TableCell>
-                <TableCell>
-                  {labelOf(ACCOUNT_ROLE_OPTIONS, String(p.role ?? ''))}
-                </TableCell>
-                <TableCell>{payloadStr(p, 'phone')}</TableCell>
-                <MetaCells entry={entry} />
-                <TableCell className="text-right">
-                  <Actions entry={entry} onRestore={onRestore} onPurge={onPurge} />
-                </TableCell>
-              </TableRow>
-            )
-          })}
-        </TableBody>
-      </Table>
-    )
-  }
-
-  if (sectionKey === 'prices_promos') {
-    return (
-      <Table>
-        <TableHeader>
-          <TableRow className="bg-muted/40 hover:bg-muted/40">
-            <TableHead>Тип</TableHead>
-            <TableHead>Название / строка</TableHead>
-            <TableHead>Детали</TableHead>
-            <TableHead>Удалено</TableHead>
-            <TableHead>Осталось</TableHead>
-            <TableHead className="w-[88px] text-right" />
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {items.map((entry) => {
-            const kindLabel =
-              entry.kind === 'flight_prices'
-                ? 'Цена полёта'
-                : entry.kind === 'cert_prices'
-                  ? 'Цена сертификата'
-                  : entry.kind === 'promos'
-                    ? 'Акция'
-                    : entry.kind ?? '—'
-            return (
-              <TableRow key={entry.id}>
-                <TableCell className="whitespace-nowrap text-sm">{kindLabel}</TableCell>
-                <TableCell className="font-medium">{entry.title}</TableCell>
-                <TableCell className="max-w-[280px] text-sm">{entry.summary}</TableCell>
-                <MetaCells entry={entry} />
-                <TableCell className="text-right">
-                  <Actions entry={entry} onRestore={onRestore} onPurge={onPurge} />
-                </TableCell>
-              </TableRow>
-            )
-          })}
-        </TableBody>
-      </Table>
-    )
-  }
-
-  // maintenance + schedule_settings
   return (
-    <Table>
-      <TableHeader>
-        <TableRow className="bg-muted/40 hover:bg-muted/40">
-          <TableHead>Запись</TableHead>
-          <TableHead>Текст / детали</TableHead>
-          <TableHead>Удалено</TableHead>
-          <TableHead>Осталось</TableHead>
-          <TableHead className="w-[88px] text-right" />
-        </TableRow>
-      </TableHeader>
-      <TableBody>
-        {items.map((entry) => (
-          <TableRow key={entry.id}>
-            <TableCell className={cn('font-medium whitespace-nowrap')}>{entry.title}</TableCell>
-            <TableCell className="max-w-[360px] text-sm leading-snug">{entry.summary}</TableCell>
-            <MetaCells entry={entry} />
-            <TableCell className="text-right">
-              <Actions entry={entry} onRestore={onRestore} onPurge={onPurge} />
-            </TableCell>
-          </TableRow>
-        ))}
-      </TableBody>
-    </Table>
+    <AdminDataTable
+      rows={items}
+      columns={columns}
+      rowKey={(row) => row.id}
+      searchPlaceholder="Поиск по разделу"
+      emptyText="Ничего не найдено"
+      scrollClassName="-mx-4 max-w-[calc(100vw-2rem)] overflow-x-auto sm:mx-0 sm:max-w-none"
+    />
   )
 }

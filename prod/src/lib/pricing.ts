@@ -184,32 +184,67 @@ export function isSlotClosedByMaintenance(
   })
 }
 
-export function computeBookingPriceByn(opts: {
-  base: number
+/**
+ * Коэффициент скидки: ДР −15%, счастливые часы −10%, иначе без скидки.
+ * Для 2в1 применяется к каждой ноге 30 мин отдельно (не к «часовому» тарифу).
+ */
+export function bookingDiscountMultiplier(opts: {
   birthdayDiscount: boolean
   birthdayDate: string
   selectedDate: Date
   selectedTime: string
   dayStatus?: CalendarStatus
 }): number {
-  let price = opts.base
   const status = effectiveDayStatus(opts.selectedDate, opts.dayStatus)
-  const blocked = status === 'BLOCKED'
-
-  if (blocked || price <= 0) return price
+  if (status === 'BLOCKED') return 1
 
   if (
     opts.birthdayDiscount &&
     opts.birthdayDate.trim() &&
     isInBirthdayWindow(opts.selectedDate, opts.birthdayDate)
   ) {
-    price *= 0.85
-  } else if (isHappyHourSlot(opts.selectedTime, opts.selectedDate, opts.dayStatus)) {
-    // «Счастливые часы» только в обычные рабочие дни; в красные (выходные) — нет
-    price *= 0.9
+    return 0.85
+  }
+  if (isHappyHourSlot(opts.selectedTime, opts.selectedDate, opts.dayStatus)) {
+    return 0.9
+  }
+  return 1
+}
+
+function applyDiscountToAmount(amount: number, multiplier: number): number {
+  if (amount <= 0) return 0
+  if (multiplier >= 1) return Math.round(amount)
+  return Math.round(amount * multiplier)
+}
+
+export function computeBookingPriceByn(opts: {
+  /** Одна программа (обычный полёт). */
+  base?: number
+  /**
+   * 2в1: цены ног по 30 мин (Boeing + Ми-2).
+   * Скидка 15%/10% начисляется на каждую ногу, затем суммы складываются:
+   * (170−15%) + (170−15%), а не скидка от часового тарифа 300.
+   */
+  legs?: number[]
+  birthdayDiscount: boolean
+  birthdayDate: string
+  selectedDate: Date
+  selectedTime: string
+  dayStatus?: CalendarStatus
+}): number {
+  const status = effectiveDayStatus(opts.selectedDate, opts.dayStatus)
+  const mult = bookingDiscountMultiplier(opts)
+
+  if (opts.legs && opts.legs.length > 0) {
+    if (status === 'BLOCKED') {
+      return opts.legs.reduce((s, n) => s + Math.max(0, Math.round(n)), 0)
+    }
+    return opts.legs.reduce((s, n) => s + applyDiscountToAmount(n, mult), 0)
   }
 
-  return Math.round(price)
+  const base = opts.base ?? 0
+  if (status === 'BLOCKED' || base <= 0) return base <= 0 ? 0 : Math.round(base)
+  return applyDiscountToAmount(base, mult)
 }
 
 export type BookingDateDisableOpts = {
@@ -304,6 +339,80 @@ export function findFirstBookableDate(
   for (let d = today; d <= max; d = addDays(d, 1)) {
     if (!isBookingDateDisabled(d, calendar, opts)) return d
   }
+  return null
+}
+
+/** Понятная причина, почему дата/время нельзя выбрать (для формы брони). */
+export function describeBookingDateTimeProblem(
+  date: Date | null,
+  time: string | null,
+  calendar: Record<string, CalendarStatus>,
+  opts: BookingDateDisableOpts,
+): string | null {
+  if (!date) return 'Выберите дату полёта в календаре.'
+  if (!time) return 'Выберите время начала полёта.'
+
+  const today = startOfDay(new Date())
+  if (date < today) return 'Нельзя выбрать прошедшую дату. Выберите сегодня или позже.'
+
+  const max = addMonths(today, opts.bookingWindowMonths)
+  if (date > max) {
+    return `Запись открыта только на ${opts.bookingWindowMonths} мес. вперёд. Выберите более раннюю дату.`
+  }
+
+  if (opts.requireValidCertificate) {
+    return 'Сначала укажите действующий номер подарочного сертификата — без него дата недоступна.'
+  }
+
+  const key = formatDateKey(date)
+  const status = effectiveDayStatus(date, calendar[key])
+
+  if (status === 'BLOCKED') {
+    return 'Эта дата закрыта (блокировка или ТО на весь день). Выберите другой день.'
+  }
+  if (isDateClosedByMaintenance(key, opts.maintenance, opts.simulatorSlug)) {
+    return 'На эту дату тренажёр закрыт на техобслуживание. Выберите другой день или тренажёр.'
+  }
+
+  if (opts.happyHoursOnly && isRedDay(date, status)) {
+    return '«Счастливые часы» действуют только в будни. В выходные и праздники акция недоступна.'
+  }
+
+  if (opts.certificate) {
+    const from = startOfDay(parseIsoDate(opts.certificate.validFrom) ?? today)
+    const to = startOfDay(parseIsoDate(opts.certificate.validTo) ?? today)
+    if (date < from || date > to) {
+      return `Сертификат действует с ${opts.certificate.validFrom.slice(0, 10)} по ${opts.certificate.validTo.slice(0, 10)}. Выберите дату в этом периоде.`
+    }
+  } else if (opts.birthdayDiscount) {
+    if (!isBirthdayInputValid(opts.birthdayDate)) {
+      return 'Для скидки на день рождения укажите дату рождения в формате ДД.ММ.'
+    }
+    if (!isInBirthdayWindow(date, opts.birthdayDate)) {
+      return 'Скидка на день рождения действует только в сам день и ±3 дня. Выберите дату в этом окне.'
+    }
+  }
+
+  if (opts.happyHoursOnly && !isHappyHourTime(time)) {
+    return 'Для «Счастливых часов» доступны слоты с 12:00 до 15:00 в будни. Выберите другое время.'
+  }
+
+  if (isTimeSlotPast(date, time)) {
+    return 'Это время сегодня уже прошло. Выберите более поздний слот или другую дату.'
+  }
+
+  const duration = opts.durationMin ?? 30
+  if (
+    opts.simulatorSlug &&
+    isSlotClosedByMaintenance(key, time, duration, opts.simulatorSlug, opts.maintenance)
+  ) {
+    return 'Выбранный слот пересекается с техобслуживанием. Выберите другое время.'
+  }
+
+  if (isBookingDateDisabled(date, calendar, opts)) {
+    return 'На эту дату нет доступных слотов для выбранных условий. Выберите другой день.'
+  }
+
   return null
 }
 

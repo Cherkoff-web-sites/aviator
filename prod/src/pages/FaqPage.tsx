@@ -13,7 +13,7 @@ function FaqPage() {
       <main className="flex min-h-0 flex-1 flex-col pb-12 pt-[96px] text-white min-[990px]:pb-16 min-[990px]:pt-[112px]">
         <div className="container-app pb-6 min-[990px]:pb-10">
           <h1 className="text-[26px] font-bold leading-tight tracking-tight min-[990px]:text-[36px] min-[990px]:leading-[1.15]">
-            Вопросы и ответы
+            Всё, что важно знать перед полётом
           </h1>
         </div>
         <div className="container-app max-w-[800px]">

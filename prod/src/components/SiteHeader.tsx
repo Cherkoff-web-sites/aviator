@@ -1,9 +1,10 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link, NavLink, useLocation } from 'react-router-dom'
 
 import { useBookingModal } from '../contexts/BookingModalContext'
-import { HEADER_MOBILE_SOCIAL_ICONS } from '../data/socialAssets'
 import { phoneToTelHref, usePublicContacts } from '../hooks/usePublicContacts'
+import { usePublicSettings } from '../hooks/usePublicSettings'
+import { resolveHeaderSocialLinks } from '../lib/resolveSocialLinks'
 
 function isSimulatorsNavActive(pathname: string) {
   return pathname === '/simulators' || pathname.startsWith('/simulator/')
@@ -66,6 +67,11 @@ function SiteHeader() {
   )
   const { openBooking } = useBookingModal()
   const contacts = usePublicContacts()
+  const settings = usePublicSettings()
+  const socialLinks = useMemo(
+    () => resolveHeaderSocialLinks(settings?.footerSocialLinks),
+    [settings?.footerSocialLinks],
+  )
   const darkHero = isDarkHeroPath(pathname)
   /** Синий фон: на обычных страницах всегда; на тёмных hero — только после скролла */
   const headerHasBg = darkHero ? scrolled : true
@@ -258,7 +264,7 @@ function SiteHeader() {
                 {contacts.phone}
               </a>
               <div className="mt-4 flex items-center gap-3">
-                {HEADER_MOBILE_SOCIAL_ICONS.map((s) => (
+                {socialLinks.map((s) => (
                   <a
                     key={s.label}
                     href={s.href}

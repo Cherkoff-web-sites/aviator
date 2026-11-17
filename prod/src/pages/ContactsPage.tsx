@@ -1,9 +1,13 @@
+import { useMemo } from 'react'
+
 import SiteCtaBanner from '../components/SiteCtaBanner'
 import SiteFooter from '../components/SiteFooter'
 import SiteHeader from '../components/SiteHeader'
 import YandexConstructorMap from '../components/YandexConstructorMap'
-import { FOOTER_SOCIAL_ICONS, contactSocialIconImgClass } from '../data/socialAssets'
+import { contactSocialIconImgClass } from '../data/socialAssets'
 import { phoneToTelHref, usePublicContacts } from '../hooks/usePublicContacts'
+import { usePublicSettings } from '../hooks/usePublicSettings'
+import { resolveFooterSocialLinks } from '../lib/resolveSocialLinks'
 
 const CONTACT_ICONS = {
   pin: '/assets/icons/icon_pin.svg',
@@ -17,17 +21,23 @@ const CONTACT_ICON_IMG_CLASS =
 
 function ContactsPage() {
   const contacts = usePublicContacts()
+  const settings = usePublicSettings()
+  const socialLinks = useMemo(
+    () => resolveFooterSocialLinks(settings?.footerSocialLinks),
+    [settings?.footerSocialLinks],
+  )
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <SiteHeader />
       <main className="flex min-h-0 flex-1 flex-col pb-14 pt-[96px] text-white min-[990px]:pb-20 min-[990px]:pt-[112px]">
         <div className="container-app flex flex-col gap-6 min-[990px]:gap-8">
-          <div className="flex flex-col gap-8 min-[990px]:grid min-[990px]:grid-cols-2 min-[990px]:items-start min-[990px]:gap-x-12 min-[990px]:gap-y-8">
-            <div className="flex min-w-0 flex-col gap-6 min-[990px]:col-start-1 min-[990px]:row-start-1">
-              <h1 className="text-[26px] font-bold leading-tight tracking-tight min-[990px]:text-[36px] min-[990px]:leading-[1.15]">
-                Удобная локация в центре города
-              </h1>
+          <h1 className="text-[26px] font-bold leading-tight tracking-tight min-[990px]:text-[36px] min-[990px]:leading-[1.15]">
+            Удобная локация в центре города
+          </h1>
+
+          <div className="flex flex-col gap-8 min-[990px]:grid min-[990px]:grid-cols-2 min-[990px]:items-start min-[990px]:gap-x-12">
+            <div className="flex min-w-0 flex-col gap-6">
               <p className="text-[15px] font-medium leading-relaxed text-white/85 min-[990px]:text-[17px]">
                 Наши авиатренажеры расположены в центре Минска, что позволяет с комфортом добраться из любой точки
                 города, не затрачивая лишних усилий
@@ -73,28 +83,27 @@ function ContactsPage() {
                   </a>
                 </li>
               </ul>
-            </div>
 
-            {/* Карта ниже заголовка по вертикали: row начинается после h1-колонки визуально через align + отступ сверху на десктопе */}
-            <YandexConstructorMap className="shrink-0 min-[990px]:col-start-2 min-[990px]:row-start-1 min-[990px]:row-span-2 min-[990px]:mt-[3.25rem] min-[990px]:min-h-[min(100%,520px)]" />
-
-            <div className="flex flex-col gap-4 min-[990px]:col-start-1 min-[990px]:row-start-2">
-              <h2 className="text-[18px] font-bold leading-tight min-[990px]:text-[20px]">Наши соцсети</h2>
-              <div className="flex flex-wrap items-center gap-4">
-                {FOOTER_SOCIAL_ICONS.map((s) => (
-                  <a
-                    key={s.label}
-                    href={s.href}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    aria-label={s.label}
-                    className="inline-flex items-center justify-center rounded-lg transition-opacity hover:opacity-80"
-                  >
-                    <img src={s.src} alt="" aria-hidden className={contactSocialIconImgClass(s.label)} />
-                  </a>
-                ))}
+              <div className="flex flex-col gap-4 pt-2">
+                <h2 className="text-[18px] font-bold leading-tight min-[990px]:text-[20px]">Наши соцсети</h2>
+                <div className="flex flex-wrap items-center gap-4">
+                  {socialLinks.map((s) => (
+                    <a
+                      key={s.label}
+                      href={s.href}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      aria-label={s.label}
+                      className="inline-flex items-center justify-center rounded-lg transition-opacity hover:opacity-80"
+                    >
+                      <img src={s.src} alt="" aria-hidden className={contactSocialIconImgClass(s.label)} />
+                    </a>
+                  ))}
+                </div>
               </div>
             </div>
+
+            <YandexConstructorMap className="shrink-0" />
           </div>
         </div>
       </main>

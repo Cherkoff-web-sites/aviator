@@ -2,9 +2,10 @@ import { useMemo } from 'react'
 import { Link } from 'react-router-dom'
 
 import { useGiftCertificateModal } from '../contexts/GiftCertificateModalContext'
-import { FOOTER_SOCIAL_ICONS, SOCIAL_ASSETS } from '../data/socialAssets'
+import { SOCIAL_ASSETS } from '../data/socialAssets'
 import { phoneToTelHref, usePublicContacts } from '../hooks/usePublicContacts'
 import { usePublicSettings } from '../hooks/usePublicSettings'
+import { resolveFooterSocialLinks } from '../lib/resolveSocialLinks'
 
 const footerLogoPath = '/assets/header/logo.svg'
 const paymentStripPath = SOCIAL_ASSETS.payments
@@ -20,13 +21,10 @@ function SiteFooter() {
   const { openGiftCertificate } = useGiftCertificateModal()
   const contacts = usePublicContacts()
   const settings = usePublicSettings()
-  const socialLinks = useMemo(() => {
-    const fromStore = settings?.footerSocialLinks ?? {}
-    return FOOTER_SOCIAL_ICONS.map((s) => {
-      const custom = fromStore[s.label]?.trim()
-      return custom ? { ...s, href: custom } : s
-    }).filter((s) => s.href)
-  }, [settings?.footerSocialLinks])
+  const socialLinks = useMemo(
+    () => resolveFooterSocialLinks(settings?.footerSocialLinks),
+    [settings?.footerSocialLinks],
+  )
   const phoneHref = phoneToTelHref(contacts.phone)
   const emailHref = `mailto:${contacts.email}`
 

@@ -55,6 +55,7 @@ export function canAccessRoute(role: UserRole, pathname: string) {
   if (pathname.startsWith('/admin/settings') && role !== 'ADMIN') return false
   if (pathname.startsWith('/admin/logs') && role !== 'ADMIN') return false
   if (pathname.startsWith('/admin/feedback') && role === 'PILOT') return false
+  /** Список уведомлений фильтруется на сервере по роли (см. site/server notifications). */
   if (pathname.startsWith('/admin/notifications')) return true
   /** Архив — только админ и менеджер (секции фильтруются по доступу к страницам). */
   if (pathname.startsWith('/admin/archive')) {

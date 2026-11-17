@@ -2,16 +2,11 @@ import { useEffect, useState, type CSSProperties } from 'react'
 import { Link } from 'react-router-dom'
 import { useBookingModal, type BookingSimulatorSlug } from '../contexts/BookingModalContext'
 import { simulators } from '../data/simulators'
+import { useSiteImages } from '../hooks/useSiteImages'
+import { homeHeroImageForSlug } from '../lib/applySiteImages'
 
 /** Авиашколу временно скрываем — на главной только две колонки */
 const slides = simulators.filter((s) => s.slug !== 'avia-school')
-
-/** Фоны колонок первой секции на главной — из `public/assets/hero/` */
-const HOME_HERO_SLIDE_IMAGES: Record<string, string> = {
-  'mi-2': '/assets/hero/mi_2.webp',
-  'boeing-737': '/assets/hero/boeing_737.webp',
-  'avia-school': '/assets/hero/avia_school.webp',
-}
 
 /**
  * Кадрирование фото (object-position).
@@ -43,6 +38,7 @@ function columnWidths(activeId: string | null): [number, number] {
 
 function HomeHero() {
   const { openBooking } = useBookingModal()
+  const { images } = useSiteImages()
   const [activeId, setActiveId] = useState<string | null>(null)
   const [isDesktop, setIsDesktop] = useState(() =>
     typeof window !== 'undefined' ? window.innerWidth >= DESKTOP_MIN : true
@@ -108,7 +104,7 @@ function HomeHero() {
               ].join(' ')}
             >
               <img
-                src={HOME_HERO_SLIDE_IMAGES[slide.slug]}
+                src={homeHeroImageForSlug(slide.slug, images)}
                 alt={slide.title}
                 style={{
                   objectPosition: 'var(--hero-pos-x) var(--hero-pos-y)',

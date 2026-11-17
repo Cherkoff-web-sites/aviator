@@ -10,12 +10,20 @@ import SimulatorPhotoSlider from '../components/SimulatorPhotoSlider'
 import SimulatorPageView from '../components/SimulatorPageView'
 import SimulatorReviewsIntro from '../components/SimulatorReviewsIntro'
 import SimulatorSplitSection from '../components/SimulatorSplitSection'
-import { getSimulatorBySlug } from '../data/simulators'
+import { usePublicFlightPrices } from '../hooks/usePublicFlightPrices'
+import { useSiteImages } from '../hooks/useSiteImages'
 import { useSimulatorScrollMotion } from '../hooks/useSimulatorScrollMotion'
+import { applySiteImagesToSimulator, mergeFlightPricesIntoBlock } from '../lib/applySiteImages'
 
 function SimulatorPage() {
   const { slug } = useParams()
-  const simulator = getSimulatorBySlug(slug)
+  const { images } = useSiteImages()
+  const flightPrices = usePublicFlightPrices()
+  const simulator = applySiteImagesToSimulator(slug, images)
+  const pricingBlock =
+    simulator && (simulator.slug === 'boeing-737' || simulator.slug === 'mi-2')
+      ? mergeFlightPricesIntoBlock(simulator.pricingBlock, flightPrices, simulator.slug)
+      : simulator?.pricingBlock
   const motionRootRef = useRef<HTMLDivElement>(null)
 
   useSimulatorScrollMotion(motionRootRef, [simulator?.slug])
@@ -27,10 +35,14 @@ function SimulatorPage() {
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <SiteHeader />
+      {/*
+        Без overflow-x на этом дереве — иначе ломается GSAP pin слайдера.
+        Горизонтальный клип — внутри секций (слайдер / тарифы / split).
+      */}
       <div
         ref={motionRootRef}
         data-sim-motion
-        className="flex min-h-0 flex-1 flex-col overflow-x-clip"
+        className="flex min-h-0 flex-1 flex-col"
       >
         <SimulatorPageView
           heroImage={simulator.image}
@@ -48,16 +60,22 @@ function SimulatorPage() {
             imageSrc={section.image}
           />
         ))}
-        <SimulatorPhotoSlider
-          title={simulator.photoSlider.title}
-          description={simulator.photoSlider.description}
-          images={simulator.photoSlider.images}
-          galleryTo={simulator.photoSlider.galleryTo}
-        />
-        <SimulatorHighlightsThree items={simulator.highlights} />
-        <SimulatorCtaBooking title={simulator.ctaTitle} />
-        {simulator.slug !== 'avia-school' ? (
-          <SimulatorPricingSection block={simulator.pricingBlock} />
+        {/*
+          Синяя обёртка: pin-spacer GSAP прозрачный — иначе в зазоре виден чёрный фон страницы.
+          Все соседние синие блоки держим в одном фоне #002D62.
+        */}
+        <div className="bg-[#002D62]">
+          <SimulatorPhotoSlider
+            title={simulator.photoSlider.title}
+            description={simulator.photoSlider.description}
+            images={simulator.photoSlider.images}
+            galleryTo={simulator.photoSlider.galleryTo}
+          />
+          <SimulatorHighlightsThree items={simulator.highlights} />
+          <SimulatorCtaBooking title={simulator.ctaTitle} />
+        </div>
+        {simulator.slug !== 'avia-school' && pricingBlock ? (
+          <SimulatorPricingSection block={pricingBlock} />
         ) : null}
         <SimulatorReviewsIntro />
         <SiteCtaBanner />

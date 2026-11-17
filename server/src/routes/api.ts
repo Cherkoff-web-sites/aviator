@@ -1,6 +1,9 @@
 import { Router, type Request, type Response, type NextFunction } from 'express'
 import { addDays, format, startOfDay } from 'date-fns'
-import { readStore, updateStore, newId, resetStoreToDemo } from '../lib/store.js'
+import { readStore, updateStore, newId, fillDemoData, clearDemoData } from '../lib/store.js'
+import { getDocument } from '../lib/documents.js'
+import { normalizeSiteImages } from '../lib/site-images.js'
+import { saveDataUrlUpload } from '../lib/uploads.js'
 import {
   addMinutesToTime,
   buildCalendarDays,
@@ -18,7 +21,6 @@ import {
   notificationsForUser,
   isNotificationVisible,
   notifHref,
-  ROLES_STAFF,
 } from '../lib/notifications.js'
 import {
   formatMaintenanceLabel,
@@ -178,8 +180,8 @@ function hideFromPilots(req: Request, res: Response, next: NextFunction) {
 }
 
 function broadcast() {
+  // Один раз всем (в т.ч. админке). Раньше emitAdmin+emitAll давали админу дубль события.
   const payload = { at: new Date().toISOString() }
-  emitAdmin('store:updated', payload)
   emitAll('store:updated', payload)
 }
 
@@ -219,11 +221,6 @@ apiRouter.get('/public/calendar', (_req, res) => {
   }))
   const maintenance = listMaintenance(store).filter((m) => m.date >= fromKey && m.date <= toKey)
   res.json({ days, maintenance, bookingWindowMonths: months })
-})
-
-apiRouter.get('/public/settings', (_req, res) => {
-  const store = readStore()
-  res.json({ bookingWindowMonths: store.settings.bookingWindowMonths ?? 12 })
 })
 
 apiRouter.get('/public/certificates/validate', (req, res) => {
@@ -285,6 +282,33 @@ apiRouter.get('/public/settings', (_req, res) => {
   })
 })
 
+/** Списки длительностей/тренажёров для форм брони и сертификатов. */
+apiRouter.get('/public/option-lists', (_req, res) => {
+  const lists = readStore().optionLists ?? {}
+  res.json({
+    duration: lists.duration ?? [],
+    simulator: lists.simulator ?? [],
+    cert_duration: lists.cert_duration ?? lists.duration ?? [],
+    cert_simulator: lists.cert_simulator ?? lists.simulator ?? [],
+  })
+})
+
+apiRouter.get('/public/documents', (_req, res) => {
+  res.json(
+    readStore().documents.map(({ key, title }) => ({ key, title })),
+  )
+})
+
+apiRouter.get('/public/documents/:key', (req, res) => {
+  const key = String(req.params.key)
+  const doc = getDocument(readStore().documents, key)
+  if (!doc) {
+    res.status(404).json({ error: 'Document not found' })
+    return
+  }
+  res.json(doc)
+})
+
 apiRouter.get('/public/prices/flights', (_req, res) => {
   res.json(readStore().flightPrices)
 })
@@ -299,6 +323,10 @@ apiRouter.get('/public/promos', (_req, res) => {
 
 apiRouter.get('/public/contacts', (_req, res) => {
   res.json(readStore().contacts)
+})
+
+apiRouter.get('/public/site-images', (_req, res) => {
+  res.json(readStore().siteImages)
 })
 
 apiRouter.post('/public/feedback', async (req, res) => {
@@ -325,7 +353,6 @@ apiRouter.post('/public/feedback', async (req, res) => {
       title: 'Новая заявка обратной связи',
       body: `${name}, ${phone}${message ? ` — ${message.slice(0, 80)}` : ''}`,
       href: notifHref('/admin/feedback', entry.id),
-      audienceRoles: ROLES_STAFF,
       meta: { feedbackId: entry.id },
     })
     pushLog(s, {
@@ -451,8 +478,12 @@ apiRouter.post('/public/bookings', async (req, res) => {
       title: 'Новая бронь с сайта',
       body: `${booking.name} · ${booking.date} ${booking.startTime} · ${simLabel} · ${booking.durationMin} мин`,
       href: notifHref('/admin', booking.id, { date: booking.date }),
-      audienceRoles: ROLES_STAFF,
       meta: { bookingId: booking.id, date: booking.date },
+    })
+    pushLog(s, {
+      message: `Бронь с сайта: ${booking.name} · ${booking.date} ${booking.startTime}`,
+      context: 'booking',
+      meta: { bookingId: booking.id },
     })
   })
 
@@ -580,8 +611,12 @@ apiRouter.post('/public/bookings/combo', async (req, res) => {
       title: 'Новая бронь 2в1 с сайта',
       body: `${name} · ${date} ${startTime}+${secondStart} · Boeing+Ми-2`,
       href: notifHref('/admin', bookings[0].id, { date }),
-      audienceRoles: ROLES_STAFF,
       meta: { bookingId: bookings[0].id, date, comboGroupId },
+    })
+    pushLog(s, {
+      message: `Бронь 2в1 с сайта: ${name} · ${date} ${startTime}`,
+      context: 'booking',
+      meta: { bookingId: bookings[0].id },
     })
   })
 
@@ -627,7 +662,6 @@ apiRouter.post('/public/bookings/:id/confirm', async (req, res) => {
         title: 'Бронь подтверждена',
         body: `${b.name} · ${b.date} ${b.startTime}`,
         href: notifHref('/admin', b.id, { date: b.date }),
-        audienceRoles: ROLES_STAFF,
         meta: { bookingId: b.id, date: b.date },
       })
     }
@@ -695,7 +729,11 @@ apiRouter.post('/public/certificates', async (req, res) => {
       title: 'Продан сертификат',
       body: `${cert.number} · ${cert.fullName} · ${cert.durationMin} мин · на сайте`,
       href: notifHref('/admin/certificates', cert.id),
-      audienceRoles: ROLES_STAFF,
+      meta: { certificateId: cert.id },
+    })
+    pushLog(s, {
+      message: `Сертификат с сайта: ${cert.number} · ${cert.fullName}`,
+      context: 'certificate',
       meta: { certificateId: cert.id },
     })
   })
@@ -715,9 +753,13 @@ apiRouter.use('/admin', sessionMiddleware)
 
 apiRouter.get('/admin/bookings', async (req, res) => {
   const date = req.query.date ? String(req.query.date) : toDateKey(new Date())
+  let completed = false
   await updateStore((s) => {
+    const before = s.bookings.filter((b) => b.status === 'IN_PROGRESS').map((b) => b.id)
     autoCompletePastBookings(s)
+    completed = before.some((id) => s.bookings.find((b) => b.id === id)?.status === 'DONE')
   })
+  if (completed) broadcast()
   const store = readStore()
   res.json(filterBookingsForRole(store, req.session!.role, req.session!.userId, date))
 })
@@ -738,7 +780,8 @@ apiRouter.post('/admin/bookings', requireRoles('ADMIN', 'MANAGER'), async (req, 
     name: body.name,
     phone: body.phone,
     email: body.email ?? '',
-    status: body.status ?? 'WAITING',
+    // Новые записи всегда «Ожидаем»; при restore из архива можно передать статус
+    status: body.id ? (body.status ?? 'WAITING') : 'WAITING',
     paid: !!body.paid,
     paymentMethod: body.paymentMethod ?? 'OFFLINE',
     comment: body.comment ?? '',
@@ -753,9 +796,10 @@ apiRouter.post('/admin/bookings', requireRoles('ADMIN', 'MANAGER'), async (req, 
     updatedAt: new Date().toISOString(),
   }
   const storePre = readStore()
-  const gapAdmin = bookingGapMin(storePre)
   const nowAdmin = new Date().toISOString()
-  const adminOverlap = storePre.bookings.some(
+  // В админке пауза gap не блокирует: только жёсткое пересечение времени полётов.
+  // Пауза bookingGapMin действует для публичного бронирования на сайте.
+  const conflict = storePre.bookings.find(
     (b) =>
       b.id !== booking.id &&
       b.date === booking.date &&
@@ -766,12 +810,13 @@ apiRouter.post('/admin/bookings', requireRoles('ADMIN', 'MANAGER'), async (req, 
         booking.durationMin,
         b.startTime,
         b.durationMin,
-        gapAdmin,
+        0,
       ),
   )
-  if (adminOverlap) {
+  if (conflict) {
+    const simLabel = conflict.simulatorSlug === 'mi-2' ? 'Ми-2' : 'Boeing 737'
     return res.status(409).json({
-      error: `Слот пересекается с другой записью (нужен интервал ${gapAdmin} мин).`,
+      error: `Время занято: уже есть запись «${conflict.name}» ${conflict.startTime}–${conflict.endTime} (${simLabel}). Выберите другое время.`,
       code: 'SLOT_TAKEN',
     })
   }
@@ -788,8 +833,12 @@ apiRouter.post('/admin/bookings', requireRoles('ADMIN', 'MANAGER'), async (req, 
         title: 'Новая запись в админке',
         body: `${booking.name} · ${booking.date} ${booking.startTime} · ${simLabel}`,
         href: notifHref('/admin', booking.id, { date: booking.date }),
-        audienceRoles: ROLES_STAFF,
         meta: { bookingId: booking.id, date: booking.date },
+      })
+      pushLog(s, {
+        message: `Запись создана в админке: ${booking.name} · ${booking.date} ${booking.startTime}`,
+        context: 'booking',
+        meta: { bookingId: booking.id },
       })
     }
   })
@@ -811,8 +860,48 @@ apiRouter.patch('/admin/bookings/:id', requireRoles('ADMIN', 'MANAGER'), async (
       rejected = true
       return
     }
+    const before = {
+      name: b.name,
+      startTime: b.startTime,
+      endTime: b.endTime,
+      durationMin: b.durationMin,
+      simulatorSlug: b.simulatorSlug,
+      status: b.status,
+      paid: b.paid,
+      paymentMethod: b.paymentMethod,
+      comment: b.comment,
+      phone: b.phone,
+      email: b.email,
+    }
     Object.assign(b, body, { updatedAt: new Date().toISOString() })
     updated = b
+    const changed =
+      before.name !== b.name ||
+      before.startTime !== b.startTime ||
+      before.endTime !== b.endTime ||
+      before.durationMin !== b.durationMin ||
+      before.simulatorSlug !== b.simulatorSlug ||
+      before.status !== b.status ||
+      before.paid !== b.paid ||
+      before.paymentMethod !== b.paymentMethod ||
+      before.comment !== b.comment ||
+      before.phone !== b.phone ||
+      before.email !== b.email
+    if (changed) {
+      const simLabel = b.simulatorSlug === 'mi-2' ? 'Ми-2' : 'Boeing 737'
+      pushNotification(s, {
+        kind: 'booking',
+        title: 'Запись изменена',
+        body: `${b.name} · ${b.date} ${b.startTime}–${b.endTime} · ${simLabel}`,
+        href: notifHref('/admin', b.id, { date: b.date }),
+        meta: { bookingId: b.id, date: b.date },
+      })
+      pushLog(s, {
+        message: `Запись изменена: ${b.name} · ${b.date} ${b.startTime} → ${b.status}`,
+        context: 'booking',
+        meta: { bookingId: b.id, status: b.status },
+      })
+    }
   })
   if (rejected) {
     res.status(400).json({ error: 'Для Ми-2 максимальная длительность — 60 минут' })
@@ -839,6 +928,11 @@ apiRouter.delete('/admin/bookings/:id', requireRoles('ADMIN', 'MANAGER'), async 
       ...actor,
     })
     s.bookings = s.bookings.filter((b) => b.id !== id)
+    pushLog(s, {
+      message: `Запись удалена: ${prev.name} · ${prev.date} ${prev.startTime}`,
+      context: 'booking',
+      meta: { bookingId: prev.id },
+    })
   })
   broadcast()
   res.json({ ok: true, archived })
@@ -869,7 +963,6 @@ apiRouter.put('/admin/calendar/:date', requireRoles('ADMIN', 'MANAGER'), async (
       title: 'Изменён статус дня',
       body: `${date} → ${CALENDAR_STATUS_LABEL[status] ?? status}`,
       href: '/admin/schedule-settings',
-      audienceRoles: ROLES_STAFF,
       meta: { date, status },
     })
   })
@@ -891,7 +984,6 @@ apiRouter.post('/admin/calendar/toggle-holidays', requireRoles('ADMIN', 'MANAGER
       title: 'Обновлены выходные в календаре',
       body: dates.length ? `${sample}${more}` : 'Без дат',
       href: '/admin/schedule-settings',
-      audienceRoles: ROLES_STAFF,
       meta: { count: String(dates.length) },
     })
   })
@@ -913,7 +1005,6 @@ apiRouter.post('/admin/calendar/toggle-blocked', requireRoles('ADMIN', 'MANAGER'
       title: 'Обновлены блокировки дней',
       body: dates.length ? `${sample}${more}` : 'Без дат',
       href: '/admin/schedule-settings',
-      audienceRoles: ROLES_STAFF,
       meta: { count: String(dates.length) },
     })
   })
@@ -965,7 +1056,6 @@ apiRouter.post('/admin/staff-shifts', async (req, res) => {
         title: 'Вам назначена смена',
         body: `${shift.date} · ${simLabel}`,
         href: notifHref('/admin/staff-schedule', shift.id, { date: shift.date }),
-        audienceRoles: ['PILOT'],
         targetUserId: userId,
         meta: { shiftId: shift.id, date: shift.date },
       })
@@ -976,7 +1066,6 @@ apiRouter.post('/admin/staff-shifts', async (req, res) => {
         title: 'Обновление графика персонала',
         body: `${user.fullName} · ${shift.date} · ${simLabel}`,
         href: notifHref('/admin/staff-schedule', shift.id, { date: shift.date }),
-        audienceRoles: ROLES_STAFF,
         meta: { shiftId: shift.id, date: shift.date, userId },
       })
     }
@@ -1013,7 +1102,6 @@ apiRouter.delete('/admin/staff-shifts/:id', async (req, res) => {
         title: 'Смена снята',
         body: `${shift.date} · ${simLabel}`,
         href: notifHref('/admin/staff-schedule', undefined, { date: shift.date }),
-        audienceRoles: ['PILOT'],
         targetUserId: shift.userId,
         meta: { date: shift.date },
       })
@@ -1023,7 +1111,6 @@ apiRouter.delete('/admin/staff-shifts/:id', async (req, res) => {
       title: 'Смена удалена из графика',
       body: `${pilot?.fullName ?? 'Пилот'} · ${shift.date} · ${simLabel}`,
       href: notifHref('/admin/staff-schedule', undefined, { date: shift.date }),
-      audienceRoles: ROLES_STAFF,
       meta: { date: shift.date, userId: shift.userId },
     })
   })
@@ -1121,7 +1208,11 @@ apiRouter.post('/admin/certificates', requireRoles('ADMIN', 'MANAGER'), async (r
         title: 'Оформлен сертификат',
         body: `${cert.number} · ${cert.fullName} · ${cert.durationMin} мин · ${cert.paymentMethod === 'ONLINE' ? 'на сайте' : 'в офисе'}`,
         href: notifHref('/admin/certificates', cert.id),
-        audienceRoles: ROLES_STAFF,
+        meta: { certificateId: cert.id },
+      })
+      pushLog(s, {
+        message: `Сертификат в админке: ${cert.number} · ${cert.fullName}`,
+        context: 'certificate',
         meta: { certificateId: cert.id },
       })
     }
@@ -1200,7 +1291,6 @@ apiRouter.post('/admin/waiting-room', requireRoles('ADMIN', 'MANAGER'), async (r
         title: 'Зал ожидания',
         body: `${entry.date}: ${String(entry.line).slice(0, 100)}`,
         href: notifHref('/admin/waiting-room', entry.id, { date: entry.date }),
-        audienceRoles: ROLES_STAFF,
         meta: { waitingId: entry.id, date: entry.date },
       })
     }
@@ -1517,9 +1607,41 @@ apiRouter.get('/admin/pilot-hours', (req, res) => {
   const store = readStore()
   const role = req.session!.role
   const userId = req.session!.userId
-  let rows = (store.pilotHours ?? []).filter((r) => r.month === month)
-  if (role === 'PILOT') {
-    rows = rows.filter((r) => r.userId === userId)
+
+  // Факт минут из подтверждённых полётов (В процессе / Закончили + назначенный пилот)
+  const fact = new Map<string, number>()
+  for (const b of store.bookings) {
+    if (!b.pilotUserId) continue
+    if (!b.date.startsWith(month)) continue
+    if (b.status !== 'DONE' && b.status !== 'IN_PROGRESS') continue
+    const sim = b.simulatorSlug === 'mi-2' ? 'mi-2' : 'boeing-737'
+    const key = `${b.pilotUserId}:${sim}`
+    fact.set(key, (fact.get(key) ?? 0) + Math.max(0, Number(b.durationMin) || 0))
+  }
+
+  const saved = (store.pilotHours ?? []).filter((r) => r.month === month)
+  const byKey = new Map(saved.map((r) => [`${r.userId}:${r.simulatorSlug}`, r]))
+
+  const pilots = store.users.filter((u) => u.role === 'PILOT' && u.isActive)
+  const scoped =
+    role === 'PILOT' ? pilots.filter((u) => u.id === userId) : pilots
+
+  const rows = []
+  for (const p of scoped) {
+    for (const sim of ['boeing-737', 'mi-2'] as const) {
+      const key = `${p.id}:${sim}`
+      const hit = byKey.get(key)
+      rows.push({
+        id: hit?.id ?? `fact-${p.id}-${sim}-${month}`,
+        month,
+        userId: p.id,
+        simulatorSlug: sim,
+        minutes: fact.get(key) ?? 0,
+        comment: hit?.comment ?? '',
+        fromBookings: true,
+        updatedAt: hit?.updatedAt ?? new Date().toISOString(),
+      })
+    }
   }
   res.json(rows)
 })
@@ -1531,6 +1653,7 @@ apiRouter.put('/admin/pilot-hours', requireRoles('ADMIN', 'MANAGER'), async (req
     res.status(400).json({ error: 'MONTH_REQUIRED' })
     return
   }
+  // Минуты считаются из записей; сохраняем только комментарии по пилот×тренажёр
   await updateStore((s) => {
     if (!Array.isArray(s.pilotHours)) s.pilotHours = []
     s.pilotHours = s.pilotHours.filter((r) => r.month !== month)
@@ -1540,34 +1663,74 @@ apiRouter.put('/admin/pilot-hours', requireRoles('ADMIN', 'MANAGER'), async (req
       const simulatorSlug =
         raw.simulatorSlug === 'mi-2' ? 'mi-2' : ('boeing-737' as const)
       if (!userId) continue
-      const minutes = Math.max(0, Math.min(9999, Number(raw.minutes) || 0))
+      const comment = String(raw.comment ?? '').slice(0, 500)
+      if (!comment.trim()) continue
       s.pilotHours.push({
-        id: typeof raw.id === 'string' && raw.id ? raw.id : newId(),
+        id: typeof raw.id === 'string' && raw.id && !String(raw.id).startsWith('fact-')
+          ? raw.id
+          : newId(),
         month,
         userId,
         simulatorSlug,
-        minutes,
-        comment: String(raw.comment ?? '').slice(0, 500),
+        minutes: 0,
+        comment,
         updatedAt: nowIso,
       })
     }
-    pushLog(s, { message: `Сохранены часы пилотов за ${month}`, context: 'pilot-hours' })
+    pushLog(s, { message: `Сохранены комментарии часов пилотов за ${month}`, context: 'pilot-hours' })
   })
   broadcast()
-  res.json(readStore().pilotHours?.filter((r) => r.month === month) ?? [])
+  // Отдаём актуальное GET-представление
+  const store = readStore()
+  req.query.month = month
+  const role = req.session!.role
+  const userId = req.session!.userId
+  const fact = new Map<string, number>()
+  for (const b of store.bookings) {
+    if (!b.pilotUserId || !b.date.startsWith(month)) continue
+    if (b.status !== 'DONE' && b.status !== 'IN_PROGRESS') continue
+    const sim = b.simulatorSlug === 'mi-2' ? 'mi-2' : 'boeing-737'
+    const key = `${b.pilotUserId}:${sim}`
+    fact.set(key, (fact.get(key) ?? 0) + Math.max(0, Number(b.durationMin) || 0))
+  }
+  const saved = (store.pilotHours ?? []).filter((r) => r.month === month)
+  const byKey = new Map(saved.map((r) => [`${r.userId}:${r.simulatorSlug}`, r]))
+  const pilots = store.users.filter((u) => u.role === 'PILOT' && u.isActive)
+  const out = []
+  for (const p of pilots) {
+    if (role === 'PILOT' && p.id !== userId) continue
+    for (const sim of ['boeing-737', 'mi-2'] as const) {
+      const key = `${p.id}:${sim}`
+      const hit = byKey.get(key)
+      out.push({
+        id: hit?.id ?? `fact-${p.id}-${sim}-${month}`,
+        month,
+        userId: p.id,
+        simulatorSlug: sim,
+        minutes: fact.get(key) ?? 0,
+        comment: hit?.comment ?? '',
+        fromBookings: true,
+        updatedAt: hit?.updatedAt ?? nowIsoSafe(),
+      })
+    }
+  }
+  res.json(out)
 })
+
+function nowIsoSafe() {
+  return new Date().toISOString()
+}
 
 apiRouter.get('/admin/settings/option-lists', requireRoles('ADMIN'), (_req, res) => {
   res.json(readStore().optionLists)
 })
 
 apiRouter.put('/admin/settings/option-lists/:key', requireRoles('ADMIN'), async (req, res) => {
-  const key = String(req.params.key) as keyof ReturnType<typeof readStore>['optionLists']
+  const key = String(req.params.key)
   const rows = req.body.rows
   await updateStore((s) => {
-    if (key in s.optionLists) {
-      ;(s.optionLists as Record<string, unknown>)[key] = rows
-    }
+    if (!s.optionLists) s.optionLists = {}
+    ;(s.optionLists as Record<string, unknown>)[key] = Array.isArray(rows) ? rows : []
   })
   broadcast()
   res.json(readStore().optionLists)
@@ -1578,11 +1741,20 @@ apiRouter.get('/admin/settings/documents', requireRoles('ADMIN'), (_req, res) =>
 })
 
 apiRouter.patch('/admin/settings/documents/:key', requireRoles('ADMIN'), async (req, res) => {
-  const key = String(req.params.key)
+  const key = String(req.params.key) === 'offer' ? 'agreement' : String(req.params.key)
   let doc
   await updateStore((s) => {
     doc = s.documents.find((d) => d.key === key)
-    if (doc) doc.content = req.body.content
+    if (!doc) {
+      doc = { key, title: String(req.body?.title ?? key), content: '' }
+      s.documents.push(doc)
+    }
+    if (typeof req.body?.title === 'string' && req.body.title.trim()) {
+      doc.title = req.body.title.trim()
+    }
+    if (typeof req.body?.content === 'string') {
+      doc.content = req.body.content
+    }
   })
   broadcast()
   res.json(doc)
@@ -1614,6 +1786,33 @@ apiRouter.post('/admin/settings/gallery/:slug', requireRoles('ADMIN'), async (re
   })
   broadcast()
   res.json(readStore().gallery[slug])
+})
+
+apiRouter.get('/admin/settings/site-images', requireRoles('ADMIN'), (_req, res) => {
+  res.json(readStore().siteImages)
+})
+
+apiRouter.put('/admin/settings/site-images', requireRoles('ADMIN'), async (req, res) => {
+  const next = normalizeSiteImages(req.body)
+  await updateStore((s) => {
+    s.siteImages = next
+  })
+  broadcast()
+  res.json(readStore().siteImages)
+})
+
+apiRouter.post('/admin/uploads', requireRoles('ADMIN'), (req, res) => {
+  try {
+    const dataUrl = String(req.body?.dataUrl ?? '')
+    if (!dataUrl) {
+      res.status(400).json({ error: 'dataUrl обязателен' })
+      return
+    }
+    const saved = saveDataUrlUpload(dataUrl)
+    res.status(201).json(saved)
+  } catch (e) {
+    res.status(400).json({ error: e instanceof Error ? e.message : 'Ошибка загрузки' })
+  }
 })
 
 type SeriesPoint = { label: string; value: number; date: string; summary: string }
@@ -1810,14 +2009,21 @@ apiRouter.get('/admin/analytics/series', (req, res) => {
 })
 
 apiRouter.post('/admin/demo-data', requireRoles('ADMIN'), async (_req, res) => {
-  const store = await resetStoreToDemo()
+  const store = await fillDemoData()
   broadcast()
   res.json({
     ok: true,
     bookings: store.bookings.length,
     certificates: store.certificates.length,
     staffShifts: store.staffShifts.length,
+    bookingGapMin: store.settings.bookingGapMin ?? 15,
   })
+})
+
+apiRouter.delete('/admin/demo-data', requireRoles('ADMIN'), async (_req, res) => {
+  const { removed } = await clearDemoData()
+  broadcast()
+  res.json({ ok: true, removed })
 })
 
 apiRouter.get('/admin/maintenance', (_req, res) => {
@@ -1885,7 +2091,11 @@ apiRouter.post('/admin/maintenance', requireRoles('ADMIN', 'MANAGER'), async (re
           archiveSection === 'schedule_settings' ? '/admin/schedule-settings' : '/admin/maintenance',
           entry.id,
         ),
-        audienceRoles: ROLES_STAFF,
+        meta: { maintenanceId: entry.id, date },
+      })
+      pushLog(s, {
+        message: `ТО: ${formatMaintenanceLabel(entry)}`,
+        context: 'maintenance',
         meta: { maintenanceId: entry.id, date },
       })
     }
@@ -1943,12 +2153,79 @@ apiRouter.post('/admin/maintenance/range', requireRoles('ADMIN', 'MANAGER'), asy
         simulatorSlug === 'mi-2' ? 'Ми-2' : simulatorSlug === 'boeing-737' ? 'Boeing 737' : 'оба тренажёра'
       } (${created.length} дн.)`,
       href: '/admin/schedule-settings',
-      audienceRoles: ROLES_STAFF,
       meta: { from, to, startTime, endTime, count: String(created.length) },
     })
   })
   broadcast()
   res.status(201).json({ items: created.map(normalizeMaintenance) })
+})
+
+apiRouter.patch('/admin/maintenance/:id', requireRoles('ADMIN', 'MANAGER'), async (req, res) => {
+  const id = String(req.params.id)
+  const current = listMaintenance(readStore()).find((m) => m.id === id)
+  if (!current) return res.status(404).json({ error: 'NOT_FOUND' })
+
+  const date =
+    req.body.date != null ? String(req.body.date).trim() : current.date
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    return res.status(400).json({ error: 'DATE_REQUIRED' })
+  }
+
+  const hasSimKey = Object.prototype.hasOwnProperty.call(req.body, 'simulatorSlug')
+  const simulatorSlug = hasSimKey
+    ? req.body.simulatorSlug === 'boeing-737' || req.body.simulatorSlug === 'mi-2'
+      ? req.body.simulatorSlug
+      : null
+    : (current.simulatorSlug ?? null)
+
+  const hasStart = Object.prototype.hasOwnProperty.call(req.body, 'startTime')
+  const hasEnd = Object.prototype.hasOwnProperty.call(req.body, 'endTime')
+  const startTime = hasStart
+    ? req.body.startTime
+      ? String(req.body.startTime).slice(0, 5)
+      : null
+    : (current.startTime ?? null)
+  const endTime = hasEnd
+    ? req.body.endTime
+      ? String(req.body.endTime).slice(0, 5)
+      : null
+    : (current.endTime ?? null)
+
+  if ((startTime && !endTime) || (!startTime && endTime)) {
+    return res.status(400).json({ error: 'TIME_RANGE_INCOMPLETE' })
+  }
+  if (startTime && endTime && startTime >= endTime) {
+    return res.status(400).json({ error: 'TIME_RANGE_INVALID' })
+  }
+
+  const notes =
+    req.body.notes != null ? String(req.body.notes) : current.notes
+
+  const next: MaintenanceEntry = {
+    ...current,
+    date,
+    simulatorSlug,
+    startTime,
+    endTime,
+    notes,
+    plannedAt: `${date}T12:00:00.000Z`,
+  }
+
+  await updateStore((s) => {
+    const idx = (s.maintenance ?? []).findIndex((m) => m.id === id)
+    if (idx < 0) return
+    const prevDate = normalizeMaintenance(s.maintenance[idx]).date
+    s.maintenance[idx] = next
+    for (const d of new Set([prevDate, next.date])) {
+      const stillFullDay = listMaintenance(s).some(
+        (m) => m.date === d && !m.simulatorSlug && !m.startTime && !m.endTime,
+      )
+      if (stillFullDay) s.calendar[d] = 'BLOCKED'
+      else if (s.calendar[d] === 'BLOCKED') delete s.calendar[d]
+    }
+  })
+  broadcast()
+  res.json(normalizeMaintenance(next))
 })
 
 apiRouter.delete('/admin/maintenance/:id', requireRoles('ADMIN', 'MANAGER'), async (req, res) => {
@@ -2152,14 +2429,23 @@ function addMonthsSafe(d: Date, n: number) {
   return new Date(d.getFullYear(), d.getMonth() + n, d.getDate())
 }
 
-// Expire stale bookings periodically
+// Expire stale holds + complete past IN_PROGRESS → DONE
 setInterval(() => {
-  void updateStore((s) => {
-    const now = new Date().toISOString()
-    for (const b of s.bookings) {
-      if (b.status === 'PENDING_CONFIRMATION' && b.holdExpiresAt && b.holdExpiresAt < now) {
-        b.status = 'EXPIRED'
+  void (async () => {
+    let changed = false
+    await updateStore((s) => {
+      const now = new Date().toISOString()
+      for (const b of s.bookings) {
+        if (b.status === 'PENDING_CONFIRMATION' && b.holdExpiresAt && b.holdExpiresAt < now) {
+          b.status = 'EXPIRED'
+          changed = true
+        }
       }
-    }
-  })
+      const before = s.bookings.filter((b) => b.status === 'IN_PROGRESS').length
+      autoCompletePastBookings(s)
+      const after = s.bookings.filter((b) => b.status === 'IN_PROGRESS').length
+      if (after < before) changed = true
+    })
+    if (changed) broadcast()
+  })()
 }, 30_000)

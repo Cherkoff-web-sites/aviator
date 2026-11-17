@@ -5,6 +5,14 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table'
+import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
   DropdownMenuContent,
@@ -196,124 +204,126 @@ function EditablePriceTable({
         </div>
       </CardHeader>
       <CardContent className="pb-6">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b">
-              <th className="py-2 text-left">Минуты</th>
-              <th className="py-2 text-left">Тренажёр</th>
-              <th className="py-2 text-left">CTA</th>
-              <th className="py-2 text-left">Цена BYN</th>
-              {canEdit ? <th className="w-10" /> : null}
-            </tr>
-          </thead>
-          <tbody>
-            {local.map((r, i) => (
-              <tr key={r.id} className="border-b last:border-0">
-                <td className="py-2">
+        <div className="rounded-lg border">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Минуты</TableHead>
+                <TableHead>Тренажёр</TableHead>
+                <TableHead>CTA</TableHead>
+                <TableHead>Цена BYN</TableHead>
+                {canEdit ? <TableHead className="w-10" /> : null}
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {local.map((r, i) => (
+                <TableRow key={r.id}>
+                  <TableCell>
+                    {canEdit ? (
+                      <select
+                        className="h-8 rounded-md border bg-background px-2 text-sm"
+                        value={r.durationMin}
+                        onChange={(e) => {
+                          const next = [...local]
+                          next[i] = { ...r, durationMin: Number(e.target.value) }
+                          setLocal(next)
+                        }}
+                      >
+                        {(r.simulatorSlug === 'mi-2'
+                          ? durationsForSimulator('mi-2')
+                          : FLIGHT_DURATIONS
+                        ).map((d) => (
+                          <option key={d} value={d}>
+                            {d}
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      r.durationMin
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    {canEdit ? (
+                      <select
+                        className="h-8 w-full rounded-md border bg-background px-2 text-sm"
+                        value={r.simulatorSlug}
+                        onChange={(e) => {
+                          const simulatorSlug = e.target.value
+                          const next = [...local]
+                          let durationMin = r.durationMin
+                          if (simulatorSlug === 'mi-2' && durationMin > MI2_MAX_DURATION_MIN) {
+                            durationMin = MI2_MAX_DURATION_MIN
+                          }
+                          next[i] = { ...r, simulatorSlug, durationMin }
+                          setLocal(next)
+                        }}
+                      >
+                        <option value="boeing-737">boeing-737</option>
+                        <option value="mi-2">mi-2</option>
+                        {title.toLowerCase().includes('сертификат') ? (
+                          <option value="combo">Boeing + Ми-2</option>
+                        ) : null}
+                      </select>
+                    ) : (
+                      r.simulatorSlug
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    {canEdit ? (
+                      <input
+                        type="checkbox"
+                        className="size-4 accent-primary"
+                        checked={!!r.highlighted}
+                        title="Тариф по умолчанию (CTA) на сайте"
+                        onChange={(e) => {
+                          const next = local.map((row, j) =>
+                            row.simulatorSlug === r.simulatorSlug
+                              ? { ...row, highlighted: j === i ? e.target.checked : false }
+                              : row,
+                          )
+                          setLocal(next)
+                        }}
+                      />
+                    ) : r.highlighted ? (
+                      'да'
+                    ) : (
+                      '—'
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    {canEdit ? (
+                      <Input
+                        type="number"
+                        className="h-8 w-24"
+                        value={r.priceByn}
+                        onChange={(e) => {
+                          const next = [...local]
+                          next[i] = { ...r, priceByn: Number(e.target.value) }
+                          setLocal(next)
+                        }}
+                      />
+                    ) : (
+                      r.priceByn
+                    )}
+                  </TableCell>
                   {canEdit ? (
-                    <select
-                      className="h-8 rounded-md border bg-background px-2 text-sm"
-                      value={r.durationMin}
-                      onChange={(e) => {
-                        const next = [...local]
-                        next[i] = { ...r, durationMin: Number(e.target.value) }
-                        setLocal(next)
-                      }}
-                    >
-                      {(r.simulatorSlug === 'mi-2'
-                        ? durationsForSimulator('mi-2')
-                        : FLIGHT_DURATIONS
-                      ).map((d) => (
-                        <option key={d} value={d}>
-                          {d}
-                        </option>
-                      ))}
-                    </select>
-                  ) : (
-                    r.durationMin
-                  )}
-                </td>
-                <td className="py-2">
-                  {canEdit ? (
-                    <select
-                      className="h-8 w-full rounded-md border bg-background px-2 text-sm"
-                      value={r.simulatorSlug}
-                      onChange={(e) => {
-                        const simulatorSlug = e.target.value
-                        const next = [...local]
-                        let durationMin = r.durationMin
-                        if (simulatorSlug === 'mi-2' && durationMin > MI2_MAX_DURATION_MIN) {
-                          durationMin = MI2_MAX_DURATION_MIN
-                        }
-                        next[i] = { ...r, simulatorSlug, durationMin }
-                        setLocal(next)
-                      }}
-                    >
-                      <option value="boeing-737">boeing-737</option>
-                      <option value="mi-2">mi-2</option>
-                      {title.toLowerCase().includes('сертификат') ? (
-                        <option value="combo">Boeing + Ми-2</option>
-                      ) : null}
-                    </select>
-                  ) : (
-                    r.simulatorSlug
-                  )}
-                </td>
-                <td className="py-2">
-                  {canEdit ? (
-                    <input
-                      type="checkbox"
-                      className="size-4 accent-primary"
-                      checked={!!r.highlighted}
-                      title="Тариф по умолчанию (CTA) на сайте"
-                      onChange={(e) => {
-                        const next = local.map((row, j) =>
-                          row.simulatorSlug === r.simulatorSlug
-                            ? { ...row, highlighted: j === i ? e.target.checked : false }
-                            : row,
-                        )
-                        setLocal(next)
-                      }}
-                    />
-                  ) : r.highlighted ? (
-                    'да'
-                  ) : (
-                    '—'
-                  )}
-                </td>
-                <td className="py-2">
-                  {canEdit ? (
-                    <Input
-                      type="number"
-                      className="h-8 w-24"
-                      value={r.priceByn}
-                      onChange={(e) => {
-                        const next = [...local]
-                        next[i] = { ...r, priceByn: Number(e.target.value) }
-                        setLocal(next)
-                      }}
-                    />
-                  ) : (
-                    r.priceByn
-                  )}
-                </td>
-                {canEdit ? (
-                  <td className="py-2">
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      className="size-8 text-destructive"
-                      onClick={() => setDeleteId(r.id)}
-                    >
-                      <Trash2 className="size-4" />
-                    </Button>
-                  </td>
-                ) : null}
-              </tr>
-            ))}
-          </tbody>
-        </table>
+                    <TableCell>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="size-8 text-destructive"
+                        onClick={() => setDeleteId(r.id)}
+                      >
+                        <Trash2 className="size-4" />
+                      </Button>
+                    </TableCell>
+                  ) : null}
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
       </CardContent>
 
       <ConfirmDialog
@@ -459,130 +469,132 @@ export default function AdminPricesPromosPage() {
           ) : null}
         </CardHeader>
         <CardContent className="pb-6">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b">
-                <th className="py-2 text-left">Название</th>
-                <th className="py-2 text-left">Скидка %</th>
-                <th className="py-2 text-left">Период</th>
-                <th className="py-2 text-left">Продукт</th>
-                <th className="py-2 text-left">Тип</th>
-                <th className="py-2 text-left">Активна</th>
-              </tr>
-            </thead>
-            <tbody>
-              {promoLocal.map((p, i) => (
-                <tr key={p.id} className="border-b last:border-0">
-                  <td className="py-2">
-                    {canEdit ? (
-                      <Input
-                        className="h-8"
-                        value={p.name}
-                        onChange={(e) => {
-                          const n = [...promoLocal]
-                          n[i] = { ...p, name: e.target.value }
-                          setPromoLocal(n)
-                        }}
-                      />
-                    ) : (
-                      p.name
-                    )}
-                  </td>
-                  <td className="py-2">
-                    {canEdit ? (
-                      <Input
-                        type="number"
-                        className="h-8 w-20"
-                        value={p.discountPercent}
-                        onChange={(e) => {
-                          const n = [...promoLocal]
-                          n[i] = { ...p, discountPercent: Number(e.target.value) }
-                          setPromoLocal(n)
-                        }}
-                      />
-                    ) : (
-                      `${p.discountPercent}%`
-                    )}
-                  </td>
-                  <td className="py-2">
-                    {canEdit ? (
-                      <div className="flex gap-2">
+          <div className="rounded-lg border">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Название</TableHead>
+                  <TableHead>Скидка %</TableHead>
+                  <TableHead>Период</TableHead>
+                  <TableHead>Продукт</TableHead>
+                  <TableHead>Тип</TableHead>
+                  <TableHead>Активна</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {promoLocal.map((p, i) => (
+                  <TableRow key={p.id}>
+                    <TableCell>
+                      {canEdit ? (
                         <Input
-                          className="h-8 w-32"
-                          value={p.startDate}
+                          className="h-8"
+                          value={p.name}
                           onChange={(e) => {
                             const n = [...promoLocal]
-                            n[i] = { ...p, startDate: e.target.value }
+                            n[i] = { ...p, name: e.target.value }
                             setPromoLocal(n)
                           }}
                         />
+                      ) : (
+                        p.name
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      {canEdit ? (
                         <Input
-                          className="h-8 w-32"
-                          value={p.endDate}
+                          type="number"
+                          className="h-8 w-20"
+                          value={p.discountPercent}
                           onChange={(e) => {
                             const n = [...promoLocal]
-                            n[i] = { ...p, endDate: e.target.value }
+                            n[i] = { ...p, discountPercent: Number(e.target.value) }
                             setPromoLocal(n)
                           }}
                         />
-                      </div>
-                    ) : (
-                      `${p.startDate} — ${p.endDate}`
-                    )}
-                  </td>
-                  <td className="py-2 align-top">
-                    <ProductTypeMultiSelect
-                      value={p.productType}
-                      disabled={!canEdit}
-                      onChange={(productType) => {
-                        const n = [...promoLocal]
-                        n[i] = { ...p, productType }
-                        setPromoLocal(n)
-                      }}
-                    />
-                  </td>
-                  <td className="py-2">
-                    {canEdit ? (
-                      <select
-                        className="h-8 rounded-md border bg-background px-2 text-sm"
-                        value={p.promoType}
-                        onChange={(e) => {
+                      ) : (
+                        `${p.discountPercent}%`
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      {canEdit ? (
+                        <div className="flex gap-2">
+                          <Input
+                            className="h-8 w-32"
+                            value={p.startDate}
+                            onChange={(e) => {
+                              const n = [...promoLocal]
+                              n[i] = { ...p, startDate: e.target.value }
+                              setPromoLocal(n)
+                            }}
+                          />
+                          <Input
+                            className="h-8 w-32"
+                            value={p.endDate}
+                            onChange={(e) => {
+                              const n = [...promoLocal]
+                              n[i] = { ...p, endDate: e.target.value }
+                              setPromoLocal(n)
+                            }}
+                          />
+                        </div>
+                      ) : (
+                        `${p.startDate} — ${p.endDate}`
+                      )}
+                    </TableCell>
+                    <TableCell className="align-top">
+                      <ProductTypeMultiSelect
+                        value={p.productType}
+                        disabled={!canEdit}
+                        onChange={(productType) => {
                           const n = [...promoLocal]
-                          n[i] = { ...p, promoType: e.target.value }
-                          setPromoLocal(n)
-                        }}
-                      >
-                        {PROMO_TYPE_OPTIONS.map((o) => (
-                          <option key={o.value} value={o.value}>
-                            {o.label}
-                          </option>
-                        ))}
-                      </select>
-                    ) : (
-                      labelOf(PROMO_TYPE_OPTIONS, p.promoType)
-                    )}
-                  </td>
-                  <td className="py-2">
-                    {canEdit ? (
-                      <input
-                        type="checkbox"
-                        checked={p.active}
-                        onChange={(e) => {
-                          const n = [...promoLocal]
-                          n[i] = { ...p, active: e.target.checked }
+                          n[i] = { ...p, productType }
                           setPromoLocal(n)
                         }}
                       />
-                    ) : p.active ? (
-                      'Да'
-                    ) : (
-                      'Нет'
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+                    </TableCell>
+                    <TableCell>
+                      {canEdit ? (
+                        <select
+                          className="h-8 rounded-md border bg-background px-2 text-sm"
+                          value={p.promoType}
+                          onChange={(e) => {
+                            const n = [...promoLocal]
+                            n[i] = { ...p, promoType: e.target.value }
+                            setPromoLocal(n)
+                          }}
+                        >
+                          {PROMO_TYPE_OPTIONS.map((o) => (
+                            <option key={o.value} value={o.value}>
+                              {o.label}
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        labelOf(PROMO_TYPE_OPTIONS, p.promoType)
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      {canEdit ? (
+                        <input
+                          type="checkbox"
+                          checked={p.active}
+                          onChange={(e) => {
+                            const n = [...promoLocal]
+                            n[i] = { ...p, active: e.target.checked }
+                            setPromoLocal(n)
+                          }}
+                        />
+                      ) : p.active ? (
+                        'Да'
+                      ) : (
+                        'Нет'
+                      )}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
         </CardContent>
       </Card>
 

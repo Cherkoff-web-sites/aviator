@@ -10,7 +10,7 @@ function SimulatorCtaBooking({ title }: Props) {
   const { openBooking } = useBookingModal()
   const { slug } = useParams()
   return (
-    <section data-sim-reveal="block" className="bg-[#002D62] py-16 text-white min-[990px]:py-24">
+    <section data-sim-reveal="block" className="overflow-x-clip bg-[#002D62] py-16 text-white min-[990px]:py-24">
       <div className="container-app flex flex-col items-center text-center">
         <h2
           data-sim-reveal-item

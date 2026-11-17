@@ -3,12 +3,27 @@ import { addMonths, format, subMonths } from 'date-fns'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { ru } from 'date-fns/locale'
 
+import {
+  AdminDataTableToolbar,
+  AdminSortableHead,
+  useAdminDataTable,
+  type AdminColumnDef,
+} from '@/components/admin/AdminDataTable'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table'
 import { useAdminAuth } from '@/contexts/AdminAuthContext'
 import { useLiveData } from '@/hooks/useLiveData'
 import { apiFetch, type AdminUser } from '@/lib/api'
 import { canEditBookings } from '@/lib/admin-access'
+import { SIMULATOR_OPTIONS } from '@/lib/admin-labels'
+import { cn } from '@/lib/utils'
 
 type PilotHourRow = {
   id: string
@@ -83,6 +98,67 @@ export default function AdminPilotHoursPage() {
     setGrid(next)
   }, [pilots, saved])
 
+  const columns: AdminColumnDef<GridRow>[] = React.useMemo(
+    () => [
+      {
+        id: 'pilotName',
+        header: 'Пилот',
+        accessor: 'pilotName',
+        className: 'font-medium',
+      },
+      {
+        id: 'simulator',
+        header: 'Тренажёр',
+        accessor: 'simulatorSlug',
+        filterType: 'enum',
+        enumOptions: [...SIMULATOR_OPTIONS],
+        filterValue: (r) => r.simLabel,
+        cell: (row) => <span className="text-muted-foreground">{row.simLabel}</span>,
+      },
+      {
+        id: 'minutes',
+        header: 'Факт (мин)',
+        accessor: 'minutes',
+        filterType: 'number',
+        headerClassName: 'w-36',
+        cell: (row) => {
+          const h = Math.floor(row.minutes / 60)
+          const m = row.minutes % 60
+          return (
+            <span className="font-mono text-sm tabular-nums" title="Считается из подтверждённых полётов">
+              {row.minutes}
+              <span className="ml-1 text-muted-foreground">
+                ({h}:{String(m).padStart(2, '0')})
+              </span>
+            </span>
+          )
+        },
+      },
+      {
+        id: 'comment',
+        header: 'Комментарий',
+        accessor: 'comment',
+        cell: (row) => (
+          <Input
+            className="h-8"
+            disabled={!canEdit}
+            value={row.comment}
+            placeholder="—"
+            onChange={(e) => {
+              const comment = e.target.value
+              setGrid((g) =>
+                g.map((item) => (item.key === row.key ? { ...item, comment } : item)),
+              )
+            }}
+          />
+        ),
+      },
+    ],
+    [canEdit],
+  )
+
+  const table = useAdminDataTable(grid, columns)
+
   const save = async () => {
     if (!canEdit) return
     setBusy(true)
@@ -140,61 +216,54 @@ export default function AdminPilotHoursPage() {
       </div>
 
       <p className="text-sm text-muted-foreground">
-        Учёт минут по пилотам и тренажёрам. Комментарий — например, переработка или замена смены.
+        Фактические минуты считаются из записей со статусом «В процессе» / «Закончили» и назначенным
+        пилотом (подтверждение в начале слота). Комментарий можно править и сохранить отдельно.
       </p>
 
+      <AdminDataTableToolbar
+        table={table}
+        columns={columns}
+        searchPlaceholder="Поиск по пилотам"
+      />
+
       <div className="overflow-x-auto rounded-lg border border-border bg-background">
-        <table className="w-full min-w-[520px] text-sm">
-          <thead>
-            <tr className="border-b bg-muted/40 text-left text-xs text-muted-foreground">
-              <th className="px-3 py-2 font-medium">Пилот</th>
-              <th className="px-3 py-2 font-medium">Тренажёр</th>
-              <th className="px-3 py-2 font-medium w-28">Минуты</th>
-              <th className="px-3 py-2 font-medium">Комментарий</th>
-            </tr>
-          </thead>
-          <tbody>
-            {grid.map((row, i) => (
-              <tr key={row.key} className="border-b border-border/70 last:border-0">
-                <td className="px-3 py-2 font-medium">{row.pilotName}</td>
-                <td className="px-3 py-2 text-muted-foreground">{row.simLabel}</td>
-                <td className="px-3 py-2">
-                  <Input
-                    type="number"
-                    min={0}
-                    className="h-8"
-                    disabled={!canEdit}
-                    value={row.minutes}
-                    onChange={(e) => {
-                      const minutes = Math.max(0, Number(e.target.value) || 0)
-                      setGrid((g) => {
-                        const next = [...g]
-                        next[i] = { ...next[i], minutes }
-                        return next
-                      })
-                    }}
-                  />
-                </td>
-                <td className="px-3 py-2">
-                  <Input
-                    className="h-8"
-                    disabled={!canEdit}
-                    value={row.comment}
-                    placeholder="—"
-                    onChange={(e) => {
-                      const comment = e.target.value
-                      setGrid((g) => {
-                        const next = [...g]
-                        next[i] = { ...next[i], comment }
-                        return next
-                      })
-                    }}
-                  />
-                </td>
-              </tr>
+        <Table className="min-w-[520px]">
+          <TableHeader>
+            <TableRow className="bg-muted/40 text-xs text-muted-foreground">
+              {columns.map((column) => (
+                <AdminSortableHead
+                  key={column.id}
+                  column={column}
+                  sort={table.sort}
+                  onToggle={table.toggleSort}
+                  className="px-3 py-2"
+                />
+              ))}
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {table.processedRows.map((row) => (
+              <TableRow key={row.key} className="border-border/70">
+                {columns.map((column) => (
+                  <TableCell key={column.id} className={cn('px-3 py-2', column.className)}>
+                    {column.cell
+                      ? column.cell(row)
+                      : column.accessor == null
+                        ? null
+                        : (() => {
+                            const value =
+                              typeof column.accessor === 'function'
+                                ? column.accessor(row)
+                                : row[column.accessor]
+                            if (value == null || value === '') return '—'
+                            return String(value)
+                          })()}
+                  </TableCell>
+                ))}
+              </TableRow>
             ))}
-          </tbody>
-        </table>
+          </TableBody>
+        </Table>
       </div>
     </div>
   )

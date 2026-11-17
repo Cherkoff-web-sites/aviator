@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { Viewer } from '@photo-sphere-viewer/core'
 
+import { getPanoramaBlob, isPanoramaCached } from '../lib/panoramaCache'
+
 import '@photo-sphere-viewer/core/index.css'
 
 type GalleryPanoramaViewerProps = {
@@ -10,55 +12,12 @@ type GalleryPanoramaViewerProps = {
 
 type Phase = 'download' | 'prepare' | 'done' | 'error'
 
-const DOWNLOAD_TIMEOUT_MS = 120_000
 const PREPARE_TIMEOUT_MS = 45_000
-
-async function fetchPanoramaBlob(
-  src: string,
-  signal: AbortSignal,
-  onProgress: (pct: number) => void,
-): Promise<Blob> {
-  const res = await fetch(src, { signal })
-  if (!res.ok) {
-    if (res.status === 404) {
-      throw new Error('Файл панорамы не найден. Проверьте путь и имя файла.')
-    }
-    throw new Error(`Не удалось скачать панораму (код ${res.status}).`)
-  }
-
-  const total = Number(res.headers.get('content-length')) || 0
-  if (!res.body) {
-    const blob = await res.blob()
-    onProgress(95)
-    return blob
-  }
-
-  const reader = res.body.getReader()
-  const chunks: BlobPart[] = []
-  let received = 0
-
-  for (;;) {
-    const { done, value } = await reader.read()
-    if (done) break
-    if (value) {
-      chunks.push(value)
-      received += value.byteLength
-      if (total > 0) {
-        onProgress(Math.min(95, Math.round((received / total) * 95)))
-      } else {
-        onProgress(Math.min(90, Math.round(received / (512 * 1024))))
-      }
-    }
-  }
-
-  onProgress(95)
-  return new Blob(chunks, { type: 'image/jpeg' })
-}
 
 function GalleryPanoramaViewer({ src, className = '' }: GalleryPanoramaViewerProps) {
   const containerRef = useRef<HTMLDivElement>(null)
-  const [phase, setPhase] = useState<Phase>('download')
-  const [progress, setProgress] = useState(0)
+  const [phase, setPhase] = useState<Phase>(() => (isPanoramaCached(src) ? 'prepare' : 'download'))
+  const [progress, setProgress] = useState(() => (isPanoramaCached(src) ? 100 : 0))
   const [errorMsg, setErrorMsg] = useState('')
 
   useEffect(() => {
@@ -69,10 +28,10 @@ function GalleryPanoramaViewer({ src, className = '' }: GalleryPanoramaViewerPro
     let objectUrl: string | null = null
     let viewer: Viewer | null = null
     let prepareTimer: number | null = null
-    const abort = new AbortController()
 
-    setPhase('download')
-    setProgress(0)
+    const cached = isPanoramaCached(src)
+    setPhase(cached ? 'prepare' : 'download')
+    setProgress(cached ? 100 : 0)
     setErrorMsg('')
 
     const fail = (message: string) => {
@@ -81,22 +40,18 @@ function GalleryPanoramaViewer({ src, className = '' }: GalleryPanoramaViewerPro
       setErrorMsg(message)
     }
 
-    const downloadTimer = window.setTimeout(() => {
-      abort.abort()
-      fail('Превышено время ожидания загрузки. Файл очень большой или сеть нестабильна.')
-    }, DOWNLOAD_TIMEOUT_MS)
-
     void (async () => {
       try {
-        const blob = await fetchPanoramaBlob(src, abort.signal, (pct) => {
-          if (!cancelled) setProgress(pct)
+        const blob = await getPanoramaBlob(src, (pct) => {
+          if (cancelled) return
+          setPhase('download')
+          setProgress(pct)
         })
         if (cancelled) return
 
-        window.clearTimeout(downloadTimer)
         objectUrl = URL.createObjectURL(blob)
         setPhase('prepare')
-        setProgress(97)
+        setProgress((p) => Math.max(p, 97))
 
         prepareTimer = window.setTimeout(() => {
           fail('Панорама скачалась, но не открылась. Возможно, файл слишком тяжёлый для браузера.')
@@ -144,9 +99,7 @@ function GalleryPanoramaViewer({ src, className = '' }: GalleryPanoramaViewerPro
         viewer.addEventListener('panorama-error', onError)
         viewer.addEventListener('load-progress', onLoadProgress)
       } catch (err) {
-        window.clearTimeout(downloadTimer)
         if (cancelled) return
-        if (err instanceof DOMException && err.name === 'AbortError') return
         const message =
           err instanceof Error && err.message
             ? err.message
@@ -157,8 +110,6 @@ function GalleryPanoramaViewer({ src, className = '' }: GalleryPanoramaViewerPro
 
     return () => {
       cancelled = true
-      abort.abort()
-      window.clearTimeout(downloadTimer)
       if (prepareTimer != null) window.clearTimeout(prepareTimer)
       viewer?.destroy()
       if (objectUrl) URL.revokeObjectURL(objectUrl)

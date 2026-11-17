@@ -1,12 +1,14 @@
 import { Link } from 'react-router-dom'
 import { useBookingModal } from '../contexts/BookingModalContext'
 import { useGiftCertificateModal } from '../contexts/GiftCertificateModalContext'
-
-const HERO_IMAGE = '/assets/hero/boeing_737.webp'
+import { resolveMediaUrl } from '../data/siteImages'
+import { useSiteImages } from '../hooks/useSiteImages'
 
 function LandingHero() {
   const { openBooking } = useBookingModal()
   const { openGiftCertificate } = useGiftCertificateModal()
+  const { images } = useSiteImages()
+  const heroImage = resolveMediaUrl(images.heroes.landing)
 
   return (
     <section
@@ -14,7 +16,7 @@ function LandingHero() {
       className="relative flex min-h-[100dvh] w-full flex-col overflow-hidden bg-[#151824]"
     >
       <img
-        src={HERO_IMAGE}
+        src={heroImage}
         alt=""
         aria-hidden
         className="absolute inset-0 h-full w-full object-cover"
@@ -33,6 +35,18 @@ function LandingHero() {
           <h1 className="mt-3 text-[clamp(1.35rem,2.8vw,2rem)] font-semibold leading-snug text-white/95 min-[990px]:mt-4">
             Профессиональные авиатренажеры в Минске
           </h1>
+          <Link
+            to="/simulators"
+            className="mt-3 inline-flex items-center gap-2.5 text-lg font-medium leading-none text-white no-underline transition-opacity hover:opacity-80 min-[990px]:mt-4"
+          >
+            Посмотреть тренажеры
+            <span
+              className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[linear-gradient(180deg,#4da3ff_0%,#0075ff_48%,#0050b3_100%)] text-[13px] font-semibold leading-none text-white shadow-[0_4px_12px_rgba(0,117,255,0.4)]"
+              aria-hidden
+            >
+              →
+            </span>
+          </Link>
           <p className="mt-4 max-w-[520px] text-[15px] leading-relaxed text-white/85 min-[990px]:mt-5 min-[990px]:text-lg">
             Погрузитесь в небо и откройте для себя увлекательный мир авиации – почувствуйте себя
             пилотом самолета Boeing 737 или вертолета Ми-2.
@@ -53,12 +67,6 @@ function LandingHero() {
             >
               Подарить полёт
             </button>
-            <Link
-              to="/simulators"
-              className="btn-outline-light h-12 px-9 text-lg font-medium"
-            >
-              Посмотреть тренажеры <span className="ml-2">→</span>
-            </Link>
           </div>
         </div>
       </div>

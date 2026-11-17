@@ -113,6 +113,28 @@ export function certificateUrgency(
   return { tone: 'green', label: `Осталось ${daysLeft} дн.`, daysLeft, expired: false }
 }
 
+/**
+ * Цвет статуса сертификата:
+ * зелёный — действует, красный — просрочен, серый — отменён/использован.
+ */
+export function certificateDisplayStatus(
+  validTo: string,
+  status: string,
+  today = new Date(),
+): { label: string; tone: 'green' | 'red' | 'muted' } {
+  if (status === 'CANCELLED') return { label: 'Отменён', tone: 'muted' }
+  if (status === 'USED') return { label: 'Использован', tone: 'muted' }
+  const todayKey = [
+    today.getFullYear(),
+    String(today.getMonth() + 1).padStart(2, '0'),
+    String(today.getDate()).padStart(2, '0'),
+  ].join('-')
+  if (status === 'EXPIRED' || validTo < todayKey) {
+    return { label: 'Просрочен', tone: 'red' }
+  }
+  return { label: 'Действует', tone: 'green' }
+}
+
 /** Бейдж статуса сертификата (ACTIVE / EXPIRED / USED / …). */
 export function certificateStatusBadgeClass(status: string): string {
   if (status === 'ACTIVE' || status === 'PARTIAL') {

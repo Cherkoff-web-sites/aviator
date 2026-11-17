@@ -1,6 +1,6 @@
 import * as React from 'react'
 import { format, isValid, parseISO } from 'date-fns'
-import { Check, Clock, Info, Loader2, MoreHorizontal, Plus } from 'lucide-react'
+import { Check, ChevronDown, Clock, Info, Loader2, MoreHorizontal, Plus } from 'lucide-react'
 import { ru } from 'date-fns/locale'
 import { useSearchParams } from 'react-router-dom'
 import { Calendar } from '@/components/ui/calendar'
@@ -16,10 +16,15 @@ import {
   Table,
   TableBody,
   TableCell,
-  TableHead,
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
+import {
+  AdminDataTableToolbar,
+  AdminSortableHead,
+  useAdminDataTable,
+  type AdminColumnDef,
+} from '@/components/admin/AdminDataTable'
 import AdminFormModal from '@/components/admin/AdminFormModal'
 import ConfirmDialog from '@/components/admin/ConfirmDialog'
 import { useHighlightRow } from '@/hooks/useHighlightRow'
@@ -27,12 +32,19 @@ import { useIsMobile } from '@/hooks/use-mobile'
 import { useLiveData } from '@/hooks/useLiveData'
 import { useAdminAuth } from '@/contexts/AdminAuthContext'
 import { useAdminUndo } from '@/contexts/AdminUndoContext'
-import { apiFetch, type ApiBooking } from '@/lib/api'
+import { ApiError, apiFetch, type ApiBooking } from '@/lib/api'
 import { canEditBookings } from '@/lib/admin-access'
 import PaymentMethodIcon from '@/components/admin/PaymentMethodIcon'
-import { BOOKING_STATUS_OPTIONS, PAYMENT_METHOD_OPTIONS } from '@/lib/admin-labels'
+import {
+  BOOKING_STATUS_OPTIONS,
+  PAYMENT_METHOD_OPTIONS,
+  SIMULATOR_OPTIONS,
+  labelOf,
+} from '@/lib/admin-labels'
 import { BOOKING_TIME_SLOTS } from '@/components/booking/bookingTimeSlots'
 import { clampDurationForSimulator, durationsForSimulator } from '@/lib/flight-durations'
+import { formatAdminDate } from '@/lib/admin-date'
+import { isTimeHmValid, sanitizeTimeHmInput } from '@/lib/fieldInput'
 import { cn } from '@/lib/utils'
 
 const PENCIL = '/assets/admin/certificates_pencil_icon.svg'
@@ -214,6 +226,21 @@ function PayCell({ paid }: { paid: boolean }) {
   )
 }
 
+function bookingSaveErrorMessage(err: unknown): string {
+  if (err instanceof ApiError) {
+    const msg = String(err.message || '').trim()
+    if (msg && msg !== 'Conflict') return msg
+    if (err.status === 409) {
+      return 'На это время уже есть запись (время полёта пересекается). Выберите другое время или тренажёр.'
+    }
+    if (err.status === 400) return msg || 'Некорректные данные записи.'
+    if (err.status === 403) return 'Недостаточно прав для сохранения записи.'
+    return msg || `Не удалось сохранить запись (${err.status}).`
+  }
+  if (err instanceof Error && err.message) return err.message
+  return 'Не удалось сохранить запись. Попробуйте ещё раз.'
+}
+
 export default function AdminDashboardPage() {
   const [searchParams, setSearchParams] = useSearchParams()
   const dateFromUrl = React.useMemo(() => {
@@ -228,7 +255,9 @@ export default function AdminDashboardPage() {
   const [editId, setEditId] = React.useState<string | null>(null)
   const [deleteTarget, setDeleteTarget] = React.useState<BookingRow | null>(null)
   const [saveConfirmOpen, setSaveConfirmOpen] = React.useState(false)
+  const [discardConfirmOpen, setDiscardConfirmOpen] = React.useState(false)
   const [actionBusy, setActionBusy] = React.useState(false)
+  const [formError, setFormError] = React.useState('')
   const [form, setForm] = React.useState(EMPTY_FORM)
   const [initialForm, setInitialForm] = React.useState(EMPTY_FORM)
   const { session } = useAdminAuth()
@@ -260,9 +289,10 @@ export default function AdminDashboardPage() {
 
   const dateKey = format(headerDate, 'yyyy-MM-dd')
   const { data: calPayload } = useLiveData(
-    () => apiFetch<{ days: { date: string; status: string }[]; range: { from: string; to: string } }>(
-      '/api/admin/calendar',
-    ),
+    () =>
+      apiFetch<{ days: { date: string; status: string }[]; range: { from: string; to: string } }>(
+        '/api/admin/calendar',
+      ),
     [],
   )
   const calDays = calPayload?.days ?? []
@@ -282,7 +312,11 @@ export default function AdminDashboardPage() {
   )
 
   const blockedDatesList = React.useMemo(
-    () => calDays.filter((d) => d.status === 'BLOCKED').map((d) => d.date).sort(),
+    () =>
+      calDays
+        .filter((d) => d.status === 'BLOCKED')
+        .map((d) => d.date)
+        .sort(),
     [calDays],
   )
   const [unblockDate, setUnblockDate] = React.useState<string | null>(null)
@@ -306,10 +340,26 @@ export default function AdminDashboardPage() {
   const { rowProps } = useHighlightRow(apiRows !== null)
   const formDirty = JSON.stringify(form) !== JSON.stringify(initialForm)
 
+  const closeForm = () => {
+    setFormOpen(false)
+    setFormError('')
+    setDiscardConfirmOpen(false)
+    setSaveConfirmOpen(false)
+  }
+
+  const requestCloseForm = () => {
+    if (formDirty) {
+      setDiscardConfirmOpen(true)
+      return
+    }
+    closeForm()
+  }
+
   const openCreate = () => {
     setEditId(null)
     setForm(EMPTY_FORM)
     setInitialForm(EMPTY_FORM)
+    setFormError('')
     setFormOpen(true)
   }
 
@@ -329,25 +379,39 @@ export default function AdminDashboardPage() {
     setEditId(row.id)
     setForm(next)
     setInitialForm(next)
+    setFormError('')
     setFormOpen(true)
   }
 
   const save = async () => {
     if (!canEdit || !formDirty) return
+    const startTime = form.startTime.trim()
+    if (!isTimeHmValid(startTime)) {
+      setSaveConfirmOpen(false)
+      setFormError('Укажите время начала в формате ЧЧ:ММ (можно выбрать из списка или ввести вручную).')
+      return
+    }
     setActionBusy(true)
+    setFormError('')
     try {
-      const endH = Math.floor(
-        (Number(form.startTime.split(':')[0]) * 60 + Number(form.startTime.split(':')[1]) + form.durationMin) / 60,
-      )
-      const endM =
-        (Number(form.startTime.split(':')[0]) * 60 + Number(form.startTime.split(':')[1]) + form.durationMin) % 60
+      const endTotal =
+        Number(startTime.split(':')[0]) * 60 +
+        Number(startTime.split(':')[1]) +
+        form.durationMin
+      const endH = Math.floor(endTotal / 60)
+      const endM = endTotal % 60
       const endTime = `${String(endH).padStart(2, '0')}:${String(endM).padStart(2, '0')}`
+      const payload = {
+        ...form,
+        startTime,
+        status: editId ? form.status : 'WAITING',
+      }
 
       if (editId) {
         const previous = mapped.find((r) => r.id === editId)?.raw
         await apiFetch(`/api/admin/bookings/${editId}`, {
           method: 'PATCH',
-          body: JSON.stringify({ ...form, endTime }),
+          body: JSON.stringify({ ...payload, endTime }),
         })
         if (previous) {
           pushUndo({
@@ -364,7 +428,7 @@ export default function AdminDashboardPage() {
       } else {
         const created = await apiFetch<ApiBooking>('/api/admin/bookings', {
           method: 'POST',
-          body: JSON.stringify({ ...form, date: dateKey, endTime }),
+          body: JSON.stringify({ ...payload, date: dateKey, endTime }),
         })
         pushUndo({
           label: `Отменить создание записи «${created.name}»`,
@@ -376,7 +440,12 @@ export default function AdminDashboardPage() {
       }
       setFormOpen(false)
       setSaveConfirmOpen(false)
+      setFormError('')
       void reload()
+    } catch (err) {
+      const message = bookingSaveErrorMessage(err)
+      setSaveConfirmOpen(false)
+      setFormError(message)
     } finally {
       setActionBusy(false)
     }
@@ -405,6 +474,127 @@ export default function AdminDashboardPage() {
     }
   }
 
+  const bookingColumns: AdminColumnDef<BookingRow>[] = React.useMemo(
+    () => [
+      {
+        id: 'name',
+        header: 'Имя',
+        accessor: 'name',
+        headerClassName: 'min-w-[100px] whitespace-nowrap',
+        className: 'whitespace-nowrap',
+      },
+      {
+        id: 'phone',
+        header: 'Телефон',
+        accessor: 'phone',
+        headerClassName: 'min-w-[150px] whitespace-nowrap',
+        className: 'whitespace-nowrap',
+      },
+      {
+        id: 'simulator',
+        header: '',
+        accessor: (r) => r.raw.simulatorSlug,
+        filterType: 'enum',
+        enumOptions: [...SIMULATOR_OPTIONS],
+        hideColumnFilter: true,
+        sortable: false,
+        headerClassName: 'w-14 px-2 text-center',
+        className: 'px-2 text-center',
+        cell: (row) => <SimulatorIcons type={row.simulator} />,
+      },
+      {
+        id: 'status',
+        header: 'Статус',
+        accessor: (r) => r.raw.status,
+        filterType: 'enum',
+        enumOptions: [...BOOKING_STATUS_OPTIONS],
+        filterValue: (r) => labelOf(BOOKING_STATUS_OPTIONS, r.raw.status),
+        headerClassName: 'min-w-[120px] whitespace-nowrap',
+        cell: (row) => <StatusBadge status={row.status} />,
+      },
+      {
+        id: 'paid',
+        header: 'Pay',
+        accessor: 'paid',
+        filterType: 'boolean',
+        headerClassName: 'w-14 text-center',
+        className: 'text-center',
+        cell: (row) => <PayCell paid={row.paid} />,
+      },
+      {
+        id: 'time',
+        header: 'Время',
+        accessor: 'time',
+        headerClassName: 'min-w-[110px] whitespace-nowrap',
+        className: 'whitespace-nowrap text-[13px]',
+      },
+      {
+        id: 'method',
+        header: 'Способ',
+        accessor: 'method',
+        filterType: 'enum',
+        enumOptions: [...PAYMENT_METHOD_OPTIONS],
+        hideColumnFilter: true,
+        sortable: false,
+        headerClassName: 'w-12 text-center',
+        className: 'text-center',
+        cell: (row) => <PaymentMethodIcon method={row.method} />,
+      },
+      {
+        id: 'comment',
+        header: 'Комментарий',
+        accessor: 'comment',
+        headerClassName: 'min-w-[160px]',
+        className: 'max-w-[220px] text-sm leading-snug',
+      },
+      ...(canEdit
+        ? ([
+            {
+              id: 'actions',
+              header: '',
+              sortable: false,
+              filterable: false,
+              headerClassName: 'w-[52px] text-right pr-2',
+              cell: (row: BookingRow) => (
+                <div className="flex justify-end gap-0.5">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="size-8"
+                    onClick={() => openEdit(row)}
+                    aria-label="Редактировать"
+                  >
+                    <img src={PENCIL} alt="" className="size-4" width={16} height={16} />
+                  </Button>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="ghost" size="icon" className="size-8">
+                        <MoreHorizontal className="size-4" />
+                        <span className="sr-only">Ещё</span>
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem
+                        className="text-destructive focus:bg-destructive/10 focus:text-destructive"
+                        onClick={() => setDeleteTarget(row)}
+                      >
+                        Удалить
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </div>
+              ),
+            },
+          ] satisfies AdminColumnDef<BookingRow>[])
+        : []),
+    ],
+    [canEdit],
+  )
+
+  const bookingsTable = useAdminDataTable(mapped, bookingColumns)
+  const displayRows = bookingsTable.processedRows
+
   return (
     <div className="flex w-full min-w-0 flex-col gap-6">
       <Calendar
@@ -415,7 +605,6 @@ export default function AdminDashboardPage() {
         locale={ru}
         className="w-fit max-w-full rounded-lg border"
         classNames={{
-          // Как outside (дни соседнего месяца): читаемо, без opacity-50
           disabled: 'text-muted-foreground',
         }}
         disabled={(d) => {
@@ -446,7 +635,7 @@ export default function AdminDashboardPage() {
                 className="inline-flex rounded-md border border-destructive/40 bg-background px-2 py-1 text-xs font-medium text-destructive transition-colors hover:bg-destructive/10 disabled:opacity-50"
                 onClick={() => canEdit && setUnblockDate(d)}
               >
-                {d} — снять блок
+                {formatAdminDate(d)} — снять блок
               </button>
             ))}
           </div>
@@ -490,7 +679,7 @@ export default function AdminDashboardPage() {
           open={formOpen && canEdit}
           title={editId ? 'Редактировать запись' : 'Новая запись'}
           description={formatTableHeaderDate(headerDate)}
-          onClose={() => setFormOpen(false)}
+          onClose={requestCloseForm}
         >
           <div className="grid gap-3 sm:grid-cols-2">
             {(
@@ -506,37 +695,83 @@ export default function AdminDashboardPage() {
                 <Input
                   className="mt-1 h-9"
                   value={String(form[key] ?? '')}
-                  onChange={(e) => setForm((f) => ({ ...f, [key]: e.target.value }))}
+                  onChange={(e) => {
+                    setFormError('')
+                    setForm((f) => ({ ...f, [key]: e.target.value }))
+                  }}
                 />
               </label>
             ))}
             <label className="text-sm">
               <span className="text-muted-foreground">Время начала</span>
-              <select
-                className="mt-1 h-9 w-full rounded-md border bg-background px-2 text-sm"
-                value={form.startTime}
-                onChange={(e) => setForm((f) => ({ ...f, startTime: e.target.value }))}
-              >
-                {BOOKING_TIME_SLOTS.map((t) => (
-                  <option key={t} value={t}>
-                    {t}
-                  </option>
-                ))}
-              </select>
+              <div className="relative mt-1">
+                <Input
+                  className="h-9 pr-9 font-mono"
+                  placeholder="12:00"
+                  inputMode="numeric"
+                  value={form.startTime}
+                  onChange={(e) => {
+                    setFormError('')
+                    setForm((f) => ({ ...f, startTime: sanitizeTimeHmInput(e.target.value) }))
+                  }}
+                />
+                <div className="absolute inset-y-0 right-0 w-9">
+                  <select
+                    aria-label="Выбрать слот из списка"
+                    className="absolute inset-0 cursor-pointer opacity-0"
+                    value={
+                      (BOOKING_TIME_SLOTS as readonly string[]).includes(form.startTime)
+                        ? form.startTime
+                        : ''
+                    }
+                    onChange={(e) => {
+                      const v = e.target.value
+                      if (v) {
+                        setFormError('')
+                        setForm((f) => ({ ...f, startTime: v }))
+                      }
+                    }}
+                  >
+                    {!(BOOKING_TIME_SLOTS as readonly string[]).includes(form.startTime) ? (
+                      <option value="" disabled>
+                        Своё время
+                      </option>
+                    ) : null}
+                    {BOOKING_TIME_SLOTS.map((t) => (
+                      <option key={t} value={t}>
+                        {t}
+                      </option>
+                    ))}
+                  </select>
+                  <ChevronDown className="pointer-events-none absolute left-1/2 top-1/2 size-4 -translate-x-1/2 -translate-y-1/2 text-muted-foreground" />
+                </div>
+              </div>
             </label>
             <label className="text-sm">
               <span className="text-muted-foreground">Статус</span>
-              <select
-                className="mt-1 h-9 w-full rounded-md border bg-background px-2 text-sm"
-                value={form.status}
-                onChange={(e) => setForm((f) => ({ ...f, status: e.target.value }))}
-              >
-                {BOOKING_STATUS_OPTIONS.map((o) => (
-                  <option key={o.value} value={o.value}>
-                    {o.label}
-                  </option>
-                ))}
-              </select>
+              {editId ? (
+                <select
+                  className="mt-1 h-9 w-full rounded-md border bg-background px-2 text-sm"
+                  value={form.status}
+                  onChange={(e) => {
+                    setFormError('')
+                    setForm((f) => ({ ...f, status: e.target.value }))
+                  }}
+                >
+                  {BOOKING_STATUS_OPTIONS.map((o) => (
+                    <option key={o.value} value={o.value}>
+                      {o.label}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <Input
+                  className="mt-1 h-9"
+                  value="Ожидаем"
+                  readOnly
+                  title="Новые записи всегда создаются со статусом «Ожидаем»"
+                />
+              )}
             </label>
             <label className="text-sm">
               <span className="text-muted-foreground">Тренажёр</span>
@@ -545,6 +780,7 @@ export default function AdminDashboardPage() {
                 value={form.simulatorSlug}
                 onChange={(e) => {
                   const simulatorSlug = e.target.value
+                  setFormError('')
                   setForm((f) => ({
                     ...f,
                     simulatorSlug,
@@ -561,7 +797,10 @@ export default function AdminDashboardPage() {
               <select
                 className="mt-1 h-9 w-full rounded-md border bg-background px-2 text-sm"
                 value={form.durationMin}
-                onChange={(e) => setForm((f) => ({ ...f, durationMin: Number(e.target.value) }))}
+                onChange={(e) => {
+                  setFormError('')
+                  setForm((f) => ({ ...f, durationMin: Number(e.target.value) }))
+                }}
               >
                 {durationsForSimulator(form.simulatorSlug).map((d) => (
                   <option key={d} value={d}>
@@ -575,9 +814,10 @@ export default function AdminDashboardPage() {
               <select
                 className="mt-1 h-9 w-full rounded-md border bg-background px-2 text-sm"
                 value={form.paymentMethod}
-                onChange={(e) =>
+                onChange={(e) => {
+                  setFormError('')
                   setForm((f) => ({ ...f, paymentMethod: e.target.value as 'OFFLINE' | 'ONLINE' }))
-                }
+                }}
               >
                 {PAYMENT_METHOD_OPTIONS.map((o) => (
                   <option key={o.value} value={o.value}>
@@ -590,22 +830,43 @@ export default function AdminDashboardPage() {
               <input
                 type="checkbox"
                 checked={form.paid}
-                onChange={(e) => setForm((f) => ({ ...f, paid: e.target.checked }))}
+                onChange={(e) => {
+                  setFormError('')
+                  setForm((f) => ({ ...f, paid: e.target.checked }))
+                }}
               />
               <span>Оплачено</span>
             </label>
+            {formError ? (
+              <p
+                className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm leading-snug text-destructive sm:col-span-2"
+                role="alert"
+              >
+                {formError}
+              </p>
+            ) : null}
             <div className="flex flex-wrap gap-2 sm:col-span-2">
               {formDirty ? (
                 <Button type="button" onClick={() => setSaveConfirmOpen(true)}>
                   Сохранить
                 </Button>
               ) : null}
-              <Button type="button" variant="outline" onClick={() => setFormOpen(false)}>
+              <Button type="button" variant="outline" onClick={requestCloseForm}>
                 Закрыть
               </Button>
             </div>
           </div>
         </AdminFormModal>
+
+        <ConfirmDialog
+          open={discardConfirmOpen}
+          title="Закрыть окно?"
+          description="Текущие данные формы не сохранятся. Закрыть без сохранения?"
+          confirmLabel="Закрыть без сохранения"
+          destructive
+          onConfirm={closeForm}
+          onCancel={() => setDiscardConfirmOpen(false)}
+        />
 
         <ConfirmDialog
           open={saveConfirmOpen}
@@ -636,134 +897,141 @@ export default function AdminDashboardPage() {
           onCancel={() => setDeleteTarget(null)}
         />
 
+        {mapped.length > 0 ? (
+          <AdminDataTableToolbar
+            table={bookingsTable}
+            columns={bookingColumns}
+            searchPlaceholder="Поиск по записям"
+          />
+        ) : null}
+
         {mapped.length > 0 && isMobile ? (
-          <ul className="flex flex-col gap-3">
-            {mapped.map((row) => (
-              <li
-                key={row.id}
-                {...rowProps(row.id, cn('rounded-lg border bg-muted/30 p-3', row.muted && 'opacity-80'))}
-              >
-                <div className="flex items-start justify-between gap-2">
-                  <div>
-                    <p className={cn('font-semibold', row.muted && 'text-muted-foreground')}>{row.name}</p>
-                    <p className="text-sm text-muted-foreground">{row.phone}</p>
-                  </div>
-                  {canEdit ? (
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      className="size-8 shrink-0"
-                      onClick={() => openEdit(row)}
-                      aria-label="Редактировать"
-                    >
-                      <img src={PENCIL} alt="" className="size-4" width={16} height={16} />
-                    </Button>
-                  ) : null}
-                </div>
-                <div className="mt-2 flex flex-wrap items-center gap-2">
-                  <SimulatorIcons type={row.simulator} />
-                  <StatusBadge status={row.status} />
-                  <PayCell paid={row.paid} />
-                  <PaymentMethodIcon method={row.method} />
-                </div>
-                <p className="mt-2 text-sm font-medium">{row.time}</p>
-                {row.comment ? (
-                  <p className="mt-1 text-xs leading-snug text-muted-foreground">{row.comment}</p>
-                ) : null}
-                {canEdit ? (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="mt-3 h-8 text-destructive"
-                    onClick={() => setDeleteTarget(row)}
-                  >
-                    Удалить
-                  </Button>
-                ) : null}
-              </li>
-            ))}
-          </ul>
-        ) : mapped.length > 0 ? (
-          <div className="-mx-4 max-w-[calc(100vw-2rem)] overflow-x-auto sm:mx-0 sm:max-w-none">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead className="min-w-[100px] whitespace-nowrap">Имя</TableHead>
-                  <TableHead className="min-w-[150px] whitespace-nowrap">Телефон</TableHead>
-                  <TableHead className="w-14 px-2 text-center" />
-                  <TableHead className="min-w-[120px] whitespace-nowrap">Статус</TableHead>
-                  <TableHead className="w-14 text-center">Pay</TableHead>
-                  <TableHead className="min-w-[110px] whitespace-nowrap">Время</TableHead>
-                  <TableHead className="w-12 text-center">Способ</TableHead>
-                  <TableHead className="min-w-[160px]">Комментарий</TableHead>
-                  {canEdit ? <TableHead className="w-[52px] text-right pr-2" /> : null}
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {mapped.map((row) => (
-                  <TableRow
+          <div className="overflow-hidden rounded-lg border border-border bg-background">
+            <p className="border-b border-border bg-muted/40 px-3 py-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              День · {formatAdminDate(dateKey)}
+            </p>
+            <ul className="divide-y divide-border">
+              {[...displayRows]
+                .sort((a, b) => a.raw.startTime.localeCompare(b.raw.startTime))
+                .map((row) => (
+                  <li
                     key={row.id}
-                    {...rowProps(row.id, cn(row.muted && 'text-muted-foreground'))}
+                    {...rowProps(
+                      row.id,
+                      cn('flex gap-3 px-3 py-3', row.muted && 'opacity-70'),
+                    )}
                   >
-                    <TableCell className={cn('whitespace-nowrap', !row.muted && 'font-semibold text-foreground')}>
-                      {row.name}
-                    </TableCell>
-                    <TableCell className="whitespace-nowrap">{row.phone}</TableCell>
-                    <TableCell className="px-2 text-center">
-                      <SimulatorIcons type={row.simulator} />
-                    </TableCell>
-                    <TableCell>
-                      <StatusBadge status={row.status} />
-                    </TableCell>
-                    <TableCell className="text-center">
-                      <PayCell paid={row.paid} />
-                    </TableCell>
-                    <TableCell className="whitespace-nowrap text-[13px]">{row.time}</TableCell>
-                    <TableCell className="text-center">
-                      <PaymentMethodIcon method={row.method} />
-                    </TableCell>
-                    <TableCell className="max-w-[220px] text-sm leading-snug">{row.comment}</TableCell>
-                    {canEdit ? (
-                      <TableCell className="pr-2 text-right">
-                        <div className="flex justify-end gap-0.5">
+                    <div className="w-14 shrink-0 text-right">
+                      <p className="font-mono text-sm font-semibold tabular-nums text-foreground">
+                        {row.raw.startTime}
+                      </p>
+                      <p className="font-mono text-[11px] tabular-nums text-muted-foreground">
+                        {row.raw.endTime}
+                      </p>
+                    </div>
+                    <div className="min-w-0 flex-1 border-l border-border pl-3">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <p
+                            className={cn(
+                              'truncate font-semibold',
+                              row.muted && 'text-muted-foreground',
+                            )}
+                          >
+                            {row.name}
+                          </p>
+                          <p className="text-xs text-muted-foreground">{row.phone}</p>
+                        </div>
+                        {canEdit ? (
                           <Button
                             type="button"
                             variant="ghost"
                             size="icon"
-                            className="size-8"
+                            className="size-8 shrink-0"
                             onClick={() => openEdit(row)}
                             aria-label="Редактировать"
                           >
                             <img src={PENCIL} alt="" className="size-4" width={16} height={16} />
                           </Button>
-                          <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                              <Button variant="ghost" size="icon" className="size-8">
-                                <MoreHorizontal className="size-4" />
-                                <span className="sr-only">Ещё</span>
-                              </Button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end">
-                              <DropdownMenuItem
-                                className="text-destructive focus:bg-destructive/10 focus:text-destructive"
-                                onClick={() => setDeleteTarget(row)}
-                              >
-                                Удалить
-                              </DropdownMenuItem>
-                            </DropdownMenuContent>
-                          </DropdownMenu>
-                        </div>
-                      </TableCell>
-                    ) : null}
-                  </TableRow>
+                        ) : null}
+                      </div>
+                      <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                        <SimulatorIcons type={row.simulator} />
+                        <StatusBadge status={row.status} />
+                        <PayCell paid={row.paid} />
+                        <PaymentMethodIcon method={row.method} />
+                      </div>
+                    </div>
+                  </li>
                 ))}
-              </TableBody>
-            </Table>
+            </ul>
+          </div>
+        ) : mapped.length > 0 ? (
+          <div className="-mx-4 max-w-[calc(100vw-2rem)] overflow-x-auto sm:mx-0 sm:max-w-none">
+            <div className="rounded-lg border bg-background">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    {bookingColumns.map((column) => (
+                      <AdminSortableHead
+                        key={column.id}
+                        column={column}
+                        sort={bookingsTable.sort}
+                        onToggle={bookingsTable.toggleSort}
+                      />
+                    ))}
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {displayRows.length === 0 ? (
+                    <TableRow>
+                      <TableCell
+                        colSpan={bookingColumns.length}
+                        className="h-20 text-center text-muted-foreground"
+                      >
+                        Нет записей по фильтру
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                    displayRows.map((row) => (
+                      <TableRow
+                        key={row.id}
+                        {...rowProps(row.id, cn(row.muted && 'text-muted-foreground'))}
+                      >
+                        {bookingColumns.map((column) => (
+                          <TableCell
+                            key={column.id}
+                            className={cn(
+                              column.className,
+                              column.id === 'name' &&
+                                !row.muted &&
+                                'font-semibold text-foreground',
+                            )}
+                          >
+                            {column.cell
+                              ? column.cell(row)
+                              : column.accessor == null
+                                ? null
+                                : (() => {
+                                    const value =
+                                      typeof column.accessor === 'function'
+                                        ? column.accessor(row)
+                                        : row[column.accessor]
+                                    if (value == null || value === '') return '—'
+                                    if (typeof value === 'boolean') return value ? 'Да' : 'Нет'
+                                    return String(value)
+                                  })()}
+                          </TableCell>
+                        ))}
+                      </TableRow>
+                    ))
+                  )}
+                </TableBody>
+              </Table>
+            </div>
           </div>
         ) : (
-          <p className="text-sm text-muted-foreground">Записей на выбранную дату пока нет.</p>
+          <p className="py-8 text-center text-sm text-muted-foreground">На эту дату записей нет</p>
         )}
       </div>
     </div>

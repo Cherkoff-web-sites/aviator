@@ -3,7 +3,14 @@ import SimulatorPricingSection from '../components/SimulatorPricingSection'
 import SiteCtaBanner from '../components/SiteCtaBanner'
 import SiteFooter from '../components/SiteFooter'
 import SiteHeader from '../components/SiteHeader'
-import { COMBO_PRICING_BLOCK, getSimulatorBySlug } from '../data/simulators'
+import { usePublicFlightPrices } from '../hooks/usePublicFlightPrices'
+import { useSiteImages } from '../hooks/useSiteImages'
+import {
+  applyComboPricingBlock,
+  applySiteImagesToSimulator,
+  mergeComboPricesIntoBlock,
+  mergeFlightPricesIntoBlock,
+} from '../lib/applySiteImages'
 
 const BIRTHDAY_TERMS = [
   'Пользуйтесь скидкой в сам день рождения, а также за 3 дня до или после него.',
@@ -16,11 +23,20 @@ const HAPPY_TERMS = [
 ]
 
 function PricesPage() {
-  const boeingSim = getSimulatorBySlug('boeing-737')
-  const mi2Sim = getSimulatorBySlug('mi-2')
+  const { images } = useSiteImages()
+  const flightPrices = usePublicFlightPrices()
+  const boeingSim = applySiteImagesToSimulator('boeing-737', images)
+  const mi2Sim = applySiteImagesToSimulator('mi-2', images)
+  const comboBlock = mergeComboPricesIntoBlock(applyComboPricingBlock(images), flightPrices)
   if (!boeingSim || !mi2Sim) {
     throw new Error('[PricesPage] Не найдены данные тренажёров boeing-737 или mi-2.')
   }
+  const boeingBlock = mergeFlightPricesIntoBlock(
+    boeingSim.pricingBlock,
+    flightPrices,
+    'boeing-737',
+  )
+  const mi2Block = mergeFlightPricesIntoBlock(mi2Sim.pricingBlock, flightPrices, 'mi-2')
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -28,25 +44,25 @@ function PricesPage() {
       <main className="flex min-h-0 flex-1 flex-col pb-12 pt-[96px] text-white min-[990px]:pb-16 min-[990px]:pt-[112px]">
         <div className="container-app pb-6 min-[990px]:pb-10">
           <h1 className="text-[26px] font-bold leading-tight tracking-tight min-[990px]:text-[36px] min-[990px]:leading-[1.15]">
-            Цены
+            А сколько это стоит?
           </h1>
         </div>
         <div className="flex flex-col gap-8 overflow-x-clip min-[990px]:container-app min-[990px]:gap-10">
           <SimulatorPricingSection
             layout="contained"
-            block={boeingSim.pricingBlock}
+            block={boeingBlock}
             bookingSimulatorSlug="boeing-737"
           />
           <SimulatorPricingSection
             layout="contained"
-            block={mi2Sim.pricingBlock}
+            block={mi2Block}
             bookingSimulatorSlug="mi-2"
           />
         </div>
         <div className="mt-8 min-[990px]:mt-10">
           <SimulatorPricingSection
             layout="fullBleed"
-            block={COMBO_PRICING_BLOCK}
+            block={comboBlock}
             giftProduct="both"
             primaryAction="combo"
           />

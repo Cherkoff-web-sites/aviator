@@ -31,7 +31,7 @@ function YandexConstructorMap({ className = '' }: Props) {
   return (
     <div
       ref={hostRef}
-      className={`ymap-dark w-full min-h-[400px] overflow-hidden rounded-[24px] bg-[#0b1220] ring-1 ring-white/10 min-[990px]:rounded-[28px] [&_iframe]:grayscale-[0.35] [&_iframe]:contrast-[1.05] [&_iframe]:brightness-[0.72] [&_ymaps]:!bg-[#0b1220] ${className}`.trim()}
+      className={`ymap-dark h-[400px] w-full overflow-hidden rounded-[24px] bg-[#0b1220] ring-1 ring-white/10 min-[990px]:rounded-[28px] [&_iframe]:block [&_iframe]:h-full [&_iframe]:w-full [&_iframe]:grayscale-[0.35] [&_iframe]:contrast-[1.05] [&_iframe]:brightness-[0.72] [&_ymaps]:!bg-[#0b1220] ${className}`.trim()}
       aria-label="Карта"
     />
   )

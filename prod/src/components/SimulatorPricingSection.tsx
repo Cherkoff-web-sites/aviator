@@ -340,7 +340,6 @@ function SimulatorPricingSection({
           className="absolute inset-0 bg-cover bg-center"
           style={{ backgroundImage: `url(${block.backgroundImage})` }}
         />
-        <div className="absolute inset-0 bg-[#002D62]/35" />
       </div>
 
       <div className="relative z-[1]">
@@ -379,7 +378,7 @@ function SimulatorPricingSection({
 
         {/* Моб: на всю ширину экрана (~1.2 слайда, CTA по центру). */}
         {planCount > 1 ? (
-          <div className="relative left-1/2 w-screen max-w-[100vw] -translate-x-1/2 min-[990px]:hidden">
+          <div className="relative w-full overflow-x-clip min-[990px]:hidden">
             <Swiper
               className="pricing-plans-mobile"
               slidesPerView={1.4}
@@ -412,7 +411,7 @@ function SimulatorPricingSection({
         {/* Десктоп / одиночный тариф: сетка в контейнере. */}
         <div className={isContained ? 'px-4 min-[990px]:px-8' : 'container-app'}>
           <div
-            className={`relative ${planCount > 1 ? 'hidden min-[990px]:flex min-[990px]:justify-center min-[990px]:my-5' : 'flex min-[990px]:justify-center'}`}
+            className={`relative min-[990px]:my-5 ${planCount > 1 ? 'hidden min-[990px]:flex min-[990px]:justify-center' : 'flex min-[990px]:justify-center'}`}
           >
             <div
               className="pricing-plans-shell relative overflow-visible"
@@ -444,7 +443,7 @@ function SimulatorPricingSection({
     return (
       <section
         data-sim-reveal="pricing"
-        className="relative isolate w-full overflow-x-visible rounded-[40px] py-10 min-[990px]:py-12"
+        className="relative isolate w-full overflow-x-clip rounded-[40px] py-10 min-[990px]:py-12"
       >
         {inner}
       </section>
@@ -454,7 +453,7 @@ function SimulatorPricingSection({
   return (
     <section
       data-sim-reveal="pricing"
-        className="relative isolate overflow-x-visible py-12 min-[990px]:py-[4.5rem]"
+        className="relative isolate overflow-x-clip py-12 min-[990px]:py-[4.5rem]"
     >
       {inner}
     </section>

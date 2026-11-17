@@ -6,7 +6,7 @@ type Props = {
 
 function SimulatorHighlightsThree({ items }: Props) {
   return (
-    <section data-sim-reveal="cards" className="bg-[#002D62] py-12 text-white min-[990px]:py-16">
+    <section data-sim-reveal="cards" className="overflow-x-clip bg-[#002D62] py-12 text-white min-[990px]:py-16">
       <div className="container-app">
         <div className="grid grid-cols-1 gap-12 min-[990px]:grid-cols-3 min-[990px]:gap-10">
           {items.map((item) => (

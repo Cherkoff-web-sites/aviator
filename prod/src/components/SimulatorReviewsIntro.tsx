@@ -5,7 +5,7 @@ const YANDEX_ORG_HREF = 'https://yandex.ru/maps/org/aviator/63418841000/'
 /** Блок отзывов + виджет Яндекс.Карт. Фон — `body` (#090c0e). */
 function SimulatorReviewsIntro() {
   return (
-    <section data-sim-reveal="block" className="py-14 min-[990px]:py-20">
+    <section data-sim-reveal="block" className="overflow-x-clip py-14 min-[990px]:py-20">
       <div className="container-app mx-auto max-w-[720px] text-center">
         <h2
           data-sim-reveal-item

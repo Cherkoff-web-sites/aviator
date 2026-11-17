@@ -13,6 +13,7 @@ import type {
   WaitingEntry,
   WorkHourEntry,
 } from '../types.js'
+import { DEFAULT_DOCUMENTS } from './default-documents.js'
 
 const B737 = 'boeing-737'
 const MI2 = 'mi-2'
@@ -41,6 +42,45 @@ function addMinutes(time: string, minutes: number) {
   const [h, m] = time.split(':').map(Number)
   const total = h * 60 + m + minutes
   return `${String(Math.floor(total / 60) % 24).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`
+}
+
+function timeToMin(time: string) {
+  const [h, m] = time.split(':').map(Number)
+  return h * 60 + m
+}
+
+function minToTime(total: number) {
+  const t = ((total % (24 * 60)) + 24 * 60) % (24 * 60)
+  return `${String(Math.floor(t / 60)).padStart(2, '0')}:${String(t % 60).padStart(2, '0')}`
+}
+
+/**
+ * Сдвигает старт слотов на одном тренажёре/дате так, чтобы между полётами
+ * соблюдалась пауза gapMin (как в настройках bookingGapMin).
+ */
+function applyBookingGap(specs: BookingSpec[], gapMin: number): BookingSpec[] {
+  const gap = Math.max(0, Math.floor(gapMin))
+  const groups = new Map<string, BookingSpec[]>()
+  for (const spec of specs) {
+    const key = `${spec.date}|${spec.sim}`
+    const list = groups.get(key) ?? []
+    list.push(spec)
+    groups.set(key, list)
+  }
+  const out: BookingSpec[] = []
+  for (const list of groups.values()) {
+    list.sort((a, b) => timeToMin(a.start) - timeToMin(b.start))
+    let busyUntil = 0
+    for (const spec of list) {
+      let startMin = timeToMin(spec.start)
+      if (startMin < busyUntil) startMin = busyUntil
+      // Не уводим за рабочий вечер — пропускаем слот
+      if (startMin + spec.duration > 22 * 60) continue
+      out.push({ ...spec, start: minToTime(startMin) })
+      busyUntil = startMin + spec.duration + gap
+    }
+  }
+  return out
 }
 
 /** Детерминированный ГПСЧ, чтобы демо-данные были одинаковыми при каждом пересоздании. */
@@ -156,9 +196,10 @@ function todaySpecs(today: string, base: Date): BookingSpec[] {
 const SLOTS = ['12:00', '13:00', '14:00', '15:00', '16:00', '17:00', '18:00', '19:00', '20:00']
 const DURATIONS = [30, 30, 30, 60, 60, 90]
 
-function generatedSpecs(base: Date): BookingSpec[] {
+function generatedSpecs(base: Date, gapMin: number): BookingSpec[] {
   const rand = rng(737)
   const pick = <T,>(arr: T[]) => arr[Math.floor(rand() * arr.length)]
+  const gap = Math.max(0, Math.floor(gapMin))
   const specs: BookingSpec[] = []
 
   const addDay = (d: Date, past: boolean) => {
@@ -170,18 +211,19 @@ function generatedSpecs(base: Date): BookingSpec[] {
       let busyUntil = 0
       for (const start of slots) {
         const duration = sim === MI2 ? pick([30, 60]) : pick(DURATIONS)
-        const startMin = Number(start.slice(0, 2)) * 60
-        if (startMin < busyUntil || startMin + duration > 21 * 60) continue
-        busyUntil = startMin + duration
+        let startMin = Number(start.slice(0, 2)) * 60
+        if (startMin < busyUntil) startMin = busyUntil
+        if (startMin + duration > 21 * 60) continue
+        busyUntil = startMin + duration + gap
         const r = rand()
         let status: BookingStatus
         if (past) status = r < 0.78 ? 'DONE' : r < 0.93 ? 'CANCELLED' : 'EXPIRED'
         else status = r < 0.6 ? 'CONFIRMED' : r < 0.85 ? 'WAITING' : r < 0.93 ? 'PENDING_CONFIRMATION' : 'CANCELLED'
         const promo = rand()
-        const hour = Number(start.slice(0, 2))
+        const hour = Math.floor(startMin / 60)
         specs.push({
           date,
-          start,
+          start: minToTime(startMin),
           duration,
           sim,
           status,
@@ -448,7 +490,7 @@ function demoNotifications(base: Date, now: Date): AdminNotification[] {
       kind: 'feedback',
       title: 'Новая заявка обратной связи',
       body: 'Алина, +375 29 404-50-60 — групповой полёт на 5 человек',
-      href: '/admin?highlight=demo-f-0',
+      href: '/admin/feedback?highlight=demo-f-0',
       audienceRoles: ['ADMIN', 'MANAGER'],
       readBy: {},
       createdAt: ago(15),
@@ -506,42 +548,26 @@ function demoFeedback(now: Date): FeedbackRequest[] {
   }))
 }
 
-const PRIVACY_TEXT = `1. Общие положения
-Настоящая политика определяет порядок обработки персональных данных клиентов авиатренажёрного центра «Авиатор».
-
-2. Какие данные мы собираем
-Имя, номер телефона, адрес электронной почты, дата рождения (для акции «День рождения»).
-
-3. Цели обработки
-Запись на полёт, подтверждение брони, оформление подарочных сертификатов, обратная связь.
-
-4. Срок хранения
-Данные хранятся не дольше, чем это необходимо для целей обработки.`
-
-const OFFER_TEXT = `1. Предмет договора
-Исполнитель оказывает услуги полёта на авиатренажёре, Заказчик оплачивает их в соответствии с прайсом.
-
-2. Порядок бронирования
-Бронь подтверждается кодом из письма. Неподтверждённая бронь снимается через 30 минут.
-
-3. Отмена и перенос
-Перенос возможен не позднее чем за 24 часа до полёта.
-
-4. Сертификаты
-Срок действия подарочного сертификата — 90 дней с даты оформления.`
-
-export function createSeedStore(options: { demo?: boolean } = { demo: true }): DataStore {
+export function createSeedStore(
+  options: { demo?: boolean; bookingGapMin?: number } = { demo: true },
+): DataStore {
   const now = new Date()
   const nowIso = now.toISOString()
   const base = startOfDay(now)
   const today = dk(base)
   const demo = options.demo !== false
+  const gapMin =
+    typeof options.bookingGapMin === 'number' && options.bookingGapMin >= 0
+      ? Math.min(120, Math.floor(options.bookingGapMin))
+      : 15
 
   const bookings = demo
-    ? [...todaySpecs(today, base), ...generatedSpecs(base)]
-        // Ми-2: только 30 и 60 минут — как на странице «Цены»
-        .filter((spec) => !(spec.sim === MI2 && spec.duration > 60))
-        .map((spec, i) => makeBooking(spec, i, now))
+    ? applyBookingGap(
+        [...todaySpecs(today, base), ...generatedSpecs(base, gapMin)].filter(
+          (spec) => !(spec.sim === MI2 && spec.duration > 60),
+        ),
+        gapMin,
+      ).map((spec, i) => makeBooking(spec, i, now))
     : []
 
   const maintenance = demo ? demoMaintenance(base, nowIso) : []
@@ -571,10 +597,10 @@ export function createSeedStore(options: { demo?: boolean } = { demo: true }): D
       { id: 'pr-1', name: 'День рождения', discountPercent: 15, startDate: dk(subDays(base, 365)), endDate: dk(addDays(base, 365)), productType: 'Boeing 737, Ми-2', promoType: 'BIRTHDAY', active: true },
       { id: 'pr-2', name: 'Счастливые часы', discountPercent: 10, startDate: dk(subDays(base, 365)), endDate: dk(addDays(base, 365)), productType: 'Boeing 737, Ми-2', promoType: 'HAPPY_HOURS', active: true },
     ],
-    documents: [
-      { key: 'privacy', title: 'Политика конфиденциальности', content: demo ? PRIVACY_TEXT : '' },
-      { key: 'offer', title: 'Договор оферты', content: demo ? OFFER_TEXT : '' },
-    ],
+    documents: DEFAULT_DOCUMENTS.map((d) => ({
+      ...d,
+      content: demo ? d.content : '',
+    })),
     contacts: {
       phone: '+375 29 713 10 01',
       email: 'aviator@737.by',
@@ -602,8 +628,19 @@ export function createSeedStore(options: { demo?: boolean } = { demo: true }): D
         { id: 's-b737', value: B737, label: 'Boeing 737', sortOrder: 1 },
         { id: 's-mi2', value: MI2, label: 'Ми-2', sortOrder: 2 },
       ],
+      cert_duration: [
+        { id: 'cd-30', value: '30', label: '30 минут', sortOrder: 1 },
+        { id: 'cd-60', value: '60', label: '60 минут', sortOrder: 2 },
+        { id: 'cd-90', value: '90', label: '90 минут', sortOrder: 3 },
+        { id: 'cd-120', value: '120', label: '120 минут', sortOrder: 4 },
+      ],
+      cert_simulator: [
+        { id: 'cs-b737', value: B737, label: 'Boeing 737', sortOrder: 1 },
+        { id: 'cs-mi2', value: MI2, label: 'Ми-2', sortOrder: 2 },
+        { id: 'cs-combo', value: 'combo', label: 'Boeing + Ми-2', sortOrder: 3 },
+      ],
     },
-    settings: { bookingWindowMonths: 12 },
+    settings: { bookingWindowMonths: 12, bookingGapMin: gapMin },
     counters: { certificate: 111112 },
     pendingCodes: [],
     feedbackRequests: demo ? demoFeedback(now) : [],

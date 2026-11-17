@@ -1,17 +1,13 @@
 import * as React from 'react'
-import { Plus, Search, Trash2 } from 'lucide-react'
+import { Plus, Trash2 } from 'lucide-react'
 import AdminFormModal from '@/components/admin/AdminFormModal'
 import ConfirmDialog from '@/components/admin/ConfirmDialog'
+import {
+  AdminDataTable,
+  type AdminColumnDef,
+} from '@/components/admin/AdminDataTable'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table'
 import { useLiveData } from '@/hooks/useLiveData'
 import { useAdminUndo } from '@/contexts/AdminUndoContext'
 import {
@@ -61,7 +57,6 @@ const emptyForm = (): AccountForm => ({
 })
 
 export default function AdminAccountsPage() {
-  const [query, setQuery] = React.useState('')
   const [formOpen, setFormOpen] = React.useState(false)
   const [saveConfirmOpen, setSaveConfirmOpen] = React.useState(false)
   const [deleteTarget, setDeleteTarget] = React.useState<AdminUser | null>(null)
@@ -76,15 +71,6 @@ export default function AdminAccountsPage() {
     [],
   )
   const rows = data ?? []
-
-  const filtered = rows.filter((row) => {
-    const q = query.trim().toLowerCase()
-    if (!q) return true
-    return [row.fullName, row.login, row.phone, row.password, roleLabel(row)]
-      .join(' ')
-      .toLowerCase()
-      .includes(q)
-  })
 
   const openCreate = () => {
     setEditId(null)
@@ -215,6 +201,103 @@ export default function AdminAccountsPage() {
     }
   }
 
+  const columns: AdminColumnDef<AdminUser>[] = [
+    {
+      id: 'fullName',
+      header: 'ФИО',
+      accessor: 'fullName',
+      className: 'whitespace-nowrap font-semibold text-foreground',
+    },
+    {
+      id: 'login',
+      header: 'Логин',
+      accessor: 'login',
+      className: 'whitespace-nowrap font-mono text-[13px]',
+    },
+    {
+      id: 'password',
+      header: 'Пароль',
+      accessor: 'password',
+      className: 'whitespace-nowrap font-mono text-[13px]',
+      cell: (row) => row.password || '—',
+    },
+    {
+      id: 'phone',
+      header: 'Телефон',
+      accessor: 'phone',
+      className: 'whitespace-nowrap',
+    },
+    {
+      id: 'role',
+      header: 'Роль',
+      accessor: (r) => r.role,
+      filterValue: (r) => roleLabel(r),
+      cell: (row) => (
+        <span className="min-w-[140px] whitespace-nowrap text-sm">{roleLabel(row)}</span>
+      ),
+    },
+    {
+      id: 'isActive',
+      header: 'Статус',
+      accessor: 'isActive',
+      filterType: 'boolean',
+      filterValue: (r) => (r.isActive ? 'Активен' : 'Неактивен'),
+      cell: (row) =>
+        row.isActive ? (
+          <span className="text-foreground">Активен</span>
+        ) : (
+          <span className="text-muted-foreground">Неактивен</span>
+        ),
+    },
+    {
+      id: 'color',
+      header: 'Цвет',
+      accessor: 'color',
+      filterValue: (r) => colorLabel(r.color),
+      hideColumnFilter: true,
+      cell: (row) => (
+        <span
+          className="inline-flex items-center gap-2 whitespace-nowrap font-medium"
+          style={{ color: row.color }}
+        >
+          <span className="inline-block size-3 rounded-full" style={{ backgroundColor: row.color }} />
+          {colorLabel(row.color)}
+        </span>
+      ),
+    },
+    {
+      id: 'actions',
+      header: '',
+      sortable: false,
+      filterable: false,
+      headerClassName: 'w-[88px] pr-2 text-right',
+      cell: (row) => (
+        <div className="inline-flex items-center justify-end gap-0.5">
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="size-8 text-muted-foreground"
+            aria-label="Редактировать"
+            onClick={() => openEdit(row)}
+          >
+            <img src={PENCIL} alt="" className="size-4" width={16} height={16} />
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="size-8 text-muted-foreground hover:text-destructive"
+            aria-label="Удалить"
+            onClick={() => setDeleteTarget(row)}
+          >
+            <Trash2 className="size-4" />
+          </Button>
+        </div>
+      ),
+    },
+  ]
+
   return (
     <div className="flex w-full min-w-0 flex-col gap-4">
       <Button
@@ -227,19 +310,6 @@ export default function AdminAccountsPage() {
         <Plus className="size-4 shrink-0" />
         Добавить новый аккаунт
       </Button>
-
-      <div className="relative">
-        <span className="pointer-events-none absolute left-3 top-1/2 z-10 -translate-y-1/2 text-muted-foreground">
-          <Search className="size-4" aria-hidden />
-        </span>
-        <Input
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Поиск"
-          className="h-10 rounded-lg border bg-background pl-9 pr-3"
-          aria-label="Поиск по аккаунтам"
-        />
-      </div>
 
       <AdminFormModal
         open={formOpen}
@@ -411,79 +481,14 @@ export default function AdminAccountsPage() {
         onCancel={() => setDeleteTarget(null)}
       />
 
-      <div className="flex flex-col gap-4 rounded-lg border bg-background p-4">
-        <div className="-mx-4 max-w-[calc(100vw-2rem)] overflow-x-auto sm:mx-0 sm:max-w-none">
-          <Table>
-            <TableHeader>
-              <TableRow className="border-b bg-muted/40 hover:bg-muted/40">
-                <TableHead className="min-w-[180px] whitespace-nowrap">ФИО</TableHead>
-                <TableHead className="min-w-[120px] whitespace-nowrap">Логин</TableHead>
-                <TableHead className="min-w-[110px] whitespace-nowrap">Пароль</TableHead>
-                <TableHead className="min-w-[140px] whitespace-nowrap">Телефон</TableHead>
-                <TableHead className="min-w-[140px] whitespace-nowrap">Роль</TableHead>
-                <TableHead className="min-w-[100px] whitespace-nowrap">Статус</TableHead>
-                <TableHead className="min-w-[100px] whitespace-nowrap">Цвет</TableHead>
-                <TableHead className="w-[88px] pr-2 text-right" />
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {filtered.map((row) => (
-                <TableRow key={row.id}>
-                  <TableCell className="whitespace-nowrap font-semibold text-foreground">
-                    {row.fullName}
-                  </TableCell>
-                  <TableCell className="whitespace-nowrap font-mono text-[13px]">{row.login}</TableCell>
-                  <TableCell className="whitespace-nowrap font-mono text-[13px]">
-                    {row.password || '—'}
-                  </TableCell>
-                  <TableCell className="whitespace-nowrap">{row.phone}</TableCell>
-                  <TableCell className="min-w-[140px] whitespace-nowrap text-sm">{roleLabel(row)}</TableCell>
-                  <TableCell className="whitespace-nowrap text-sm">
-                    {row.isActive ? (
-                      <span className="text-foreground">Активен</span>
-                    ) : (
-                      <span className="text-muted-foreground">Неактивен</span>
-                    )}
-                  </TableCell>
-                  <TableCell className="whitespace-nowrap">
-                    <span className="inline-flex items-center gap-2 font-medium" style={{ color: row.color }}>
-                      <span
-                        className="inline-block size-3 rounded-full"
-                        style={{ backgroundColor: row.color }}
-                      />
-                      {colorLabel(row.color)}
-                    </span>
-                  </TableCell>
-                  <TableCell className="pr-2 text-right">
-                    <div className="inline-flex items-center justify-end gap-0.5">
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        className="size-8 text-muted-foreground"
-                        aria-label="Редактировать"
-                        onClick={() => openEdit(row)}
-                      >
-                        <img src={PENCIL} alt="" className="size-4" width={16} height={16} />
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        className="size-8 text-muted-foreground hover:text-destructive"
-                        aria-label="Удалить"
-                        onClick={() => setDeleteTarget(row)}
-                      >
-                        <Trash2 className="size-4" />
-                      </Button>
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </div>
-      </div>
+      <AdminDataTable
+        rows={rows}
+        columns={columns}
+        rowKey={(row) => row.id}
+        searchPlaceholder="Поиск"
+        emptyText="Аккаунты не найдены"
+        scrollClassName="-mx-4 max-w-[calc(100vw-2rem)] overflow-x-auto sm:mx-0 sm:max-w-none"
+      />
     </div>
   )
 }
