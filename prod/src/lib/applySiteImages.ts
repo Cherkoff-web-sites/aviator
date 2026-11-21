@@ -87,7 +87,11 @@ function applySimImages(sim: Simulator, set: SimulatorImageSet): Simulator {
     ...section,
     image: resolveMediaUrl(set.sections[i] ?? section.image),
   }))
-  const sliderImages = set.photoSlider.map((src) => resolveMediaUrl(src))
+  const sliderImages: [string, string, string] = [
+    resolveMediaUrl(set.photoSlider[0]),
+    resolveMediaUrl(set.photoSlider[1]),
+    resolveMediaUrl(set.photoSlider[2]),
+  ]
   return {
     ...sim,
     image: resolveMediaUrl(set.hero),

@@ -4,6 +4,38 @@ import { useGiftCertificateModal } from '../contexts/GiftCertificateModalContext
 import { resolveMediaUrl } from '../data/siteImages'
 import { useSiteImages } from '../hooks/useSiteImages'
 
+const ARROW_UP_SRC = '/assets/icons/arrow_up.svg'
+
+function SimulatorsLink({ className }: { className?: string }) {
+  return (
+    <Link
+      to="/simulators"
+      className={[
+        'group inline-flex items-center gap-3 text-white no-underline transition-opacity hover:opacity-85',
+        className,
+      ]
+        .filter(Boolean)
+        .join(' ')}
+    >
+      <span className="text-[17px] font-semibold leading-none tracking-tight min-[990px]:text-[18px]">
+        Посмотреть тренажеры
+      </span>
+      <span
+        className="inline-flex size-11 shrink-0 items-center justify-center rounded-full border border-white/35 bg-white/10 backdrop-blur-[2px] transition-transform duration-300 group-hover:-translate-y-0.5 group-hover:translate-x-0.5 min-[990px]:size-12"
+        aria-hidden
+      >
+        <img
+          src={ARROW_UP_SRC}
+          alt=""
+          width={17}
+          height={21}
+          className="h-[18px] w-auto rotate-45 object-contain"
+        />
+      </span>
+    </Link>
+  )
+}
+
 function LandingHero() {
   const { openBooking } = useBookingModal()
   const { openGiftCertificate } = useGiftCertificateModal()
@@ -25,49 +57,47 @@ function LandingHero() {
       <div className="absolute inset-0 bg-gradient-to-t from-black/55 via-black/20 to-black/35" />
 
       <div className="container-app relative z-10 flex flex-1 flex-col justify-end pb-14 pt-[120px] min-[990px]:pb-20 min-[990px]:pt-[140px]">
-        <div className="max-w-[640px] animate-[fadeUp_0.7s_ease-out_both]">
-          <p
-            className="text-[clamp(2.5rem,6vw,4.5rem)] font-bold leading-[0.95] tracking-tight text-white"
-            style={{ fontFamily: 'Montserrat, sans-serif' }}
-          >
-            AVIATOR
-          </p>
-          <h1 className="mt-3 text-[clamp(1.35rem,2.8vw,2rem)] font-semibold leading-snug text-white/95 min-[990px]:mt-4">
-            Профессиональные авиатренажеры в Минске
-          </h1>
-          <Link
-            to="/simulators"
-            className="mt-3 inline-flex items-center gap-2.5 text-lg font-medium leading-none text-white no-underline transition-opacity hover:opacity-80 min-[990px]:mt-4"
-          >
-            Посмотреть тренажеры
-            <span
-              className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[linear-gradient(180deg,#4da3ff_0%,#0075ff_48%,#0050b3_100%)] text-[13px] font-semibold leading-none text-white shadow-[0_4px_12px_rgba(0,117,255,0.4)]"
-              aria-hidden
+        <div className="flex flex-col gap-8 min-[990px]:flex-row min-[990px]:items-end min-[990px]:justify-between min-[990px]:gap-12">
+          <div className="max-w-[640px] animate-[fadeUp_0.7s_ease-out_both]">
+            <p
+              className="text-[clamp(2.5rem,6vw,4.5rem)] font-bold leading-[0.95] tracking-tight text-white"
+              style={{ fontFamily: 'Montserrat, sans-serif' }}
             >
-              →
-            </span>
-          </Link>
-          <p className="mt-4 max-w-[520px] text-[15px] leading-relaxed text-white/85 min-[990px]:mt-5 min-[990px]:text-lg">
-            Погрузитесь в небо и откройте для себя увлекательный мир авиации – почувствуйте себя
-            пилотом самолета Boeing 737 или вертолета Ми-2.
-          </p>
+              AVIATOR
+            </p>
+            <h1 className="mt-3 text-[clamp(1.35rem,2.8vw,2rem)] font-semibold leading-snug text-white/95 min-[990px]:mt-4">
+              Профессиональные авиатренажеры в Минске
+            </h1>
+            <p className="mt-4 max-w-[520px] text-[15px] leading-relaxed text-white/85 min-[990px]:mt-5 min-[990px]:text-lg">
+              Погрузитесь в небо и откройте для себя увлекательный мир авиации – почувствуйте себя
+              пилотом самолета Boeing 737 или вертолета Ми-2.
+            </p>
 
-          <div className="mt-8 flex flex-col gap-3 min-[520px]:flex-row min-[520px]:flex-wrap min-[520px]:items-center min-[990px]:mt-10">
-            <button
-              type="button"
-              onClick={() => openBooking()}
-              className="btn-book-flight h-12 px-10 text-lg font-medium"
-            >
-              Забронировать полёт
-            </button>
-            <button
-              type="button"
-              onClick={() => openGiftCertificate()}
-              className="btn-outline-light h-12 px-9 text-lg font-medium"
-            >
-              Подарить полёт
-            </button>
+            <div className="mt-8 flex flex-col gap-3 min-[520px]:flex-row min-[520px]:flex-wrap min-[520px]:items-center min-[990px]:mt-10">
+              <button
+                type="button"
+                onClick={() => openBooking()}
+                className="btn-book-flight h-12 px-10 text-lg font-medium"
+              >
+                Забронировать полёт
+              </button>
+              <button
+                type="button"
+                onClick={() => openGiftCertificate()}
+                className="btn-outline-light h-12 px-9 text-lg font-medium"
+              >
+                Подарить полёт
+              </button>
+            </div>
+
+            {/* Моб: по центру, тот же gap что между кнопками выше */}
+            <div className="mt-3 flex w-full justify-center min-[990px]:hidden">
+              <SimulatorsLink />
+            </div>
           </div>
+
+          {/* Десктоп: справа, стрелка 45° снизу вверх */}
+          <SimulatorsLink className="hidden shrink-0 self-end min-[990px]:inline-flex" />
         </div>
       </div>
     </section>

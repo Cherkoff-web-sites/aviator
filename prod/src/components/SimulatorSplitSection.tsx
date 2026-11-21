@@ -38,28 +38,31 @@ function SimulatorSplitSection({
             isImageLeft ? 'flex-col-reverse min-[990px]:flex-row-reverse' : '',
           ].join(' ')}
         >
-          <div
-            data-sim-reveal-copy
-            className="flex min-w-0 flex-1 flex-col justify-center will-change-transform"
-          >
+          <div className="flex min-w-0 flex-1 flex-col justify-center">
             {iconSrc ? (
               <img
+                data-sim-reveal-line
                 src={iconSrc}
                 alt=""
                 width={65}
                 height={65}
-                className="mb-4 h-[65px] w-[65px] shrink-0 object-contain"
+                className="mb-4 h-[65px] w-[65px] shrink-0 object-contain will-change-transform"
                 aria-hidden="true"
               />
             ) : null}
 
-            <h2 className="mb-4 text-[24px] font-bold leading-tight tracking-tight min-[990px]:text-[32px]">
+            <h2
+              data-sim-reveal-line
+              className="mb-4 text-[24px] font-bold leading-tight tracking-tight will-change-transform min-[990px]:text-[32px]"
+            >
               {title}
             </h2>
 
             <div className="flex flex-col gap-4 text-[16px] font-medium leading-relaxed text-white/95 min-[990px]:text-[18px]">
               {paragraphs.map((p, i) => (
-                <p key={i}>{p}</p>
+                <p key={i} data-sim-reveal-line className="will-change-transform">
+                  {p}
+                </p>
               ))}
             </div>
 
@@ -68,7 +71,7 @@ function SimulatorSplitSection({
                 {bulletPoints.map((item, i) => (
                   <li
                     key={i}
-                    data-sim-reveal-bullet
+                    data-sim-reveal-line
                     className="flex items-start gap-3 will-change-transform"
                   >
                     <img
@@ -88,12 +91,12 @@ function SimulatorSplitSection({
 
           <div
             data-sim-reveal-media
-            className="min-w-0 flex-1 overflow-hidden rounded-[24px] min-[990px]:min-h-[320px]"
+            className="min-w-0 flex-1 overflow-hidden rounded-[24px] will-change-transform min-[990px]:min-h-[320px]"
           >
             <img
               src={imageSrc}
               alt={imageAlt}
-              className="h-full min-h-[220px] w-full object-cover will-change-transform min-[990px]:min-h-[320px]"
+              className="h-full min-h-[220px] w-full origin-center object-cover will-change-transform min-[990px]:min-h-[320px]"
             />
           </div>
         </div>

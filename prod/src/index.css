@@ -280,7 +280,7 @@ h6 {
     }
   }
 
-  /** Выбранный тариф: градиент с переливанием */
+  /** Выбранный тариф: стабильный градиент (без бесконечного «моргания» на мобилке) */
   .pricing-plan-featured {
     --pricing-ga: 185.43deg;
     --pricing-gs1: 29.56%;
@@ -292,13 +292,11 @@ h6 {
       #085dc1 var(--pricing-gs1),
       #042c5b var(--pricing-gs2)
     );
-    animation: pricing-grad-shift 7s ease-in-out infinite;
   }
 
-  /* На десктопе анимацию выключаем — угол градиента ведёт мышь (JS) */
+  /* Десктоп: лёгкий сдвиг угла от мыши (без loop-анимации) */
   @media (hover: hover) and (pointer: fine) {
     .pricing-plan-featured {
-      animation: none;
       transition:
         --pricing-ga 0.35s ease-out,
         --pricing-gs1 0.35s ease-out,
@@ -308,7 +306,6 @@ h6 {
 
   @media (prefers-reduced-motion: reduce) {
     .pricing-plan-featured {
-      animation: none;
       transition: none;
     }
   }

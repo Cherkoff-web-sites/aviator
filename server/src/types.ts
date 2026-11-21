@@ -77,6 +77,8 @@ export type Certificate = {
   id: string
   number: string
   phone: string
+  /** Email, на который отправляется сертификат */
+  email?: string
   fullName: string
   durationMin: number
   paymentStatus: PaymentStatus

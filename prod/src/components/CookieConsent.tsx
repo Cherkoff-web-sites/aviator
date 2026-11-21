@@ -1,4 +1,5 @@
 import * as React from 'react'
+import { createPortal } from 'react-dom'
 import { useLocation } from 'react-router-dom'
 
 const STORAGE_KEY = 'aviator_cookie_ok'
@@ -61,15 +62,19 @@ export default function CookieConsent() {
     return () => window.clearTimeout(id)
   }, [shouldShow])
 
-  if (!mounted) return null
+  if (!mounted || typeof document === 'undefined') return null
 
-  return (
+  return createPortal(
     <div
       className={[
-        'fixed bottom-4 left-4 z-[200] w-[calc(100%-2rem)] max-w-[300px] rounded-xl border border-white/15 bg-[#12161a]/95 p-4 shadow-lg backdrop-blur-sm',
+        // Выше booking/gift (100–101), lightbox/360 (120–121) и прочих оверлеев —
+        // всегда кликабельна, пока не нажали «Принять».
+        'pointer-events-auto fixed bottom-4 left-4 z-[10050] w-[calc(100%-2rem)] max-w-[300px] rounded-xl border border-white/15 bg-[#12161a]/95 p-4 shadow-lg backdrop-blur-sm',
         'transition-[opacity,transform] duration-500 ease-out',
         entered ? 'translate-y-0 opacity-100' : 'translate-y-3 opacity-0',
       ].join(' ')}
+      role="dialog"
+      aria-label="Согласие на использование cookie"
     >
       <div className="flex flex-col gap-3">
         <p className="text-sm leading-snug text-white/90">
@@ -94,6 +99,7 @@ export default function CookieConsent() {
           Принять
         </button>
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }

@@ -28,6 +28,7 @@ export type GiftCertificateModalDraft = {
   firstName: string
   lastName: string
   phone: string
+  email: string
   note: string
   consent: boolean
 }

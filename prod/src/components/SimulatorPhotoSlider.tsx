@@ -8,9 +8,9 @@ gsap.registerPlugin(ScrollTrigger)
 const ARROW_RIGHT_SRC = '/assets/icons/arrow_right.svg'
 
 /** Во сколько раз длиннее скролл страницы относительно сдвига ленты (>1 = больше крутить) */
-const SCROLL_DISTANCE_FACTOR = 2.1
+const SCROLL_DISTANCE_FACTOR = 1.85
 /** Scrub-лаг: анимация ленты догоняет скролл с задержкой */
-const SCRUB_LAG = 1.15
+const SCRUB_LAG = 0.85
 
 export type SimulatorPhotoSliderProps = {
   title: string
@@ -64,11 +64,11 @@ function SimulatorPhotoSlider({ title, description, images, galleryTo }: Simulat
           anticipatePin: 1,
           invalidateOnRefresh: true,
           onUpdate: (self) => {
-            setAtEnd(self.progress >= 0.98 || getTravel() < 8)
+            setAtEnd(self.progress >= 0.92 || getTravel() < 8)
           },
           onRefresh: (self) => {
             paintPinSpacer(self)
-            setAtEnd(self.progress >= 0.98 || getTravel() < 8)
+            setAtEnd(self.progress >= 0.92 || getTravel() < 8)
           },
           onEnter: paintPinSpacer,
         },
@@ -152,17 +152,16 @@ function SimulatorPhotoSlider({ title, description, images, galleryTo }: Simulat
         </div>
 
         <div className="container-app">
-          <div
-            className={[
-              'mt-8 flex justify-center transition-all duration-300 ease-out',
-              atEnd ? 'translate-y-0 opacity-100' : 'pointer-events-none -translate-y-1 opacity-0',
-            ].join(' ')}
-            aria-hidden={!atEnd}
-          >
+          {/* Место под ссылку всегда зарезервировано — без скачка layout при появлении */}
+          <div className="mt-8 flex min-h-[28px] justify-center min-[990px]:min-h-[30px]">
             <Link
               to={galleryTo}
               tabIndex={atEnd ? 0 : -1}
-              className="inline-flex items-center gap-2 text-[16px] font-medium text-white no-underline min-[990px]:text-[18px]"
+              aria-hidden={!atEnd}
+              className={[
+                'inline-flex items-center gap-2 text-[16px] font-medium text-white no-underline transition-opacity duration-500 ease-out min-[990px]:text-[18px]',
+                atEnd ? 'pointer-events-auto opacity-100' : 'pointer-events-none opacity-0',
+              ].join(' ')}
             >
               Посмотреть больше в Галерее
               <img

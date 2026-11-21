@@ -12,7 +12,10 @@ function SimulatorPageView({ heroImage, heading, description }: SimulatorPageVie
   const { openBooking } = useBookingModal()
   const { slug } = useParams()
   return (
-    <section data-sim-hero className="relative overflow-hidden bg-[#202020] min-[990px]:h-[50vw]">
+    <section
+      data-sim-hero
+      className="relative flex min-h-[100dvh] w-full flex-col overflow-hidden bg-[#202020] min-[990px]:h-[50vw] min-[990px]:min-h-0"
+    >
       <img
         data-sim-hero-media
         src={heroImage}
@@ -28,7 +31,7 @@ function SimulatorPageView({ heroImage, heading, description }: SimulatorPageVie
         aria-hidden="true"
       />
 
-      <div className="relative z-10 flex min-h-0 flex-col pt-24 min-[990px]:h-full min-[990px]:pt-28">
+      <div className="relative z-10 flex min-h-0 flex-1 flex-col pt-24 min-[990px]:pt-28">
         <div className="container-app mt-auto pb-12 min-[990px]:pb-20">
           <h1
             data-sim-reveal-item

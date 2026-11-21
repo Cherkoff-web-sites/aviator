@@ -175,13 +175,16 @@ function HomeHero() {
                 </div>
               </div>
 
-              <Link
-                to={simulatorPath}
-                className="btn-book-flight absolute bottom-6 left-1/2 z-20 -translate-x-1/2 whitespace-nowrap px-7 py-3 text-base font-semibold no-underline min-[990px]:hidden"
-              >
-                {slide.mobileButtonText}
-                <span aria-hidden="true">→</span>
-              </Link>
+              {/* Обёртка держит центр: hover transform у .btn-book-flight иначе сбивает -translate-x-1/2 */}
+              <div className="absolute bottom-6 left-1/2 z-20 -translate-x-1/2 min-[990px]:hidden">
+                <Link
+                  to={simulatorPath}
+                  className="btn-book-flight whitespace-nowrap px-7 py-3 text-base font-semibold no-underline"
+                >
+                  {slide.mobileButtonText}
+                  <span aria-hidden="true">→</span>
+                </Link>
+              </div>
             </article>
           )
         })}

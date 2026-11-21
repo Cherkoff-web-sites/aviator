@@ -704,10 +704,16 @@ apiRouter.post('/public/certificates', async (req, res) => {
   const today = format(startOfDay(new Date()), 'yyyy-MM-dd')
   const validTo = format(addDays(new Date(), 90), 'yyyy-MM-dd')
 
+  const email = String(body.email ?? '').trim()
+  if (!email) {
+    return res.status(400).json({ error: 'Укажите email для отправки сертификата', code: 'VALIDATION' })
+  }
+
   const cert: Certificate = {
     id: newId(),
     number,
     phone: body.phone,
+    email,
     fullName: `${body.firstName} ${body.lastName}`.trim(),
     durationMin: body.durationMin,
     paymentStatus: 'PAID',
@@ -738,7 +744,7 @@ apiRouter.post('/public/certificates', async (req, res) => {
     })
   })
   broadcast()
-  console.log(`[CERTIFICATE] ${cert.number} for ${cert.fullName}`)
+  console.log(`[CERTIFICATE] ${cert.number} for ${cert.fullName} → ${cert.email}`)
   res.status(201).json(cert)
 })
 
@@ -1182,6 +1188,7 @@ apiRouter.post('/admin/certificates', requireRoles('ADMIN', 'MANAGER'), async (r
       body.number ??
       nextCertificateNumber(readStore().counters.certificate, designColor),
     phone: body.phone,
+    email: String(body.email ?? '').trim(),
     fullName: body.fullName,
     durationMin: body.durationMin,
     paymentStatus: 'PAID',

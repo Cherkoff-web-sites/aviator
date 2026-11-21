@@ -58,6 +58,7 @@ export default function AdminCertificatesPage() {
   const [form, setForm] = React.useState({
     number: '',
     phone: '',
+    email: '',
     fullName: '',
     durationMin: 30,
     paymentMethod: 'OFFLINE' as 'ONLINE' | 'OFFLINE',
@@ -93,6 +94,7 @@ export default function AdminCertificatesPage() {
     setForm({
       number: '',
       phone: '',
+      email: '',
       fullName: '',
       durationMin: 30,
       paymentMethod: 'OFFLINE',
@@ -120,6 +122,7 @@ export default function AdminCertificatesPage() {
     setForm({
       number: row.number,
       phone: row.phone,
+      email: row.email ?? '',
       fullName: row.fullName,
       durationMin: row.durationMin,
       paymentMethod: row.paymentMethod ?? 'OFFLINE',
@@ -142,6 +145,7 @@ export default function AdminCertificatesPage() {
       className: 'font-medium',
     },
     { id: 'phone', header: 'Телефон', accessor: 'phone' },
+    { id: 'email', header: 'Email', accessor: (r) => r.email ?? '' },
     { id: 'fullName', header: 'ФИО', accessor: 'fullName' },
     { id: 'durationMin', header: 'Минуты', accessor: 'durationMin', filterType: 'number' },
     {
@@ -356,6 +360,7 @@ export default function AdminCertificatesPage() {
               ['number', editId ? 'Номер' : 'Номер (следующий)'],
               ['fullName', 'ФИО'],
               ['phone', 'Телефон'],
+              ['email', 'Email'],
               ['validFrom', 'С', 'date'],
               ['validTo', 'По', 'date'],
               ['comment', 'Комментарий'],

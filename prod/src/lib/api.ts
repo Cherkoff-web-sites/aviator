@@ -100,6 +100,7 @@ export type ApiCertificate = {
   id: string
   number: string
   phone: string
+  email?: string
   fullName: string
   durationMin: number
   paymentStatus: 'PAID' | 'UNPAID'

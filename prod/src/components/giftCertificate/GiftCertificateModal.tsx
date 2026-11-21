@@ -1,7 +1,7 @@
 import * as Dialog from '@radix-ui/react-dialog'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
-import { getCertPriceByn, isPersonNameValid, isPhoneValid } from '../../lib/pricing'
+import { getCertPriceByn, isEmailValid, isPersonNameValid, isPhoneValid } from '../../lib/pricing'
 import type { GiftCertProductChoice } from '../booking/bookingPricing'
 import { apiFetch, type ApiPriceRow } from '../../lib/api'
 import { useBookingModal } from '../../contexts/BookingModalContext'
@@ -12,6 +12,7 @@ import {
   saveGiftDraft,
 } from '../../lib/modalDrafts'
 import {
+  sanitizeEmailInput,
   sanitizeNoteInput,
   sanitizePersonNameInput,
   sanitizePhoneInput,
@@ -90,6 +91,7 @@ function GiftCertificateModal() {
   )
   const [lastName, setLastName] = useState(() => sanitizePersonNameInput(draft?.lastName ?? ''))
   const [phone, setPhone] = useState(() => sanitizePhoneInput(draft?.phone ?? ''))
+  const [email, setEmail] = useState(() => sanitizeEmailInput(draft?.email ?? ''))
   const [note, setNote] = useState(() => sanitizeNoteInput(draft?.note ?? ''))
   const [consent, setConsent] = useState(() => draft?.consent ?? false)
   const [submitted, setSubmitted] = useState(false)
@@ -106,6 +108,7 @@ function GiftCertificateModal() {
     setFirstName('')
     setLastName('')
     setPhone('')
+    setEmail('')
     setNote('')
     setConsent(false)
     setSubmitted(false)
@@ -139,10 +142,11 @@ function GiftCertificateModal() {
       firstName,
       lastName,
       phone,
+      email,
       note,
       consent,
     })
-  }, [product, durationMin, firstName, lastName, phone, note, consent])
+  }, [product, durationMin, firstName, lastName, phone, email, note, consent])
 
   const priceByn = useMemo(
     () => getCertPriceByn(certPrices, product, durationMin),
@@ -154,9 +158,10 @@ function GiftCertificateModal() {
       firstName: !isPersonNameValid(firstName),
       lastName: !isPersonNameValid(lastName),
       phone: !isPhoneValid(phone),
+      email: !isEmailValid(email),
       consent: !consent,
     }),
-    [firstName, lastName, phone, consent],
+    [firstName, lastName, phone, email, consent],
   )
 
   const durationOptions =
@@ -258,7 +263,7 @@ function GiftCertificateModal() {
                     </p>
                     <p className="mt-3 max-w-[340px] text-[15px] font-medium leading-relaxed text-[#5a6578] min-[990px]:mt-4 min-[990px]:text-[16px]">
                       {certNumber
-                        ? `Сертификат ${certNumber} оформлен. Данные отправлены на указанный контакт.`
+                        ? `Сертификат ${certNumber} оформлен. PDF отправим на ${email || 'указанный email'}.`
                         : 'Мы будем рады видеть вас!'}
                     </p>
                     <a
@@ -341,20 +346,39 @@ function GiftCertificateModal() {
                       </div>
                     </div>
 
-                    <div>
-                      <label className={labelClass()} htmlFor="gc-phone">
-                        Контактный номер телефона
-                      </label>
-                      <input
-                        id="gc-phone"
-                        type="tel"
-                        className={inputClass(submitted && fieldErrors.phone)}
-                        placeholder="+375 29 123-45-67"
-                        value={phone}
-                        onChange={(e) => setPhone(sanitizePhoneInput(e.target.value))}
-                        autoComplete="tel"
-                        inputMode="tel"
-                      />
+                    <div className="grid grid-cols-1 gap-4 min-[700px]:grid-cols-2 min-[700px]:gap-6">
+                      <div className="min-w-0">
+                        <label className={labelClass()} htmlFor="gc-phone">
+                          Контактный номер телефона
+                        </label>
+                        <input
+                          id="gc-phone"
+                          type="tel"
+                          className={inputClass(submitted && fieldErrors.phone)}
+                          placeholder="+375 29 123-45-67"
+                          value={phone}
+                          onChange={(e) => setPhone(sanitizePhoneInput(e.target.value))}
+                          autoComplete="tel"
+                          inputMode="tel"
+                        />
+                      </div>
+
+                      <div className="min-w-0">
+                        <label className={labelClass()} htmlFor="gc-email">
+                          Email для получения сертификата
+                        </label>
+                        <input
+                          id="gc-email"
+                          type="email"
+                          className={inputClass(submitted && fieldErrors.email)}
+                          placeholder="name@example.com"
+                          value={email}
+                          onChange={(e) => setEmail(sanitizeEmailInput(e.target.value))}
+                          autoComplete="email"
+                          inputMode="email"
+                          spellCheck={false}
+                        />
+                      </div>
                     </div>
 
                     <div>
@@ -391,6 +415,7 @@ function GiftCertificateModal() {
                             fieldErrors.firstName ||
                             fieldErrors.lastName ||
                             fieldErrors.phone ||
+                            fieldErrors.email ||
                             fieldErrors.consent
                           ) {
                             setSubmitError('Заполните все обязательные поля корректно')
@@ -413,6 +438,7 @@ function GiftCertificateModal() {
                                     firstName,
                                     lastName,
                                     phone,
+                                    email,
                                     durationMin,
                                     simulatorSlug: slug,
                                     comment: note,

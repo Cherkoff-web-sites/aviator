@@ -815,24 +815,11 @@ function BookingModal() {
   const onDialogOpenChange = useCallback(
     (open: boolean) => {
       if (!open) {
-        if (wizardStep === 'form') {
-          const dirty =
-            Boolean(name.trim()) ||
-            Boolean(phone.trim()) ||
-            Boolean(email.trim()) ||
-            Boolean(selectedDate) ||
-            Boolean(selectedTime) ||
-            Boolean(note.trim())
-          if (
-            dirty &&
-            !window.confirm('Закрыть окно? Текущие данные формы не сохранятся.')
-          ) {
-            return
-          }
-          if (dirty) resetDraftFields()
-        }
         setDateTimeOpen(false)
         setBirthdayPickerOpen(false)
+        // Черновик имени/телефона/даты и т.д. не сбрасываем при закрытии —
+        // клиент может выбрать другой тариф и продолжить без повторного ввода.
+        // Полный сброс только после успешной брони.
         if (wizardStep === 'success') {
           resetDraftFields()
         } else if (wizardStep === 'otp') {
@@ -845,17 +832,7 @@ function BookingModal() {
         closeBooking()
       }
     },
-    [
-      closeBooking,
-      resetDraftFields,
-      wizardStep,
-      name,
-      phone,
-      email,
-      selectedDate,
-      selectedTime,
-      note,
-    ],
+    [closeBooking, resetDraftFields, wizardStep],
   )
 
   const confirmDateTime = useCallback(() => {
