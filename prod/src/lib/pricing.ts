@@ -297,7 +297,7 @@ function isFullyClosedFlag(
 ): boolean {
   if (!fullyClosedDates) return false
   if (fullyClosedDates instanceof Set) return fullyClosedDates.has(key)
-  return Boolean(fullyClosedDates[key])
+  return Boolean((fullyClosedDates as Record<string, boolean>)[key])
 }
 
 /** День закрыт ТО для выбранного режима (один тренажёр или комбо). */

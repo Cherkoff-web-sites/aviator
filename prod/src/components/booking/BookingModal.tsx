@@ -1,6 +1,5 @@
 import * as Dialog from '@radix-ui/react-dialog'
 import { format, isWeekend, startOfToday } from 'date-fns'
-import { ru } from 'date-fns/locale'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { DayPicker, DayFlag, SelectionState, UI } from 'react-day-picker'
 import { ru as ruRdp } from 'react-day-picker/locale'
@@ -70,11 +69,6 @@ import {
   labelForOption,
   simulatorChoicesFromList,
 } from '../../lib/option-list-utils'
-
-function capitalizeRu(s: string) {
-  if (!s) return s
-  return s.charAt(0).toLocaleUpperCase('ru-RU') + s.slice(1)
-}
 
 function defaultAircraftFromSlug(slug: BookingSimulatorSlug | null | undefined): 'boeing-737' | 'mi-2' {
   if (slug === 'mi-2') return 'mi-2'
@@ -336,10 +330,6 @@ function BookingModal() {
       aircraft,
     )
   }, [optionLists, aircraft, isCombo])
-  const durationChoices = useMemo(
-    () => durationChoiceRows.map((d) => d.value),
-    [durationChoiceRows],
-  )
   const [durationMin, setDurationMin] = useState<FlightDurationMin>(
     () => draft?.durationMin ?? 30,
   )
@@ -388,7 +378,7 @@ function BookingModal() {
     setAircraft('boeing-737')
     setDurationMin(30)
     setHasGiftCert(false)
-    setCertSeriesCode(CERTIFICATE_DESIGN_OPTIONS[0].code)
+    setCertSeriesCode(certDesignOptions[0]?.code ?? 'S')
     setCertDigits('')
     setBirthdayDiscount(false)
     setBirthdayDate('')
@@ -412,7 +402,7 @@ function BookingModal() {
     setBookingId(null)
     setBookingError('')
     clearBookingDraft()
-  }, [])
+  }, [certDesignOptions])
 
   useEffect(() => {
     if (!isOpen) {
