@@ -874,7 +874,8 @@ apiRouter.patch('/admin/bookings/:id', requireRoles('ADMIN', 'MANAGER'), async (
   const id = String(req.params.id)
   const body = req.body
   let updated: Booking | undefined
-  let rejected: 'mi2' | 'blocked' | 'pilot' | false = false
+  /** null — ок; строка — причина отказа (не boolean: иначе tsc сужает до false после callback). */
+  let rejected: 'mi2' | 'blocked' | 'pilot' | null = null
   await updateStore((s) => {
     const b = s.bookings.find((x) => x.id === id)
     if (!b) return
