@@ -58,14 +58,16 @@ export function mergeComboPricesIntoBlock(
   prices: ApiPriceRow[] | undefined,
 ): SimulatorPricingBlock {
   if (!prices?.length) return block
-  const combo = prices.find((p) => p.simulatorSlug === 'combo')
+  const combo =
+    prices.find((p) => p.simulatorSlug === 'combo' && p.durationMin === 60) ??
+    prices.find((p) => p.simulatorSlug === 'combo')
   if (combo) {
     return {
       ...block,
       plans: block.plans.map((plan, i) => ({
         ...plan,
         priceDisplay: `${combo.priceByn} BYN`,
-        highlighted: i === 0 ? Boolean(combo.highlighted) : false,
+        highlighted: i === 0 ? Boolean(combo.highlighted ?? true) : false,
       })),
     }
   }

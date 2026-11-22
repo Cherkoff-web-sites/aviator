@@ -1,6 +1,5 @@
 import * as React from 'react'
-import { format, parseISO } from 'date-fns'
-import { ru } from 'date-fns/locale'
+import { format } from 'date-fns'
 import { Plus, Trash2 } from 'lucide-react'
 
 import AdminFormModal from '@/components/admin/AdminFormModal'
@@ -13,6 +12,8 @@ import { useHighlightRow } from '@/hooks/useHighlightRow'
 import { useLiveData } from '@/hooks/useLiveData'
 import { apiFetch } from '@/lib/api'
 import { canEditBookings } from '@/lib/admin-access'
+import { formatAdminDate } from '@/lib/admin-date'
+import { SiteDateInput } from '@/components/ui/site-date-input'
 import { BOOKING_TIME_SLOTS } from '@/components/booking/bookingTimeSlots'
 import { cn } from '@/lib/utils'
 
@@ -63,11 +64,7 @@ function scopeLabel(row: MaintenanceRow) {
 }
 
 function formatDateRu(iso: string) {
-  try {
-    return format(parseISO(iso), 'd MMMM yyyy', { locale: ru })
-  } catch {
-    return iso
-  }
+  return formatAdminDate(iso)
 }
 
 function formFromRow(row: MaintenanceRow) {
@@ -112,6 +109,7 @@ export default function AdminMaintenancePage() {
   const [editId, setEditId] = React.useState<string | null>(null)
   const [editSnapshot, setEditSnapshot] = React.useState<MaintenanceRow | null>(null)
   const [deleteTarget, setDeleteTarget] = React.useState<MaintenanceRow | null>(null)
+  const [unblockDate, setUnblockDate] = React.useState<string | null>(null)
   const [busy, setBusy] = React.useState(false)
   const [form, setForm] = React.useState(EMPTY_FORM)
 
@@ -238,6 +236,21 @@ export default function AdminMaintenancePage() {
     }
   }
 
+  const confirmUnblock = async () => {
+    if (!unblockDate || !canEdit) return
+    setBusy(true)
+    try {
+      await apiFetch('/api/admin/calendar/toggle-blocked', {
+        method: 'POST',
+        body: JSON.stringify({ dates: [unblockDate] }),
+      })
+      setUnblockDate(null)
+      void reload()
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const renderList = (rows: MaintenanceRow[], empty: string) => {
     if (rows.length === 0) {
       return <p className="px-1 py-6 text-sm text-muted-foreground">{empty}</p>
@@ -316,21 +329,24 @@ export default function AdminMaintenancePage() {
         ) : null}
       </div>
 
-      <div className="rounded-lg border border-border bg-muted/30 px-4 py-3">
-        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-          Даты, закрытые на всём сайте
+      <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3">
+        <p className="text-xs font-medium uppercase tracking-wide text-destructive">
+          Заблокированные даты
         </p>
         {siteClosedDates.length === 0 ? (
           <p className="mt-2 text-sm text-muted-foreground">Сейчас нет полностью закрытых дней</p>
         ) : (
           <div className="mt-2 flex flex-wrap gap-2">
             {siteClosedDates.map((d) => (
-              <span
+              <button
                 key={d}
-                className="inline-flex rounded-md border border-destructive/30 bg-destructive/5 px-2 py-1 text-xs font-medium text-destructive"
+                type="button"
+                disabled={!canEdit}
+                className="inline-flex rounded-md border border-destructive/40 bg-background px-2 py-1 text-xs font-medium text-destructive transition-colors hover:bg-destructive/10 disabled:cursor-default disabled:opacity-70"
+                onClick={() => canEdit && setUnblockDate(d)}
               >
-                {formatDateRu(d)}
-              </span>
+                {formatDateRu(d)} — снять блок
+              </button>
             ))}
           </div>
         )}
@@ -362,11 +378,10 @@ export default function AdminMaintenancePage() {
         <div className="flex flex-col gap-4">
           <label className="block text-sm">
             Дата
-            <Input
-              type="date"
+            <SiteDateInput
               className="mt-1 h-9"
               value={form.date}
-              onChange={(e) => setForm((f) => ({ ...f, date: e.target.value }))}
+              onValueChange={(date) => setForm((f) => ({ ...f, date }))}
             />
           </label>
 
@@ -484,6 +499,20 @@ export default function AdminMaintenancePage() {
         busy={busy}
         onConfirm={() => void remove()}
         onCancel={() => setDeleteTarget(null)}
+      />
+
+      <ConfirmDialog
+        open={!!unblockDate}
+        title="Снять блокировку даты?"
+        description={
+          unblockDate
+            ? `Дата ${formatDateRu(unblockDate)} снова станет доступна для брони на обоих тренажёрах.`
+            : undefined
+        }
+        confirmLabel="Снять блокировку"
+        busy={busy}
+        onConfirm={() => void confirmUnblock()}
+        onCancel={() => setUnblockDate(null)}
       />
     </div>
   )

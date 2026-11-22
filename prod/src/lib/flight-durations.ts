@@ -1,24 +1,36 @@
-/** Допустимые длительности полёта (минуты). */
+import {
+  clampDurationChoice,
+  durationChoicesFromList,
+  filterDurationChoicesForSimulator,
+  MI2_MAX_DURATION_MIN,
+  type OptionListRow,
+} from '@/lib/option-list-utils'
+
+/** Фоллбек, если списки из настроек ещё не загрузились. */
 export const FLIGHT_DURATIONS = [30, 60, 90, 120] as const
-export type FlightDurationMin = (typeof FLIGHT_DURATIONS)[number]
+export type FlightDurationMin = number
 
-/** Ми-2: максимальная продолжительность полёта — 60 минут. */
-export const MI2_MAX_DURATION_MIN = 60
+export { MI2_MAX_DURATION_MIN }
 
-export function durationsForSimulator(simulatorSlug: string): readonly FlightDurationMin[] {
-  if (simulatorSlug === 'mi-2') {
-    return FLIGHT_DURATIONS.filter((d) => d <= MI2_MAX_DURATION_MIN)
-  }
-  return FLIGHT_DURATIONS
+export function durationsForSimulator(
+  simulatorSlug: string,
+  optionRows?: OptionListRow[] | null,
+): number[] {
+  const choices = filterDurationChoicesForSimulator(
+    durationChoicesFromList(optionRows, [...FLIGHT_DURATIONS]),
+    simulatorSlug,
+  )
+  return choices.map((c) => c.value)
 }
 
 export function clampDurationForSimulator(
   simulatorSlug: string,
   durationMin: number,
+  optionRows?: OptionListRow[] | null,
 ): FlightDurationMin {
-  const allowed = durationsForSimulator(simulatorSlug)
-  if (allowed.includes(durationMin as FlightDurationMin)) {
-    return durationMin as FlightDurationMin
-  }
-  return allowed[allowed.length - 1] ?? 30
+  const choices = filterDurationChoicesForSimulator(
+    durationChoicesFromList(optionRows, [...FLIGHT_DURATIONS]),
+    simulatorSlug,
+  )
+  return clampDurationChoice(choices, durationMin)
 }

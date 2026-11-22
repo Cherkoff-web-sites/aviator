@@ -25,7 +25,7 @@ export default function AdminLogsPage() {
   return (
     <div className="flex w-full min-w-0 flex-col gap-4">
       <p className="text-sm text-muted-foreground">
-        Журнал событий для поддержки (брони, сертификаты, ТО, настройки). Записей: {rows.length}.
+        Технические логи для поддержки (брони, сертификаты, ТО, настройки). Записей: {rows.length}.
       </p>
       {rows.length === 0 ? (
         <p className="text-sm text-muted-foreground">Записей пока нет.</p>

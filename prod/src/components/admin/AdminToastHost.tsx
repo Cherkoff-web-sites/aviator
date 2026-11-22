@@ -5,6 +5,7 @@ import { BellOff, Volume2, VolumeX, X } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 import { useAdminAuth } from '@/contexts/AdminAuthContext'
+import { rewriteIsoDatesInText } from '@/lib/admin-date'
 import { getApiBase, type UserRole } from '@/lib/api'
 import { cn } from '@/lib/utils'
 
@@ -268,8 +269,12 @@ export default function AdminToastHost() {
               className="min-w-0 flex-1 rounded-md outline-none hover:opacity-90 focus-visible:ring-2 focus-visible:ring-ring"
               onClick={() => dismiss(t.id)}
             >
-              <p className="text-sm font-semibold text-foreground">{t.title}</p>
-              <p className="mt-0.5 text-xs leading-snug text-muted-foreground">{t.body}</p>
+              <p className="text-sm font-semibold text-foreground">
+                {rewriteIsoDatesInText(t.title)}
+              </p>
+              <p className="mt-0.5 text-xs leading-snug text-muted-foreground">
+                {rewriteIsoDatesInText(t.body)}
+              </p>
               <span className="mt-1 inline-block text-xs font-medium text-primary underline-offset-2 hover:underline">
                 Открыть
               </span>

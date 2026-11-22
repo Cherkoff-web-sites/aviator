@@ -39,23 +39,16 @@ export const ADMIN_NAV_MAIN: AdminNavMainItem[] = [
     iconSlot: 'nav_prices_promos',
   },
   {
-    title: 'Настройка графика работы',
-    to: '/admin/schedule-settings',
-    iconSrc: icon('nav_schedule_settings'),
-    iconSlot: 'nav_schedule_settings',
-  },
-  {
     title: 'Управление аккаунтами',
     to: '/admin/accounts',
     iconSrc: icon('nav_accounts'),
     iconSlot: 'nav_accounts',
   },
-  { title: 'Аналитика', to: '/admin/analytics', iconSrc: icon('nav_analytics'), iconSlot: 'nav_analytics' },
   {
-    title: 'Обратная связь',
-    to: '/admin/feedback',
-    iconSrc: icon('nav_home'),
-    iconSlot: 'nav_feedback',
+    title: 'Настройка графика работы',
+    to: '/admin/schedule-settings',
+    iconSrc: icon('nav_schedule_settings'),
+    iconSlot: 'nav_schedule_settings',
   },
   {
     title: 'Управление активными записями',
@@ -63,6 +56,14 @@ export const ADMIN_NAV_MAIN: AdminNavMainItem[] = [
     iconSrc: icon('nav_maintenance'),
     iconSlot: 'nav_maintenance',
   },
+  { title: 'Аналитика', to: '/admin/analytics', iconSrc: icon('nav_analytics'), iconSlot: 'nav_analytics' },
 ]
+
+export const ADMIN_NAV_FEEDBACK = {
+  title: 'Обратная связь',
+  url: '/admin/feedback',
+  iconSrc: icon('nav_home'),
+  iconSlot: 'nav_feedback',
+} as const
 
 export const ADMIN_NAV_SETTINGS_ICON = icon('nav_settings')

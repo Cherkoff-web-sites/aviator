@@ -63,15 +63,23 @@ export type StaffShift = {
   createdAt: string
 }
 
-/** Цвет бланка: Boeing — silver/turquoise/gold/navy; Ми-2 — coral/emerald; combo — lilac. */
-export type CertificateDesignColor =
-  | 'silver'
-  | 'turquoise'
-  | 'gold'
-  | 'navy'
-  | 'coral'
-  | 'emerald'
-  | 'lilac'
+/** Ключ вида бланка (раньше фиксированный enum; теперь настраивается). */
+export type CertificateDesignColor = string
+
+/** Вид сертификата: тренажёр + цвет бланка + буква серии в номере. */
+export type CertificateDesign = {
+  id: string
+  /** Технический ключ (silver, custom-1…) — пишется в certificate.designColor */
+  key: string
+  label: string
+  /** Неизменная буква серии в номере: №S123456 */
+  code: string
+  simulatorSlug: string
+  swatch: string
+  rowBg: string
+  sortOrder: number
+  active: boolean
+}
 
 export type Certificate = {
   id: string
@@ -116,6 +124,8 @@ export type Promo = {
   discountPercent: number
   startDate: string
   endDate: string
+  /** Без даты окончания (endDate игнорируется / далеко в будущем) */
+  indefinite?: boolean
   productType: string
   promoType: 'BIRTHDAY' | 'HAPPY_HOURS' | 'CUSTOM'
   active: boolean
@@ -161,6 +171,8 @@ export type FeedbackRequest = {
   phone: string
   message: string
   createdAt: string
+  /** userId → когда прочитано (как у уведомлений) */
+  readBy?: Record<string, string>
 }
 
 export type AppLogEntry = {
@@ -300,12 +312,19 @@ export type DataStore = {
   workHours: WorkHourEntry[]
   maintenance: MaintenanceEntry[]
   optionLists: Record<string, OptionItem[]>
+  /** Виды бланков сертификатов (цвет, буква серии, привязка к тренажёру). */
+  certificateDesigns?: CertificateDesign[]
   settings: {
     bookingWindowMonths: number
     /** Пауза между полётами на одном тренажёре, минут (по умолчанию 15). */
     bookingGapMin?: number
     /** Соцсети футера: label → url */
     footerSocialLinks?: Record<string, string>
+    /**
+     * Демо-override «текущего времени» (ISO).
+     * Если задано — статусы/подтверждения/автозавершение смотрят на него, а не на часы сервера.
+     */
+    demoNowIso?: string | null
   }
   counters: { certificate: number }
   pendingCodes: { bookingId: string; code: string; expiresAt: string; sentAt: string }[]

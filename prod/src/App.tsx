@@ -20,6 +20,7 @@ import AdminMaintenancePage from './pages/admin/AdminMaintenancePage'
 import AdminPricesPromosPage from './pages/admin/AdminPricesPromosPage'
 import AdminSectionPage from './pages/admin/AdminSectionPage'
 import AdminSettingsPage from './pages/admin/AdminSettingsPage'
+import AdminSiteMediaPage from './pages/admin/AdminSiteMediaPage'
 import AdminStaffSchedulePage from './pages/admin/AdminStaffSchedulePage'
 import AdminScheduleSettingsPage from './pages/admin/AdminScheduleSettingsPage'
 import AdminWaitingRoomPage from './pages/admin/AdminWaitingRoomPage'
@@ -57,6 +58,7 @@ function App() {
                 <Route path="/admin" element={<AdminLayout />}>
                   <Route index element={<AdminDashboardPage />} />
                   <Route path="settings" element={<AdminSettingsPage />} />
+                  <Route path="settings/media" element={<AdminSiteMediaPage />} />
                   <Route path="certificates" element={<AdminCertificatesPage />} />
                   <Route path="staff-schedule" element={<AdminStaffSchedulePage />} />
                   <Route path="waiting-room" element={<AdminWaitingRoomPage />} />
@@ -81,7 +83,6 @@ function App() {
                       item.to !== '/admin/accounts' &&
                       item.to !== '/admin/maintenance' &&
                       item.to !== '/admin/analytics' &&
-                      item.to !== '/admin/feedback' &&
                       item.to !== '/admin/pilot-hours',
                   ).map((item) => (
                     <Route

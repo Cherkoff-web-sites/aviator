@@ -1,4 +1,5 @@
 import type { DataStore, MaintenanceEntry } from '../types.js'
+import { formatDisplayDate } from './display-date.js'
 
 function timeToMins(t: string): number {
   const [h, m] = t.split(':').map(Number)
@@ -65,5 +66,5 @@ export function formatMaintenanceLabel(m: MaintenanceEntry): string {
   const sim =
     m.simulatorSlug === 'mi-2' ? 'Ми-2' : m.simulatorSlug === 'boeing-737' ? 'Boeing 737' : 'все тренажёры'
   const when = isFullDayMaintenance(m) ? 'весь день' : `${m.startTime}–${m.endTime}`
-  return `${m.date} · ${sim} · ${when}`
+  return `${formatDisplayDate(m.date)} · ${sim} · ${when}`
 }

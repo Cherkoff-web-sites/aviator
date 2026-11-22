@@ -1,6 +1,5 @@
 import * as React from 'react'
 import {
-  addDays,
   addMonths,
   eachDayOfInterval,
   endOfMonth,
@@ -35,6 +34,7 @@ import { apiFetch, type AdminUser, type ApiStaffShift } from '@/lib/api'
 import { useAdminAuth } from '@/contexts/AdminAuthContext'
 import { useAdminUndo } from '@/contexts/AdminUndoContext'
 import { canEditStaffShift } from '@/lib/admin-access'
+import { formatAdminDate } from '@/lib/admin-date'
 import { cn } from '@/lib/utils'
 
 type Vehicle = 'plane' | 'helicopter'
@@ -356,8 +356,10 @@ export default function AdminStaffSchedulePage() {
   const title = format(viewMonth, 'LLLL yyyy', { locale: ru })
   const titleCased = title.replace(/^(.)/, (c) => c.toUpperCase())
 
+  const isPilot = session?.role === 'PILOT'
   const anchorMonth = startOfMonth(new Date())
-  const minMonth = subMonths(anchorMonth, 4)
+  // Пилот: текущий месяц … +2; админ/менеджер: −4 … +2
+  const minMonth = isPilot ? anchorMonth : subMonths(anchorMonth, 4)
   const maxMonth = addMonths(anchorMonth, 2)
   const canGoPrev = startOfMonth(viewMonth) > minMonth
   const canGoNext = startOfMonth(viewMonth) < maxMonth
@@ -500,94 +502,71 @@ export default function AdminStaffSchedulePage() {
         </Button>
       </div>
 
-      {/* Пилот: 3 ближайших дня без горизонтального скролла */}
-      {session?.role === 'PILOT' ? (
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-          {[0, 1, 2].map((offset) => {
-            const day = addDays(startOfToday(), offset)
-            const key = dateKey(day)
-            const shifts = shiftsByDate.get(key) ?? []
-            return (
-              <DayCard
-                key={key}
-                day={day}
-                displayMonth={day}
-                shifts={shifts}
-                expanded
-                onToggleExpand={() => {}}
-                onAddDay={() => {}}
-                onRequestDelete={setDeleteTarget}
-                highlightId={highlightId}
-              />
-            )
-          })}
-        </div>
-      ) : (
-        <div className="overflow-x-auto md:overflow-visible">
-          <div className="min-w-0 space-y-3 md:min-w-0">
-            <div className="hidden grid-cols-7 gap-2 px-0.5 md:grid">
-              {WEEKDAY_LABELS.map((w) => (
-                <div
-                  key={w}
-                  className="px-1 text-center text-[11px] font-medium uppercase tracking-wide text-muted-foreground"
-                >
-                  {w}
-                </div>
-              ))}
-            </div>
+      {/* Месячный календарь (пилот и админ): стрелки листают месяцы */}
+      <div className="overflow-x-auto md:overflow-visible">
+        <div className="min-w-0 space-y-3 md:min-w-0">
+          <div className="hidden grid-cols-7 gap-2 px-0.5 md:grid">
+            {WEEKDAY_LABELS.map((w) => (
+              <div
+                key={w}
+                className="px-1 text-center text-[11px] font-medium uppercase tracking-wide text-muted-foreground"
+              >
+                {w}
+              </div>
+            ))}
+          </div>
 
-            {/* Mobile manager: вертикальный список дней месяца без min-width scroll */}
-            <div className="flex flex-col gap-2 md:hidden">
-              {weeks.flat().map((day) => {
-                if (!isSameMonth(day, viewMonth)) return null
-                const key = dateKey(day)
-                const shifts = shiftsByDate.get(key) ?? []
-                return (
-                  <DayCard
-                    key={key}
-                    day={day}
-                    displayMonth={viewMonth}
-                    shifts={shifts}
-                    expanded={!!expandedByKey[key] || shifts.length > 0}
-                    onToggleExpand={() =>
-                      setExpandedByKey((prev) => ({ ...prev, [key]: !prev[key] }))
-                    }
-                    onAddDay={() => tryAddDay(key)}
-                    onRequestDelete={setDeleteTarget}
-                    highlightId={highlightId}
-                  />
-                )
-              })}
-            </div>
+          {/* Mobile: вертикальный список дней месяца */}
+          <div className="flex flex-col gap-2 md:hidden">
+            {weeks.flat().map((day) => {
+              if (!isSameMonth(day, viewMonth)) return null
+              const key = dateKey(day)
+              const shifts = shiftsByDate.get(key) ?? []
+              return (
+                <DayCard
+                  key={key}
+                  day={day}
+                  displayMonth={viewMonth}
+                  shifts={shifts}
+                  expanded={!!expandedByKey[key] || shifts.length > 0 || isPilot}
+                  onToggleExpand={() =>
+                    setExpandedByKey((prev) => ({ ...prev, [key]: !prev[key] }))
+                  }
+                  onAddDay={() => tryAddDay(key)}
+                  onRequestDelete={setDeleteTarget}
+                  highlightId={highlightId}
+                />
+              )
+            })}
+          </div>
 
-            <div className="hidden md:block">
-              {weeks.map((week) => (
-                <div key={dateKey(week[0])} className="mb-2 grid grid-cols-7 gap-2">
-                  {week.map((day) => {
-                    const key = dateKey(day)
-                    const shifts = shiftsByDate.get(key) ?? []
-                    return (
-                      <DayCard
-                        key={key}
-                        day={day}
-                        displayMonth={viewMonth}
-                        shifts={shifts}
-                        expanded={!!expandedByKey[key]}
-                        onToggleExpand={() =>
-                          setExpandedByKey((prev) => ({ ...prev, [key]: !prev[key] }))
-                        }
-                        onAddDay={() => tryAddDay(key)}
-                        onRequestDelete={setDeleteTarget}
-                        highlightId={highlightId}
-                      />
-                    )
-                  })}
-                </div>
-              ))}
-            </div>
+          <div className="hidden md:block">
+            {weeks.map((week) => (
+              <div key={dateKey(week[0])} className="mb-2 grid grid-cols-7 gap-2">
+                {week.map((day) => {
+                  const key = dateKey(day)
+                  const shifts = shiftsByDate.get(key) ?? []
+                  return (
+                    <DayCard
+                      key={key}
+                      day={day}
+                      displayMonth={viewMonth}
+                      shifts={shifts}
+                      expanded={!!expandedByKey[key] || (isPilot && shifts.length > 0)}
+                      onToggleExpand={() =>
+                        setExpandedByKey((prev) => ({ ...prev, [key]: !prev[key] }))
+                      }
+                      onAddDay={() => tryAddDay(key)}
+                      onRequestDelete={setDeleteTarget}
+                      highlightId={highlightId}
+                    />
+                  )
+                })}
+              </div>
+            ))}
           </div>
         </div>
-      )}
+      </div>
 
       <div className="flex flex-wrap items-center gap-4 text-xs text-muted-foreground">
         <span className="inline-flex items-center gap-1.5">
@@ -619,7 +598,7 @@ export default function AdminStaffSchedulePage() {
         title="Удалить смену?"
         description={
           deleteTarget
-            ? `Смена «${deleteTarget.name}» на ${deleteTarget.date} будет удалена. Действие можно отменить вверху страницы.`
+            ? `Смена «${deleteTarget.name}» на ${formatAdminDate(deleteTarget.date)} будет удалена. Действие можно отменить вверху страницы.`
             : undefined
         }
         confirmLabel="Удалить"

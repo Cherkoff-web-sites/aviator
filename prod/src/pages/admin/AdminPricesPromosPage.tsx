@@ -24,15 +24,21 @@ import { useAdminAuth } from '@/contexts/AdminAuthContext'
 import { useAdminUndo } from '@/contexts/AdminUndoContext'
 import { canEditBookings } from '@/lib/admin-access'
 import { labelOf, PROMO_TYPE_OPTIONS, SIMULATOR_OPTIONS } from '@/lib/admin-labels'
-import { durationsForSimulator, FLIGHT_DURATIONS, MI2_MAX_DURATION_MIN } from '@/lib/flight-durations'
+import { formatAdminDate } from '@/lib/admin-date'
+import {
+  clampDurationChoice,
+  durationChoicesFromList,
+  filterDurationChoicesForSimulator,
+  simulatorChoicesFromList,
+  type DurationChoice,
+  type OptionListRow,
+  type SimulatorChoice,
+} from '@/lib/option-list-utils'
+import { SiteDateInput } from '@/components/ui/site-date-input'
 
-/** Варианты для графы «Продукт» в акциях. */
-const PROMO_PRODUCT_OPTIONS = SIMULATOR_OPTIONS.map((o) => ({
-  id: o.value,
-  label: o.label,
-}))
+type PromoProductOption = { id: string; label: string }
 
-function parseProductType(raw: string): string[] {
+function parseProductType(raw: string, options: PromoProductOption[]): string[] {
   const parts = raw
     .split(/[,;]/)
     .map((s) => s.trim())
@@ -40,11 +46,16 @@ function parseProductType(raw: string): string[] {
   const ids: string[] = []
   for (const part of parts) {
     const lower = part.toLowerCase().replace(/\s+/g, ' ')
-    const hit = PROMO_PRODUCT_OPTIONS.find((o) => {
+    const hit = options.find((o) => {
       const label = o.label.toLowerCase()
-      if (lower === label) return true
+      if (lower === label || lower === o.id) return true
       if (o.id === 'boeing-737' && (lower.includes('boeing') || lower.includes('737'))) return true
       if (o.id === 'mi-2' && (lower.includes('ми-2') || lower.includes('mi-2') || lower === 'mi2'))
+        return true
+      if (
+        o.id === 'combo' &&
+        (lower.includes('combo') || lower.includes('2в1') || lower.includes('+'))
+      )
         return true
       return false
     })
@@ -53,9 +64,9 @@ function parseProductType(raw: string): string[] {
   return ids
 }
 
-function formatProductType(ids: string[]): string {
+function formatProductType(ids: string[], options: PromoProductOption[]): string {
   return ids
-    .map((id) => PROMO_PRODUCT_OPTIONS.find((o) => o.id === id)?.label)
+    .map((id) => options.find((o) => o.id === id)?.label)
     .filter(Boolean)
     .join(', ')
 }
@@ -64,20 +75,22 @@ function ProductTypeMultiSelect({
   value,
   onChange,
   disabled,
+  options,
 }: {
   value: string
   onChange: (next: string) => void
   disabled?: boolean
+  options: PromoProductOption[]
 }) {
-  const selected = React.useMemo(() => parseProductType(value), [value])
+  const selected = React.useMemo(() => parseProductType(value, options), [value, options])
 
   const toggle = (id: string) => {
     const next = selected.includes(id) ? selected.filter((x) => x !== id) : [...selected, id]
-    onChange(formatProductType(next))
+    onChange(formatProductType(next, options))
   }
 
   const remove = (id: string) => {
-    onChange(formatProductType(selected.filter((x) => x !== id)))
+    onChange(formatProductType(selected.filter((x) => x !== id), options))
   }
 
   if (disabled) {
@@ -88,7 +101,7 @@ function ProductTypeMultiSelect({
     <div className="flex min-w-[180px] max-w-[280px] flex-col gap-1.5">
       <div className="flex flex-wrap gap-1">
         {selected.map((id) => {
-          const label = PROMO_PRODUCT_OPTIONS.find((o) => o.id === id)?.label ?? id
+          const label = options.find((o) => o.id === id)?.label ?? id
           return (
             <span
               key={id}
@@ -118,7 +131,7 @@ function ProductTypeMultiSelect({
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="start" className="w-48">
-          {PROMO_PRODUCT_OPTIONS.map((o) => (
+          {options.map((o) => (
             <DropdownMenuCheckboxItem
               key={o.id}
               checked={selected.includes(o.id)}
@@ -136,16 +149,33 @@ function ProductTypeMultiSelect({
 
 function EditablePriceTable({
   title,
+  description,
   rows,
   onSave,
   canEdit,
   defaultSlug = 'boeing-737',
+  defaultDurationMin = 30,
+  defaultPriceByn = 170,
+  simulatorOptions = [...SIMULATOR_OPTIONS],
+  durationChoices = durationChoicesFromList(null),
+  lockSimulator = false,
+  showCta = true,
 }: {
   title: string
+  description?: string
   rows: ApiPriceRow[]
   onSave: (rows: ApiPriceRow[], previous: ApiPriceRow[]) => Promise<void>
   canEdit: boolean
   defaultSlug?: string
+  defaultDurationMin?: number
+  defaultPriceByn?: number
+  simulatorOptions?: readonly SimulatorChoice[]
+  /** Длительности из «Списки для форм» */
+  durationChoices?: readonly DurationChoice[]
+  /** Нельзя менять тренажёр (для отдельной таблицы комбо) */
+  lockSimulator?: boolean
+  /** Колонка CTA (highlighted) — нужна для полётов, на сертификатах бесполезна */
+  showCta?: boolean
 }) {
   const [local, setLocal] = React.useState(rows)
   const [deleteId, setDeleteId] = React.useState<string | null>(null)
@@ -155,11 +185,21 @@ function EditablePriceTable({
 
   const dirty = JSON.stringify(local) !== JSON.stringify(rows)
   const deleteRow = local.find((r) => r.id === deleteId)
+  const slugLabel = (slug: string) => labelOf(simulatorOptions, slug, slug)
+  const durationsForSlug = (slug: string) =>
+    filterDurationChoicesForSimulator([...durationChoices], slug)
 
   const addRow = () => {
+    const allowed = durationsForSlug(defaultSlug)
     setLocal((prev) => [
       ...prev,
-      { id: `row-${Date.now()}`, durationMin: 30, simulatorSlug: defaultSlug, priceByn: 170 },
+      {
+        id: `row-${Date.now()}`,
+        durationMin: clampDurationChoice(allowed, defaultDurationMin),
+        simulatorSlug: defaultSlug,
+        priceByn: defaultPriceByn,
+        highlighted: defaultSlug === 'combo',
+      },
     ])
   }
 
@@ -181,9 +221,14 @@ function EditablePriceTable({
 
   return (
     <Card className="border-border/80 shadow-sm">
-      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-4 pt-6">
-        <CardTitle className="text-base font-semibold">{title}</CardTitle>
-        <div className="flex gap-2">
+      <CardHeader className="flex flex-row items-start justify-between space-y-0 gap-3 pb-4 pt-6">
+        <div className="min-w-0 space-y-1">
+          <CardTitle className="text-base font-semibold">{title}</CardTitle>
+          {description ? (
+            <p className="text-sm font-normal text-muted-foreground">{description}</p>
+          ) : null}
+        </div>
+        <div className="flex shrink-0 gap-2">
           {canEdit ? (
             <>
               <Button type="button" variant="outline" size="sm" className="gap-1" onClick={addRow}>
@@ -192,7 +237,7 @@ function EditablePriceTable({
               </Button>
               <Button
                 type="button"
-                variant="secondary"
+                variant={dirty ? 'default' : 'secondary'}
                 size="sm"
                 disabled={!dirty}
                 onClick={() => setSaveOpen(true)}
@@ -210,117 +255,130 @@ function EditablePriceTable({
               <TableRow>
                 <TableHead>Минуты</TableHead>
                 <TableHead>Тренажёр</TableHead>
-                <TableHead>CTA</TableHead>
+                {showCta ? <TableHead>CTA</TableHead> : null}
                 <TableHead>Цена BYN</TableHead>
                 {canEdit ? <TableHead className="w-10" /> : null}
               </TableRow>
             </TableHeader>
             <TableBody>
-              {local.map((r, i) => (
-                <TableRow key={r.id}>
-                  <TableCell>
-                    {canEdit ? (
-                      <select
-                        className="h-8 rounded-md border bg-background px-2 text-sm"
-                        value={r.durationMin}
-                        onChange={(e) => {
-                          const next = [...local]
-                          next[i] = { ...r, durationMin: Number(e.target.value) }
-                          setLocal(next)
-                        }}
-                      >
-                        {(r.simulatorSlug === 'mi-2'
-                          ? durationsForSimulator('mi-2')
-                          : FLIGHT_DURATIONS
-                        ).map((d) => (
-                          <option key={d} value={d}>
-                            {d}
-                          </option>
-                        ))}
-                      </select>
-                    ) : (
-                      r.durationMin
-                    )}
+              {local.length === 0 ? (
+                <TableRow>
+                  <TableCell
+                    colSpan={(canEdit ? 4 : 3) + (showCta ? 1 : 0)}
+                    className="h-16 text-center text-sm text-muted-foreground"
+                  >
+                    Нет тарифов. {canEdit ? 'Нажмите «Добавить».' : null}
                   </TableCell>
-                  <TableCell>
-                    {canEdit ? (
-                      <select
-                        className="h-8 w-full rounded-md border bg-background px-2 text-sm"
-                        value={r.simulatorSlug}
-                        onChange={(e) => {
-                          const simulatorSlug = e.target.value
-                          const next = [...local]
-                          let durationMin = r.durationMin
-                          if (simulatorSlug === 'mi-2' && durationMin > MI2_MAX_DURATION_MIN) {
-                            durationMin = MI2_MAX_DURATION_MIN
-                          }
-                          next[i] = { ...r, simulatorSlug, durationMin }
-                          setLocal(next)
-                        }}
-                      >
-                        <option value="boeing-737">boeing-737</option>
-                        <option value="mi-2">mi-2</option>
-                        {title.toLowerCase().includes('сертификат') ? (
-                          <option value="combo">Boeing + Ми-2</option>
-                        ) : null}
-                      </select>
-                    ) : (
-                      r.simulatorSlug
-                    )}
-                  </TableCell>
-                  <TableCell>
-                    {canEdit ? (
-                      <input
-                        type="checkbox"
-                        className="size-4 accent-primary"
-                        checked={!!r.highlighted}
-                        title="Тариф по умолчанию (CTA) на сайте"
-                        onChange={(e) => {
-                          const next = local.map((row, j) =>
-                            row.simulatorSlug === r.simulatorSlug
-                              ? { ...row, highlighted: j === i ? e.target.checked : false }
-                              : row,
-                          )
-                          setLocal(next)
-                        }}
-                      />
-                    ) : r.highlighted ? (
-                      'да'
-                    ) : (
-                      '—'
-                    )}
-                  </TableCell>
-                  <TableCell>
-                    {canEdit ? (
-                      <Input
-                        type="number"
-                        className="h-8 w-24"
-                        value={r.priceByn}
-                        onChange={(e) => {
-                          const next = [...local]
-                          next[i] = { ...r, priceByn: Number(e.target.value) }
-                          setLocal(next)
-                        }}
-                      />
-                    ) : (
-                      r.priceByn
-                    )}
-                  </TableCell>
-                  {canEdit ? (
-                    <TableCell>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        className="size-8 text-destructive"
-                        onClick={() => setDeleteId(r.id)}
-                      >
-                        <Trash2 className="size-4" />
-                      </Button>
-                    </TableCell>
-                  ) : null}
                 </TableRow>
-              ))}
+              ) : (
+                local.map((r, i) => (
+                  <TableRow key={r.id}>
+                    <TableCell>
+                      {canEdit ? (
+                        <select
+                          className="h-8 rounded-md border bg-background px-2 text-sm"
+                          value={r.durationMin}
+                          onChange={(e) => {
+                            const next = [...local]
+                            next[i] = { ...r, durationMin: Number(e.target.value) }
+                            setLocal(next)
+                          }}
+                        >
+                          {durationsForSlug(r.simulatorSlug).map((d) => (
+                            <option key={d.value} value={d.value}>
+                              {d.label}
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        r.durationMin
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      {canEdit && !lockSimulator ? (
+                        <select
+                          className="h-8 w-full rounded-md border bg-background px-2 text-sm"
+                          value={r.simulatorSlug}
+                          onChange={(e) => {
+                            const simulatorSlug = e.target.value
+                            const next = [...local]
+                            next[i] = {
+                              ...r,
+                              simulatorSlug,
+                              durationMin: clampDurationChoice(
+                                durationsForSlug(simulatorSlug),
+                                r.durationMin,
+                              ),
+                            }
+                            setLocal(next)
+                          }}
+                        >
+                          {simulatorOptions.map((o) => (
+                            <option key={o.value} value={o.value}>
+                              {o.label}
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        slugLabel(r.simulatorSlug)
+                      )}
+                    </TableCell>
+                    {showCta ? (
+                      <TableCell>
+                        {canEdit ? (
+                          <input
+                            type="checkbox"
+                            className="size-4 accent-primary"
+                            checked={!!r.highlighted}
+                            title="Тариф по умолчанию (CTA) на сайте"
+                            onChange={(e) => {
+                              const next = local.map((row, j) =>
+                                row.simulatorSlug === r.simulatorSlug
+                                  ? { ...row, highlighted: j === i ? e.target.checked : false }
+                                  : row,
+                              )
+                              setLocal(next)
+                            }}
+                          />
+                        ) : r.highlighted ? (
+                          'да'
+                        ) : (
+                          '—'
+                        )}
+                      </TableCell>
+                    ) : null}
+                    <TableCell>
+                      {canEdit ? (
+                        <Input
+                          type="number"
+                          className="h-8 w-24"
+                          value={r.priceByn}
+                          onChange={(e) => {
+                            const next = [...local]
+                            next[i] = { ...r, priceByn: Number(e.target.value) }
+                            setLocal(next)
+                          }}
+                        />
+                      ) : (
+                        r.priceByn
+                      )}
+                    </TableCell>
+                    {canEdit ? (
+                      <TableCell>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="size-8 text-destructive"
+                          onClick={() => setDeleteId(r.id)}
+                        >
+                          <Trash2 className="size-4" />
+                        </Button>
+                      </TableCell>
+                    ) : null}
+                  </TableRow>
+                ))
+              )}
             </TableBody>
           </Table>
         </div>
@@ -331,7 +389,7 @@ function EditablePriceTable({
         title="Удалить строку цены?"
         description={
           deleteRow
-            ? `${deleteRow.simulatorSlug}, ${deleteRow.durationMin} мин — ${deleteRow.priceByn} BYN. После сохранения изменения можно отменить вверху страницы.`
+            ? `${slugLabel(deleteRow.simulatorSlug)}, ${deleteRow.durationMin} мин — ${deleteRow.priceByn} BYN. После сохранения изменения можно отменить вверху страницы.`
             : undefined
         }
         confirmLabel="Удалить"
@@ -370,9 +428,54 @@ export default function AdminPricesPromosPage() {
     () => apiFetch<ApiPromo[]>('/api/admin/promos'),
     [],
   )
+  const { data: optionLists } = useLiveData(
+    () =>
+      apiFetch<{
+        duration: OptionListRow[]
+        simulator: OptionListRow[]
+        cert_duration: OptionListRow[]
+        cert_simulator: OptionListRow[]
+      }>('/api/admin/settings/option-lists'),
+    [],
+  )
   const flightPrices = flightPricesData ?? []
   const certPrices = certPricesData ?? []
   const promos = promosData ?? []
+  const comboCertPrices = React.useMemo(
+    () => certPrices.filter((r) => r.simulatorSlug === 'combo'),
+    [certPrices],
+  )
+  const singleCertPrices = React.useMemo(
+    () => certPrices.filter((r) => r.simulatorSlug !== 'combo'),
+    [certPrices],
+  )
+  const flightDurationChoices = React.useMemo(
+    () => durationChoicesFromList(optionLists?.duration),
+    [optionLists],
+  )
+  const certDurationChoices = React.useMemo(
+    () => durationChoicesFromList(optionLists?.cert_duration ?? optionLists?.duration),
+    [optionLists],
+  )
+  const flightSimOptions = React.useMemo(
+    () =>
+      simulatorChoicesFromList(optionLists?.simulator, [...SIMULATOR_OPTIONS]).filter(
+        (s) => s.value !== 'combo',
+      ),
+    [optionLists],
+  )
+  const certSimOptions = React.useMemo(
+    () =>
+      simulatorChoicesFromList(optionLists?.cert_simulator, [
+        ...SIMULATOR_OPTIONS,
+        { value: 'combo', label: 'Boeing + Ми-2' },
+      ]),
+    [optionLists],
+  )
+  const promoProductOptions = React.useMemo<PromoProductOption[]>(
+    () => flightSimOptions.map((o) => ({ id: o.value, label: o.label })),
+    [flightSimOptions],
+  )
 
   const [promoLocal, setPromoLocal] = React.useState(promos)
   const [promoSaveOpen, setPromoSaveOpen] = React.useState(false)
@@ -381,13 +484,36 @@ export default function AdminPricesPromosPage() {
 
   const promoDirty = JSON.stringify(promoLocal) !== JSON.stringify(promos)
 
+  const saveCertPrices = async (rows: ApiPriceRow[], previous: ApiPriceRow[], label: string) => {
+    await apiFetch('/api/admin/prices/certificates', {
+      method: 'PUT',
+      body: JSON.stringify({ rows }),
+    })
+    pushUndo({
+      label,
+      run: async () => {
+        await apiFetch('/api/admin/prices/certificates', {
+          method: 'PUT',
+          body: JSON.stringify({ rows: previous }),
+        })
+        void r2()
+      },
+    })
+    void r2()
+  }
+
   const savePromos = async () => {
     setPromoBusy(true)
     try {
       const previous = promos.map((p) => ({ ...p }))
+      const rows = promoLocal.map((p) => ({
+        ...p,
+        indefinite: Boolean(p.indefinite),
+        endDate: p.indefinite ? '9999-12-31' : p.endDate,
+      }))
       await apiFetch('/api/admin/promos', {
         method: 'PUT',
-        body: JSON.stringify({ rows: promoLocal }),
+        body: JSON.stringify({ rows }),
       })
       pushUndo({
         label: 'Отменить сохранение акций',
@@ -410,8 +536,11 @@ export default function AdminPricesPromosPage() {
     <div className="flex flex-col gap-6">
       <EditablePriceTable
         title="Цены — Ми-2 / B737"
+        description="Тарифы отдельных тренажёров на странице «Цены» и в бронировании. Минуты и названия — из «Настройки → Списки для форм»."
         rows={flightPrices}
         canEdit={canEdit}
+        simulatorOptions={flightSimOptions}
+        durationChoices={flightDurationChoices}
         onSave={async (rows, previous) => {
           await apiFetch('/api/admin/prices/flights', {
             method: 'PUT',
@@ -431,26 +560,36 @@ export default function AdminPricesPromosPage() {
         }}
       />
       <EditablePriceTable
-        title="Цены на сертификаты"
-        rows={certPrices}
+        title="Boeing + Ми-2"
+        description="Цена блока «2в1» на странице «Цены» и сертификата на оба тренажёра (30 + 30 мин)."
+        rows={comboCertPrices}
         canEdit={canEdit}
         defaultSlug="combo"
-        onSave={async (rows, previous) => {
-          await apiFetch('/api/admin/prices/certificates', {
-            method: 'PUT',
-            body: JSON.stringify({ rows }),
-          })
-          pushUndo({
-            label: 'Отменить сохранение цен сертификатов',
-            run: async () => {
-              await apiFetch('/api/admin/prices/certificates', {
-                method: 'PUT',
-                body: JSON.stringify({ rows: previous }),
-              })
-              void r2()
-            },
-          })
-          void r2()
+        defaultDurationMin={60}
+        defaultPriceByn={370}
+        lockSimulator
+        showCta={false}
+        simulatorOptions={certSimOptions}
+        durationChoices={certDurationChoices}
+        onSave={async (comboRows, previousCombo) => {
+          const next = [...singleCertPrices, ...comboRows]
+          const previous = [...singleCertPrices, ...previousCombo]
+          await saveCertPrices(next, previous, 'Отменить сохранение цены комбо')
+        }}
+      />
+      <EditablePriceTable
+        title="Цены на сертификаты"
+        description="Сертификаты на один тренажёр. Boeing + Ми-2 редактируется в блоке выше."
+        rows={singleCertPrices}
+        canEdit={canEdit}
+        defaultSlug="boeing-737"
+        showCta={false}
+        simulatorOptions={flightSimOptions}
+        durationChoices={certDurationChoices}
+        onSave={async (rows, previousSingle) => {
+          const next = [...rows, ...comboCertPrices]
+          const previous = [...previousSingle, ...comboCertPrices]
+          await saveCertPrices(next, previous, 'Отменить сохранение цен сертификатов')
         }}
       />
       <Card className="border-border/80 shadow-sm">
@@ -459,7 +598,7 @@ export default function AdminPricesPromosPage() {
           {canEdit ? (
             <Button
               type="button"
-              variant="secondary"
+              variant={promoDirty ? 'default' : 'secondary'}
               size="sm"
               disabled={!promoDirty}
               onClick={() => setPromoSaveOpen(true)}
@@ -476,6 +615,7 @@ export default function AdminPricesPromosPage() {
                   <TableHead>Название</TableHead>
                   <TableHead>Скидка %</TableHead>
                   <TableHead>Период</TableHead>
+                  <TableHead>Бессрочно</TableHead>
                   <TableHead>Продукт</TableHead>
                   <TableHead>Тип</TableHead>
                   <TableHead>Активна</TableHead>
@@ -517,34 +657,71 @@ export default function AdminPricesPromosPage() {
                     </TableCell>
                     <TableCell>
                       {canEdit ? (
-                        <div className="flex gap-2">
-                          <Input
+                        <div className="flex flex-wrap items-center gap-2">
+                          <SiteDateInput
                             className="h-8 w-32"
                             value={p.startDate}
-                            onChange={(e) => {
+                            onValueChange={(startDate) => {
                               const n = [...promoLocal]
-                              n[i] = { ...p, startDate: e.target.value }
+                              n[i] = { ...p, startDate }
                               setPromoLocal(n)
                             }}
                           />
-                          <Input
-                            className="h-8 w-32"
-                            value={p.endDate}
-                            onChange={(e) => {
-                              const n = [...promoLocal]
-                              n[i] = { ...p, endDate: e.target.value }
-                              setPromoLocal(n)
-                            }}
-                          />
+                          {p.indefinite ? (
+                            <span className="text-xs text-muted-foreground">— бессрочно</span>
+                          ) : (
+                            <SiteDateInput
+                              className="h-8 w-32"
+                              value={p.endDate === '9999-12-31' ? '' : p.endDate}
+                              onValueChange={(endDate) => {
+                                const n = [...promoLocal]
+                                n[i] = { ...p, endDate, indefinite: false }
+                                setPromoLocal(n)
+                              }}
+                            />
+                          )}
                         </div>
+                      ) : p.indefinite ? (
+                        `${formatAdminDate(p.startDate)} — бессрочно`
                       ) : (
-                        `${p.startDate} — ${p.endDate}`
+                        `${formatAdminDate(p.startDate)} — ${formatAdminDate(p.endDate)}`
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      {canEdit ? (
+                        <label className="inline-flex items-center gap-2 text-sm">
+                          <input
+                            type="checkbox"
+                            className="size-4 accent-primary"
+                            checked={Boolean(p.indefinite)}
+                            onChange={(e) => {
+                              const indefinite = e.target.checked
+                              const n = [...promoLocal]
+                              n[i] = {
+                                ...p,
+                                indefinite,
+                                endDate: indefinite
+                                  ? '9999-12-31'
+                                  : p.endDate === '9999-12-31'
+                                    ? p.startDate
+                                    : p.endDate,
+                              }
+                              setPromoLocal(n)
+                            }}
+                          />
+                          <span className="sr-only">Бессрочно</span>
+                        </label>
+                      ) : p.indefinite ? (
+                        'Да'
+                      ) : (
+                        'Нет'
                       )}
                     </TableCell>
                     <TableCell className="align-top">
                       <ProductTypeMultiSelect
                         value={p.productType}
                         disabled={!canEdit}
+                        options={promoProductOptions}
                         onChange={(productType) => {
                           const n = [...promoLocal]
                           n[i] = { ...p, productType }

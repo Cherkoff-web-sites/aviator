@@ -1,5 +1,5 @@
 import { addMonths, format, getDay, parseISO, startOfDay, subMonths } from 'date-fns'
-import { format as fmtDate } from 'date-fns'
+import { getStoreNow } from './clock.js'
 import type { CalendarDayStatus, DataStore, UserRole } from '../types.js'
 
 export function toDateKey(d: Date | string) {
@@ -59,15 +59,56 @@ export function timeToMinsLocal(t: string): number {
   return (h ?? 0) * 60 + (m ?? 0)
 }
 
-/** IN_PROGRESS → DONE, если дата/время окончания уже прошли. */
+/** Создать смену в графике, если её ещё нет (синхронизация с назначением пилота на полёт). */
+export function ensureStaffShift(
+  store: DataStore,
+  opts: { date: string; userId: string; simulatorSlug: string },
+): boolean {
+  const sim = opts.simulatorSlug === 'mi-2' ? 'mi-2' : 'boeing-737'
+  if (!Array.isArray(store.staffShifts)) store.staffShifts = []
+  const exists = store.staffShifts.some(
+    (s) =>
+      s.date === opts.date &&
+      s.userId === opts.userId &&
+      (s.simulatorSlug === 'mi-2' ? 'mi-2' : 'boeing-737') === sim,
+  )
+  if (exists) return false
+  store.staffShifts.push({
+    id: `shift-${opts.userId}-${opts.date}-${sim}`,
+    date: opts.date,
+    userId: opts.userId,
+    simulatorSlug: sim,
+    createdAt: new Date().toISOString(),
+  })
+  return true
+}
+
+/** Локальный yyyy-MM-dd без parseISO (чтобы не сдвигать сутки из‑за UTC). */
+export function localDateKey(d: Date) {
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+
+function bookingEndMins(b: { startTime: string; endTime?: string; durationMin?: number }) {
+  if (b.endTime && /^\d{1,2}:\d{2}$/.test(b.endTime)) {
+    const mins = timeToMinsLocal(b.endTime)
+    if (Number.isFinite(mins)) return mins
+  }
+  return timeToMinsLocal(b.startTime) + (Number(b.durationMin) || 0)
+}
+
+/** IN_PROGRESS → DONE, если дата/время окончания уже прошли (учёт демо-часов). */
 export function autoCompletePastBookings(store: DataStore) {
-  const today = toDateKey(new Date())
-  const nowMins = timeToMinsLocal(fmtDate(new Date(), 'HH:mm'))
-  const nowIso = new Date().toISOString()
+  const now = getStoreNow(store)
+  const today = localDateKey(now)
+  const nowMins = now.getHours() * 60 + now.getMinutes()
+  const nowIso = now.toISOString()
   for (const b of store.bookings) {
     if (b.status !== 'IN_PROGRESS') continue
-    const endPassed =
-      b.date < today || (b.date === today && timeToMinsLocal(b.endTime) <= nowMins)
+    const endMins = bookingEndMins(b)
+    const endPassed = b.date < today || (b.date === today && endMins <= nowMins)
     if (endPassed) {
       b.status = 'DONE'
       b.updatedAt = nowIso

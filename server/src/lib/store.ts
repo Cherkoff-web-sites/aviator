@@ -14,6 +14,8 @@ import type { DataStore } from '../types.js'
 import { createSeedStore } from './seed-data.js'
 import { normalizeDocuments } from './documents.js'
 import { normalizeSiteImages } from './site-images.js'
+import { autoCompletePastBookings } from './helpers.js'
+import { normalizeCertificateDesigns } from './certificate-designs.js'
 
 const __dir = dirname(fileURLToPath(import.meta.url))
 export const STORE_PATH = process.env.STORE_PATH ?? join(__dir, '../../data/store.json')
@@ -70,6 +72,32 @@ function normalizeStore(raw: DataStore): DataStore {
       { id: 'cs-combo', value: 'combo', label: 'Boeing + Ми-2', sortOrder: 3 },
     ]
   }
+  // Старые подписи «Комбо …» → единый label
+  for (const row of raw.optionLists.cert_simulator) {
+    if (row.value === 'combo' && /комбо/i.test(row.label || '')) {
+      row.label = 'Boeing + Ми-2'
+    }
+  }
+  raw.certificateDesigns = normalizeCertificateDesigns(raw.certificateDesigns)
+  // Комбо-тариф сертификата (блок «2в1» на /prices) — всегда должен быть в store
+  if (!Array.isArray(raw.certPrices)) raw.certPrices = []
+  if (!raw.certPrices.some((p) => p.simulatorSlug === 'combo')) {
+    raw.certPrices.push({
+      id: `cp-combo-${randomUUID().slice(0, 8)}`,
+      durationMin: 60,
+      simulatorSlug: 'combo',
+      priceByn: 370,
+      highlighted: true,
+    })
+  }
+  if (Array.isArray(raw.promos)) {
+    for (const p of raw.promos) {
+      if (typeof p.indefinite !== 'boolean') {
+        p.indefinite = p.endDate === '9999-12-31'
+      }
+      if (p.indefinite) p.endDate = '9999-12-31'
+    }
+  }
   raw.siteImages = normalizeSiteImages(raw.siteImages)
   raw.documents = normalizeDocuments(raw.documents)
   return raw
@@ -79,9 +107,16 @@ export function readStore(): DataStore {
   ensureFile()
   const raw = JSON.parse(readFileSync(STORE_PATH, 'utf8')) as DataStore
   const beforeDocs = JSON.stringify(raw.documents ?? null)
+  const hadCombo =
+    Array.isArray(raw.certPrices) && raw.certPrices.some((p) => p.simulatorSlug === 'combo')
+  const hadDesigns = Array.isArray(raw.certificateDesigns) && raw.certificateDesigns.length > 0
   const store = normalizeStore(raw)
-  // Один раз перезаписываем stub-документы полными текстами страниц
-  if (JSON.stringify(store.documents) !== beforeDocs) {
+  const needsWrite =
+    JSON.stringify(store.documents) !== beforeDocs ||
+    (!hadCombo && store.certPrices.some((p) => p.simulatorSlug === 'combo')) ||
+    (!hadDesigns && (store.certificateDesigns?.length ?? 0) > 0)
+  // stub-документы, combo-тариф и виды сертификатов — один раз в файл
+  if (needsWrite) {
     writeStore(store)
   }
   return store
@@ -144,7 +179,12 @@ export async function fillDemoData(): Promise<DataStore> {
     seeded.certPrices = prev.certPrices?.length ? prev.certPrices : seeded.certPrices
     seeded.promos = prev.promos?.length ? prev.promos : seeded.promos
     seeded.optionLists = prev.optionLists ?? seeded.optionLists
+    seeded.certificateDesigns = prev.certificateDesigns?.length
+      ? prev.certificateDesigns
+      : seeded.certificateDesigns
     seeded.appLogs = prev.appLogs ?? []
+    // Прошедшие «В процессе» сразу → «Закончили» относительно демо/реальных часов
+    autoCompletePastBookings(seeded)
     writeStore(seeded)
   })
   await writeQueue

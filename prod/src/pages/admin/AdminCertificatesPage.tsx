@@ -1,7 +1,13 @@
 import * as React from 'react'
 import { format, addMonths, isValid, parseISO } from 'date-fns'
-import { Trash2 } from 'lucide-react'
+import { MoreHorizontal, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import { Input } from '@/components/ui/input'
 import AdminFormModal from '@/components/admin/AdminFormModal'
 import ConfirmDialog from '@/components/admin/ConfirmDialog'
@@ -22,16 +28,28 @@ import {
   labelOf,
   PAYMENT_METHOD_OPTIONS,
 } from '@/lib/admin-labels'
-import { durationsForSimulator, FLIGHT_DURATIONS } from '@/lib/flight-durations'
 import {
+  clampDurationChoice,
+  durationChoicesFromList,
+  filterDurationChoicesForSimulator,
+  simulatorChoicesFromList,
+  type OptionListRow,
+} from '@/lib/option-list-utils'
+import {
+  allDesignOptions,
+  buildCertificateNumber,
   certificateDisplayStatus,
   defaultDesignForSim,
   designMeta,
   designOptionsForSim,
+  parseCertificateParts,
   type CertificateDesignColor,
 } from '@/lib/certificate-design'
+import { useCertificateDesigns } from '@/hooks/useCertificateDesigns'
+import { sanitizeCertificateDigitsInput } from '@/lib/fieldInput'
 import { formatAdminDate } from '@/lib/admin-date'
 import { cn } from '@/lib/utils'
+import { SiteDateInput } from '@/components/ui/site-date-input'
 
 const PENCIL = '/assets/admin/certificates_pencil_icon.svg'
 
@@ -71,14 +89,37 @@ export default function AdminCertificatesPage() {
     comment: '',
   })
 
-  const designOptions = designOptionsForSim(form.simulatorSlug)
+  const { designs: certDesignRows } = useCertificateDesigns(true)
+  const designOptions = designOptionsForSim(form.simulatorSlug, certDesignRows)
+  const seriesOptions = allDesignOptions(certDesignRows)
 
-  const durationOptions =
-    form.simulatorSlug === 'combo'
-      ? ([60] as const)
-      : form.simulatorSlug === 'mi-2'
-        ? durationsForSimulator('mi-2')
-        : FLIGHT_DURATIONS
+  const { data: optionLists } = useLiveData(
+    () =>
+      apiFetch<{
+        cert_duration: OptionListRow[]
+        cert_simulator: OptionListRow[]
+        duration: OptionListRow[]
+      }>('/api/admin/settings/option-lists'),
+    [],
+  )
+  const certSimOptions = React.useMemo(
+    () =>
+      simulatorChoicesFromList(optionLists?.cert_simulator, [...CERT_SIMULATOR_OPTIONS]),
+    [optionLists],
+  )
+  const durationChoiceRows = React.useMemo(
+    () =>
+      filterDurationChoicesForSimulator(
+        durationChoicesFromList(optionLists?.cert_duration ?? optionLists?.duration),
+        form.simulatorSlug,
+      ),
+    [optionLists, form.simulatorSlug],
+  )
+
+  const numberParts = React.useMemo(
+    () => parseCertificateParts(form.number, certDesignRows),
+    [form.number, certDesignRows],
+  )
 
   const loadNextNumber = async (simulatorSlug: string, designColor: CertificateDesignColor) => {
     const { number } = await apiFetch<{ number: string }>(
@@ -87,10 +128,14 @@ export default function AdminCertificatesPage() {
     return number
   }
 
+  const applyNumberParts = (code: string, digits: string) => {
+    setForm((f) => ({ ...f, number: buildCertificateNumber(code, digits) }))
+  }
+
   const openCreate = () => {
     setEditId(null)
     const simulatorSlug = 'boeing-737'
-    const designColor = defaultDesignForSim(simulatorSlug)
+    const designColor = defaultDesignForSim(simulatorSlug, certDesignRows)
     setForm({
       number: '',
       phone: '',
@@ -114,11 +159,11 @@ export default function AdminCertificatesPage() {
 
   const openEdit = (row: ApiCertificate) => {
     setEditId(row.id)
-    const allowed = designOptionsForSim(row.simulatorSlug)
+    const allowed = designOptionsForSim(row.simulatorSlug, certDesignRows)
     const raw = row.designColor as CertificateDesignColor | undefined
     const designColor = allowed.some((o) => o.value === raw)
       ? (raw as CertificateDesignColor)
-      : defaultDesignForSim(row.simulatorSlug)
+      : defaultDesignForSim(row.simulatorSlug, certDesignRows)
     setForm({
       number: row.number,
       phone: row.phone,
@@ -137,51 +182,88 @@ export default function AdminCertificatesPage() {
     setFormOpen(true)
   }
 
+  const durationFilterOptions = React.useMemo(() => {
+    const fromList = durationChoicesFromList(
+      optionLists?.cert_duration ?? optionLists?.duration,
+    ).map((d) => d.value)
+    const set = new Set<number>(fromList)
+    for (const row of rows) set.add(row.durationMin)
+    return [...set]
+      .sort((a, b) => a - b)
+      .map((d) => ({ value: String(d), label: `${d} мин` }))
+  }, [rows, optionLists])
+
   const columns: AdminColumnDef<ApiCertificate>[] = [
     {
       id: 'number',
       header: 'Номер',
       accessor: 'number',
+      filterLabel: 'Серия номера',
+      filterType: 'enum',
+      enumOptions: seriesOptions.map((o) => ({
+        value: o.code,
+        label: `№${o.code} · ${o.label}`,
+      })),
+      // Статичная часть: буква серии (S/T/G…), цифры генерируются отдельно
+      filterMatch: (r) =>
+        designMeta(
+          r.designColor || defaultDesignForSim(r.simulatorSlug, certDesignRows),
+          certDesignRows,
+        ).code,
+      filterValue: (r) => r.number,
       className: 'font-medium',
     },
-    { id: 'phone', header: 'Телефон', accessor: 'phone' },
+    { id: 'phone', header: 'Телефон', accessor: 'phone', sortable: false },
     { id: 'email', header: 'Email', accessor: (r) => r.email ?? '' },
     { id: 'fullName', header: 'ФИО', accessor: 'fullName' },
-    { id: 'durationMin', header: 'Минуты', accessor: 'durationMin', filterType: 'number' },
     {
-      id: 'payment',
-      header: 'Оплата',
-      accessor: (r) => r.paymentMethod,
+      id: 'durationMin',
+      header: '',
+      filterLabel: 'Минуты',
+      accessor: 'durationMin',
+      filterType: 'enum',
+      enumOptions: durationFilterOptions,
+      filterMatch: (r) => String(r.durationMin),
+      headerClassName: 'w-12 px-2 text-center',
+      className: 'px-2 text-center tabular-nums',
+    },
+    {
+      id: 'method',
+      header: '',
+      filterLabel: 'Способ',
+      accessor: (r) => r.paymentMethod ?? 'OFFLINE',
       filterType: 'enum',
       enumOptions: [...PAYMENT_METHOD_OPTIONS],
-      filterValue: (r) => `Оплачен ${r.paymentMethod}`,
-      cell: (row) => (
-        <span className="inline-flex items-center gap-1.5 text-sm font-medium text-emerald-700">
-          Оплачен
-          <PaymentMethodIcon method={row.paymentMethod} />
-        </span>
-      ),
+      filterValue: (r) => labelOf(PAYMENT_METHOD_OPTIONS, r.paymentMethod ?? 'OFFLINE'),
+      headerClassName: 'w-10 px-2 text-center',
+      className: 'px-2 text-center',
+      cell: (row) => <PaymentMethodIcon method={row.paymentMethod} />,
     },
     {
       id: 'period',
       header: 'Период',
       accessor: (r) => r.validFrom,
-      filterValue: (r) => `${r.validFrom} ${r.validTo}`,
+      filterValue: (r) =>
+        `${formatAdminDate(r.validFrom)} ${formatAdminDate(r.validTo)}`,
       cell: (row) => (
         <>
-          {row.validFrom} — {row.validTo}
+          {formatAdminDate(row.validFrom)} — {formatAdminDate(row.validTo)}
         </>
       ),
     },
     {
       id: 'simulatorSlug',
       header: 'Тренажёр',
+      filterLabel: 'Тип сертификата',
       accessor: 'simulatorSlug',
       filterType: 'enum',
-      enumOptions: [...CERT_SIMULATOR_OPTIONS],
-      filterValue: (r) => labelOf(CERT_SIMULATOR_OPTIONS, r.simulatorSlug),
+      enumOptions: certSimOptions,
+      filterValue: (r) => labelOf(certSimOptions, r.simulatorSlug),
       cell: (row) => {
-        const design = designMeta(row.designColor || defaultDesignForSim(row.simulatorSlug))
+        const design = designMeta(
+          row.designColor || defaultDesignForSim(row.simulatorSlug, certDesignRows),
+          certDesignRows,
+        )
         return (
           <span
             className="inline-flex items-center gap-1.5 rounded-md px-2 py-1"
@@ -192,7 +274,7 @@ export default function AdminCertificatesPage() {
               className="inline-block size-2.5 shrink-0 rounded-full border border-black/10"
               style={{ backgroundColor: design.swatch }}
             />
-            {labelOf(CERT_SIMULATOR_OPTIONS, row.simulatorSlug)}
+            {labelOf(certSimOptions, row.simulatorSlug)}
           </span>
         )
       },
@@ -200,9 +282,24 @@ export default function AdminCertificatesPage() {
     {
       id: 'status',
       header: 'Срок / статус',
+      filterLabel: 'Статус',
       accessor: 'status',
       filterType: 'enum',
       enumOptions: [...CERTIFICATE_STATUS_OPTIONS],
+      // ACTIVE + прошедшая дата → EXPIRED (как в бейдже), иначе API-статус
+      filterMatch: (r) => {
+        if (r.status === 'CANCELLED' || r.status === 'USED' || r.status === 'PARTIAL') {
+          return r.status
+        }
+        const today = new Date()
+        const todayKey = [
+          today.getFullYear(),
+          String(today.getMonth() + 1).padStart(2, '0'),
+          String(today.getDate()).padStart(2, '0'),
+        ].join('-')
+        if (r.status === 'EXPIRED' || r.validTo < todayKey) return 'EXPIRED'
+        return r.status || 'ACTIVE'
+      },
       filterValue: (r) => certificateDisplayStatus(r.validTo, r.status).label,
       cell: (row) => {
         const display = certificateDisplayStatus(row.validTo, row.status)
@@ -236,27 +333,30 @@ export default function AdminCertificatesPage() {
             header: '',
             sortable: false,
             filterable: false,
-            headerClassName: 'w-24',
+            headerClassName: 'w-10 text-right pr-2',
             cell: (row: ApiCertificate) => (
-              <div className="flex gap-1">
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  className="size-8"
-                  onClick={() => openEdit(row)}
-                >
-                  <img src={PENCIL} alt="" className="size-4" width={16} height={16} />
-                </Button>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  className="size-8 text-destructive"
-                  onClick={() => setDeleteTarget(row)}
-                >
-                  <Trash2 className="size-4" />
-                </Button>
+              <div className="flex justify-end">
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="ghost" size="icon" className="size-8">
+                      <MoreHorizontal className="size-4" />
+                      <span className="sr-only">Ещё</span>
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    <DropdownMenuItem onClick={() => openEdit(row)}>
+                      <img src={PENCIL} alt="" className="size-4" width={16} height={16} />
+                      Редактировать
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      className="text-destructive focus:bg-destructive/10 focus:text-destructive"
+                      onClick={() => setDeleteTarget(row)}
+                    >
+                      <Trash2 className="size-4" />
+                      Удалить
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
               </div>
             ),
           },
@@ -355,44 +455,103 @@ export default function AdminCertificatesPage() {
         onClose={() => setFormOpen(false)}
       >
         <div className="grid gap-3 sm:grid-cols-2">
+          <div className="text-sm sm:col-span-2">
+            <span className="text-muted-foreground">
+              {editId ? 'Номер' : 'Номер (как на сайте: серия + цифры)'}
+            </span>
+            <div className="mt-1 flex items-center gap-1.5">
+              <span className="flex h-9 items-center rounded-md border bg-muted/40 px-2.5 text-sm font-semibold text-muted-foreground">
+                №
+              </span>
+              <select
+                className="h-9 w-[7.5rem] rounded-md border bg-background px-2 text-sm font-mono"
+                value={numberParts.code}
+                onChange={(e) => {
+                  const code = e.target.value
+                  const design = seriesOptions.find((o) => o.code === code)
+                  if (design) {
+                    setForm((f) => ({ ...f, designColor: design.value }))
+                  }
+                  if (!editId) {
+                    void loadNextNumber(
+                      form.simulatorSlug,
+                      design?.value ?? form.designColor,
+                    ).then((number) => setForm((f) => ({ ...f, number })))
+                  } else {
+                    applyNumberParts(code, numberParts.digits)
+                  }
+                }}
+              >
+                {seriesOptions.map((o) => (
+                  <option key={o.value} value={o.code}>
+                    {o.code} — {o.label}
+                  </option>
+                ))}
+              </select>
+              <Input
+                className="h-9 flex-1 font-mono"
+                inputMode="numeric"
+                value={numberParts.digits}
+                readOnly={!editId}
+                title={!editId ? 'Цифры подставляет система' : undefined}
+                onChange={(e) => {
+                  if (!editId) return
+                  applyNumberParts(numberParts.code, sanitizeCertificateDigitsInput(e.target.value))
+                }}
+              />
+            </div>
+            {!editId ? (
+              <p className="mt-1 text-xs text-muted-foreground">
+                Буква серии зависит от вида бланка; цифры — следующий свободный номер.
+              </p>
+            ) : null}
+          </div>
           {(
             [
-              ['number', editId ? 'Номер' : 'Номер (следующий)'],
               ['fullName', 'ФИО'],
               ['phone', 'Телефон'],
               ['email', 'Email'],
-              ['validFrom', 'С', 'date'],
-              ['validTo', 'По', 'date'],
               ['comment', 'Комментарий'],
             ] as const
-          ).map(([key, label, type]) => (
+          ).map(([key, label]) => (
             <label key={key} className="text-sm">
               <span className="text-muted-foreground">{label}</span>
               <Input
-                type={type ?? 'text'}
                 className="mt-1 h-9"
                 value={String(form[key as keyof typeof form] ?? '')}
-                readOnly={!editId && key === 'number'}
                 onChange={(e) => {
                   const value = e.target.value
-                  if (!editId && key === 'number') return
-                  if (key === 'validFrom') {
-                    const from = parseISO(value)
-                    setForm((f) => ({
-                      ...f,
-                      validFrom: value,
-                      validTo:
-                        value && isValid(from)
-                          ? format(addMonths(from, 3), 'yyyy-MM-dd')
-                          : f.validTo,
-                    }))
-                    return
-                  }
                   setForm((f) => ({ ...f, [key]: value }))
                 }}
               />
             </label>
           ))}
+          <label className="text-sm">
+            <span className="text-muted-foreground">С</span>
+            <SiteDateInput
+              className="mt-1 h-9"
+              value={form.validFrom}
+              onValueChange={(value) => {
+                const from = parseISO(value)
+                setForm((f) => ({
+                  ...f,
+                  validFrom: value,
+                  validTo:
+                    value && isValid(from)
+                      ? format(addMonths(from, 3), 'yyyy-MM-dd')
+                      : f.validTo,
+                }))
+              }}
+            />
+          </label>
+          <label className="text-sm">
+            <span className="text-muted-foreground">По</span>
+            <SiteDateInput
+              className="mt-1 h-9"
+              value={form.validTo}
+              onValueChange={(validTo) => setForm((f) => ({ ...f, validTo }))}
+            />
+          </label>
           <label className="text-sm">
             <span className="text-muted-foreground">Тренажёр</span>
             <select
@@ -400,31 +559,32 @@ export default function AdminCertificatesPage() {
               value={form.simulatorSlug}
               onChange={(e) => {
                 const simulatorSlug = e.target.value
-                const nextColors = designOptionsForSim(simulatorSlug)
+                const nextColors = designOptionsForSim(simulatorSlug, certDesignRows)
                 setForm((f) => {
                   const designColor = nextColors.some((o) => o.value === f.designColor)
                     ? f.designColor
-                    : defaultDesignForSim(simulatorSlug)
+                    : defaultDesignForSim(simulatorSlug, certDesignRows)
                   if (!editId) {
                     void loadNextNumber(simulatorSlug, designColor).then((number) =>
                       setForm((cur) => ({ ...cur, number })),
                     )
                   }
+                  const allowed = filterDurationChoicesForSimulator(
+                    durationChoicesFromList(
+                      optionLists?.cert_duration ?? optionLists?.duration,
+                    ),
+                    simulatorSlug,
+                  )
                   return {
                     ...f,
                     simulatorSlug,
-                    durationMin:
-                      simulatorSlug === 'combo'
-                        ? 60
-                        : f.durationMin > 60 && simulatorSlug === 'mi-2'
-                          ? 60
-                          : f.durationMin,
+                    durationMin: clampDurationChoice(allowed, f.durationMin),
                     designColor,
                   }
                 })
               }}
             >
-              {CERT_SIMULATOR_OPTIONS.map((o) => (
+              {certSimOptions.map((o) => (
                 <option key={o.value} value={o.value}>
                   {o.label}
                 </option>
@@ -438,17 +598,17 @@ export default function AdminCertificatesPage() {
               value={form.durationMin}
               onChange={(e) => setForm((f) => ({ ...f, durationMin: Number(e.target.value) }))}
             >
-              {durationOptions.map((d) => (
-                <option key={d} value={d}>
-                  {d}
+              {durationChoiceRows.map((d) => (
+                <option key={d.value} value={d.value}>
+                  {d.label}
                 </option>
               ))}
             </select>
           </label>
           <div className="text-sm sm:col-span-2">
-            <span className="text-muted-foreground">Цвет бланка</span>
+            <span className="text-muted-foreground">Вид бланка</span>
             <p className="mt-0.5 text-xs text-muted-foreground">
-              Только цвета для выбранного тренажёра. Смените тренажёр — откроются другие варианты.
+              Виды из «Настройки». Смена вида обновляет букву серии в номере.
             </p>
             <div className="mt-2 flex flex-wrap gap-2">
               {designOptions.map((o) => {
@@ -464,7 +624,16 @@ export default function AdminCertificatesPage() {
                         : 'border-border hover:bg-muted/50',
                     )}
                     style={{ backgroundColor: o.rowBg }}
-                    onClick={() => setForm((f) => ({ ...f, designColor: o.value }))}
+                    onClick={() => {
+                      setForm((f) => ({ ...f, designColor: o.value }))
+                      if (!editId) {
+                        void loadNextNumber(form.simulatorSlug, o.value).then((number) =>
+                          setForm((cur) => ({ ...cur, number })),
+                        )
+                      } else {
+                        applyNumberParts(o.code, numberParts.digits)
+                      }
+                    }}
                   >
                     <span
                       className="inline-block size-3.5 shrink-0 rounded-full border border-black/15"

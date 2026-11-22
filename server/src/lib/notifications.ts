@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import type { AdminNotification, DataStore, NotificationKind, UserRole } from '../types.js'
+import { rewriteIsoDatesInText } from './display-date.js'
 import { emitAll } from './socket.js'
 
 const MAX_NOTIFICATIONS = 200
@@ -88,8 +89,8 @@ export function pushNotification(store: DataStore, input: NewNotification): Admi
   const entry: AdminNotification = {
     id: randomUUID(),
     kind: input.kind,
-    title: input.title,
-    body: input.body,
+    title: rewriteIsoDatesInText(input.title),
+    body: rewriteIsoDatesInText(input.body),
     href: input.href,
     audienceRoles,
     targetUserId: input.targetUserId,
@@ -144,6 +145,8 @@ export function notificationsForUser(store: DataStore, role: UserRole, userId: s
     .filter((n) => isNotificationVisible(n, role, userId))
     .map((n) => ({
       ...n,
+      title: rewriteIsoDatesInText(n.title),
+      body: rewriteIsoDatesInText(n.body),
       read: Boolean(n.readBy[userId]),
     }))
 }

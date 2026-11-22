@@ -5,6 +5,8 @@ import { Plane } from "lucide-react"
 import { ADMIN_NAV_MAIN, ADMIN_NAV_SETTINGS_ICON } from "@/data/adminNav"
 import { navItemsForRole, settingsNavForRole } from "@/lib/admin-access"
 import { useAdminAuth } from "@/contexts/AdminAuthContext"
+import { useLiveData } from "@/hooks/useLiveData"
+import { apiFetch } from "@/lib/api"
 import { NavMain } from "@/components/nav-main"
 import { NavSecondary } from "@/components/nav-secondary"
 import { NavUser } from "@/components/nav-user"
@@ -38,6 +40,17 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const { user, role } = useAdminAuth()
   const mainNav = role ? navItemsForRole(role) : ADMIN_NAV_MAIN
   const secondaryNav = role ? settingsNavForRole(role) : data.navSecondary
+  const canSeeFeedback = role === 'ADMIN' || role === 'MANAGER'
+  const { data: feedbackStats } = useLiveData(
+    () =>
+      canSeeFeedback
+        ? apiFetch<{ unread: number }>('/api/admin/feedback').then((r) =>
+            // поддержка старого массива на случай кэша
+            Array.isArray(r) ? { unread: 0 } : r,
+          )
+        : Promise.resolve({ unread: 0 }),
+    [canSeeFeedback, role, user?.id],
+  )
   const sidebarUser = {
     name: user?.fullName ?? 'Сотрудник',
     email: user?.phone || user?.login || '',
@@ -64,7 +77,11 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       </SidebarHeader>
       <SidebarContent>
         <NavMain items={mainNav} />
-        <NavSecondary items={secondaryNav} className="mt-auto" />
+        <NavSecondary
+          items={secondaryNav}
+          badges={{ feedback: feedbackStats?.unread ?? 0 }}
+          className="mt-auto"
+        />
       </SidebarContent>
       <SidebarFooter>
         <NavUser user={sidebarUser} />

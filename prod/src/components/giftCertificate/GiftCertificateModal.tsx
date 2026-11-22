@@ -17,11 +17,14 @@ import {
   sanitizePersonNameInput,
   sanitizePhoneInput,
 } from '../../lib/fieldInput'
+import { type FlightDurationMin } from '../../lib/flight-durations'
+import { usePublicOptionLists } from '../../hooks/usePublicOptionLists'
 import {
-  clampDurationForSimulator,
-  durationsForSimulator,
-  type FlightDurationMin,
-} from '../../lib/flight-durations'
+  clampDurationChoice,
+  durationChoicesFromList,
+  filterDurationChoicesForSimulator,
+  simulatorChoicesFromList,
+} from '../../lib/option-list-utils'
 
 /** Те же pill, что в BookingModal */
 function Pill({
@@ -72,9 +75,16 @@ const PRIMARY_BTN =
 
 type Step = 'form' | 'success'
 
+function productFromCertSlug(slug: string): GiftCertProductChoice {
+  if (slug === 'combo' || slug === 'both') return 'both'
+  if (slug === 'mi-2') return 'mi-2'
+  return 'boeing-737'
+}
+
 function GiftCertificateModal() {
   const { isOpen, payload, closeGiftCertificate } = useGiftCertificateModal()
   const { openBooking } = useBookingModal()
+  const optionLists = usePublicOptionLists()
   const draftRef = useRef(loadGiftDraft())
   const draft = draftRef.current
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -164,22 +174,28 @@ function GiftCertificateModal() {
     [firstName, lastName, phone, email, consent],
   )
 
-  const durationOptions =
-    product === 'both'
-      ? ([60] as const)
-      : product === 'mi-2'
-        ? durationsForSimulator('mi-2')
-        : durationsForSimulator('boeing-737')
+  const certSimChoices = useMemo(
+    () =>
+      simulatorChoicesFromList(optionLists?.cert_simulator, [
+        { value: 'boeing-737', label: 'Boeing 737NG' },
+        { value: 'mi-2', label: 'Ми-2' },
+        { value: 'combo', label: 'Boeing + Ми-2' },
+      ]),
+    [optionLists],
+  )
+
+  const durationChoiceRows = useMemo(
+    () =>
+      filterDurationChoicesForSimulator(
+        durationChoicesFromList(optionLists?.cert_duration ?? optionLists?.duration),
+        product === 'both' ? 'combo' : product,
+      ),
+    [optionLists, product],
+  )
 
   useEffect(() => {
-    if (product === 'both') {
-      setDurationMin(60)
-      return
-    }
-    setDurationMin((d) =>
-      clampDurationForSimulator(product === 'mi-2' ? 'mi-2' : 'boeing-737', d),
-    )
-  }, [product])
+    setDurationMin((d) => clampDurationChoice(durationChoiceRows, d))
+  }, [durationChoiceRows])
 
   const onOpenChange = useCallback(
     (open: boolean) => {
@@ -276,43 +292,49 @@ function GiftCertificateModal() {
                   </div>
                 ) : (
                   <div className="flex flex-col gap-5 min-[990px]:gap-6">
-                    <div className="grid grid-cols-1 gap-2 min-[520px]:grid-cols-3 min-[520px]:gap-3">
-                      <Pill
-                        selected={product === 'boeing-737'}
-                        className="w-full"
-                        onClick={() => setProduct('boeing-737')}
-                      >
-                        Boeing 737NG
-                      </Pill>
-                      <Pill
-                        selected={product === 'mi-2'}
-                        className="w-full"
-                        onClick={() => setProduct('mi-2')}
-                      >
-                        Ми-2
-                      </Pill>
-                      <Pill
-                        selected={product === 'both'}
-                        className="w-full"
-                        onClick={() => setProduct('both')}
-                      >
-                        Boeing 737NG + Ми-2
-                      </Pill>
+                    <div
+                      className={[
+                        'grid gap-2 min-[520px]:gap-3',
+                        certSimChoices.length <= 2
+                          ? 'grid-cols-1 min-[520px]:grid-cols-2'
+                          : 'grid-cols-1 min-[520px]:grid-cols-3',
+                      ].join(' ')}
+                    >
+                      {certSimChoices.map((s) => {
+                        const choice = productFromCertSlug(s.value)
+                        return (
+                          <Pill
+                            key={s.value}
+                            selected={product === choice}
+                            className="w-full"
+                            onClick={() => setProduct(choice)}
+                          >
+                            {s.label}
+                          </Pill>
+                        )
+                      })}
                     </div>
 
                     <div>
                       <p className="mb-2 text-center text-[14px] font-semibold text-[#002D62] min-[990px]:text-[15px]">
                         Выберите продолжительность полета
                       </p>
-                      <div className="grid grid-cols-2 gap-2 min-[640px]:grid-cols-4 min-[640px]:gap-3">
-                        {durationOptions.map((d) => (
+                      <div
+                        className={[
+                          'grid gap-2 min-[640px]:gap-3',
+                          durationChoiceRows.length <= 2
+                            ? 'grid-cols-2'
+                            : 'grid-cols-2 min-[640px]:grid-cols-4',
+                        ].join(' ')}
+                      >
+                        {durationChoiceRows.map((d) => (
                           <Pill
-                            key={d}
-                            selected={durationMin === d}
-                            onClick={() => setDurationMin(d)}
+                            key={d.value}
+                            selected={durationMin === d.value}
+                            onClick={() => setDurationMin(d.value)}
                             className="!normal-case !tracking-normal"
                           >
-                            {d} минут
+                            {d.label}
                           </Pill>
                         ))}
                       </div>

@@ -1,14 +1,17 @@
 import { Router, type Request, type Response, type NextFunction } from 'express'
-import { addDays, format, startOfDay } from 'date-fns'
+import { addDays, format, isValid, parseISO, startOfDay } from 'date-fns'
+import { formatDisplayDate } from '../lib/display-date.js'
 import { readStore, updateStore, newId, fillDemoData, clearDemoData } from '../lib/store.js'
 import { getDocument } from '../lib/documents.js'
 import { normalizeSiteImages } from '../lib/site-images.js'
 import { saveDataUrlUpload } from '../lib/uploads.js'
+import { getStoreNow, getStoreNowIso } from '../lib/clock.js'
 import {
   addMinutesToTime,
   buildCalendarDays,
   calendarRangeForRole,
   autoCompletePastBookings,
+  ensureStaffShift,
   filterBookingsForRole,
   generateCode,
   getDayStatus,
@@ -42,7 +45,7 @@ import type {
   Booking,
   CalendarDayStatus,
   Certificate,
-  CertificateDesignColor,
+  CertificateDesign,
   MaintenanceEntry,
   StaffShift,
   User,
@@ -52,36 +55,32 @@ import type {
   PriceRow,
   Promo,
 } from '../types.js'
+import {
+  defaultDesignKey,
+  designByKey,
+  designsForSimulator,
+  nextCertificateNumber as buildCertNumber,
+  normalizeCertificateDesigns,
+} from '../lib/certificate-designs.js'
 
-const DESIGN_BY_SIM: Record<string, CertificateDesignColor[]> = {
-  'boeing-737': ['silver', 'turquoise', 'gold', 'navy'],
-  'mi-2': ['coral', 'emerald'],
-  combo: ['lilac'],
+function storeDesigns(store: { certificateDesigns?: CertificateDesign[] }) {
+  return normalizeCertificateDesigns(store.certificateDesigns)
 }
 
-const DESIGN_LETTER: Record<CertificateDesignColor, string> = {
-  silver: 'S',
-  turquoise: 'T',
-  gold: 'G',
-  navy: 'N',
-  coral: 'C',
-  emerald: 'E',
-  lilac: 'L',
-}
-
-function defaultDesignColor(simulatorSlug: string, preferred?: string): CertificateDesignColor {
-  const allowed = DESIGN_BY_SIM[simulatorSlug] ?? DESIGN_BY_SIM['boeing-737']
-  if (preferred && (allowed as string[]).includes(preferred)) {
-    return preferred as CertificateDesignColor
-  }
-  return allowed[0]
+function defaultDesignColor(
+  store: { certificateDesigns?: CertificateDesign[] },
+  simulatorSlug: string,
+  preferred?: string,
+) {
+  return defaultDesignKey(storeDesigns(store), simulatorSlug, preferred)
 }
 
 function nextCertificateNumber(
-  counter: number,
-  designColor: CertificateDesignColor,
+  store: { certificateDesigns?: CertificateDesign[]; counters: { certificate: number } },
+  designColor: string,
 ): string {
-  return `№${DESIGN_LETTER[designColor]}${counter}`
+  const design = designByKey(storeDesigns(store), designColor)
+  return buildCertNumber(store.counters.certificate, design)
 }
 
 function timeToMins(t: string): number {
@@ -117,11 +116,14 @@ function isBookingOccupyingSlot(b: Booking, nowIso: string): boolean {
   return true
 }
 
-function expireCertificatesInStore(s: { certificates: Certificate[] }) {
+function expireCertificatesInStore(s: {
+  certificates: Certificate[]
+  certificateDesigns?: CertificateDesign[]
+}) {
   const today = format(startOfDay(new Date()), 'yyyy-MM-dd')
   for (const c of s.certificates) {
     c.paymentStatus = 'PAID'
-    if (!c.designColor) c.designColor = defaultDesignColor(c.simulatorSlug)
+    if (!c.designColor) c.designColor = defaultDesignColor(s, c.simulatorSlug)
     if (
       (c.status === 'ACTIVE' || c.status === 'PARTIAL') &&
       c.validTo < today
@@ -344,6 +346,7 @@ apiRouter.post('/public/feedback', async (req, res) => {
     phone,
     message,
     createdAt: new Date().toISOString(),
+    readBy: {} as Record<string, string>,
   }
   await updateStore((s) => {
     if (!Array.isArray(s.feedbackRequests)) s.feedbackRequests = []
@@ -476,12 +479,12 @@ apiRouter.post('/public/bookings', async (req, res) => {
     pushNotification(s, {
       kind: 'booking',
       title: 'Новая бронь с сайта',
-      body: `${booking.name} · ${booking.date} ${booking.startTime} · ${simLabel} · ${booking.durationMin} мин`,
+      body: `${booking.name} · ${formatDisplayDate(booking.date)} ${booking.startTime} · ${simLabel} · ${booking.durationMin} мин`,
       href: notifHref('/admin', booking.id, { date: booking.date }),
       meta: { bookingId: booking.id, date: booking.date },
     })
     pushLog(s, {
-      message: `Бронь с сайта: ${booking.name} · ${booking.date} ${booking.startTime}`,
+      message: `Бронь с сайта: ${booking.name} · ${formatDisplayDate(booking.date)} ${booking.startTime}`,
       context: 'booking',
       meta: { bookingId: booking.id },
     })
@@ -508,46 +511,45 @@ apiRouter.post('/public/bookings/combo', async (req, res) => {
   const gapMin = bookingGapMin(storeCheck)
   const firstDur = 30
   const secondStart = addMinutesToTime(startTime, firstDur + gapMin)
-  const sims = ['boeing-737', 'mi-2'] as const
   const nowIso = new Date().toISOString()
   const dayStatus = getDayStatus(storeCheck, date)
   if (dayStatus === 'BLOCKED') {
     return res.status(400).json({ error: 'Эта дата заблокирована (ТО).', code: 'DATE_BLOCKED' })
   }
 
-  const legs = [
-    { simulatorSlug: sims[0], startTime, durationMin: firstDur },
-    { simulatorSlug: sims[1], startTime: secondStart, durationMin: firstDur },
-  ]
-
-  for (const leg of legs) {
-    if (
-      isSlotBlockedByMaintenance(
-        storeCheck,
-        date,
-        leg.startTime,
-        leg.durationMin,
-        leg.simulatorSlug,
-      )
-    ) {
-      return res.status(400).json({
-        error: `Слот ${leg.startTime} на ${leg.simulatorSlug === 'mi-2' ? 'Ми-2' : 'Boeing'} недоступен (ТО).`,
-        code: 'MAINTENANCE',
-      })
+  const legFree = (simulatorSlug: string, legStart: string) => {
+    if (isSlotBlockedByMaintenance(storeCheck, date, legStart, firstDur, simulatorSlug)) {
+      return false
     }
-    const overlap = storeCheck.bookings.some(
+    return !storeCheck.bookings.some(
       (b) =>
         b.date === date &&
-        b.simulatorSlug === leg.simulatorSlug &&
+        b.simulatorSlug === simulatorSlug &&
         isBookingOccupyingSlot(b, nowIso) &&
-        intervalsOverlap(leg.startTime, leg.durationMin, b.startTime, b.durationMin, gapMin),
+        intervalsOverlap(legStart, firstDur, b.startTime, b.durationMin, gapMin),
     )
-    if (overlap) {
-      return res.status(409).json({
-        error: `Время ${leg.startTime} на ${leg.simulatorSlug === 'mi-2' ? 'Ми-2' : 'Boeing'} занято (интервал ${gapMin} мин).`,
-        code: 'SLOT_TAKEN',
-      })
-    }
+  }
+
+  // Порядок ног: сначала пробуем Boeing→Ми-2, иначе Ми-2→Boeing (если самолёт занят в якоре)
+  const orderCandidates: Array<Array<{ simulatorSlug: string; startTime: string; durationMin: number }>> = [
+    [
+      { simulatorSlug: 'boeing-737', startTime, durationMin: firstDur },
+      { simulatorSlug: 'mi-2', startTime: secondStart, durationMin: firstDur },
+    ],
+    [
+      { simulatorSlug: 'mi-2', startTime, durationMin: firstDur },
+      { simulatorSlug: 'boeing-737', startTime: secondStart, durationMin: firstDur },
+    ],
+  ]
+  const legs =
+    orderCandidates.find((candidate) =>
+      candidate.every((leg) => legFree(leg.simulatorSlug, leg.startTime)),
+    ) ?? null
+  if (!legs) {
+    return res.status(409).json({
+      error: `На ${startTime} нет свободной пары слотов 2в1 (с паузой ${gapMin} мин). Выберите другое время.`,
+      code: 'SLOT_TAKEN',
+    })
   }
 
   const holdExpiresAt = new Date(Date.now() + 30 * 60_000).toISOString()
@@ -609,12 +611,12 @@ apiRouter.post('/public/bookings/combo', async (req, res) => {
     pushNotification(s, {
       kind: 'booking',
       title: 'Новая бронь 2в1 с сайта',
-      body: `${name} · ${date} ${startTime}+${secondStart} · Boeing+Ми-2`,
+      body: `${name} · ${formatDisplayDate(date)} ${startTime}+${secondStart} · Boeing+Ми-2`,
       href: notifHref('/admin', bookings[0].id, { date }),
       meta: { bookingId: bookings[0].id, date, comboGroupId },
     })
     pushLog(s, {
-      message: `Бронь 2в1 с сайта: ${name} · ${date} ${startTime}`,
+      message: `Бронь 2в1 с сайта: ${name} · ${formatDisplayDate(date)} ${startTime}`,
       context: 'booking',
       meta: { bookingId: bookings[0].id },
     })
@@ -660,7 +662,7 @@ apiRouter.post('/public/bookings/:id/confirm', async (req, res) => {
       pushNotification(s, {
         kind: 'booking',
         title: 'Бронь подтверждена',
-        body: `${b.name} · ${b.date} ${b.startTime}`,
+        body: `${b.name} · ${formatDisplayDate(b.date)} ${b.startTime}`,
         href: notifHref('/admin', b.id, { date: b.date }),
         meta: { bookingId: b.id, date: b.date },
       })
@@ -697,10 +699,11 @@ apiRouter.post('/public/certificates', async (req, res) => {
   const body = req.body
   const store = readStore()
   const designColor = defaultDesignColor(
+    store,
     String(body.simulatorSlug ?? 'boeing-737'),
     body.designColor,
   )
-  const number = nextCertificateNumber(store.counters.certificate, designColor)
+  const number = nextCertificateNumber(store, designColor)
   const today = format(startOfDay(new Date()), 'yyyy-MM-dd')
   const validTo = format(addDays(new Date(), 90), 'yyyy-MM-dd')
 
@@ -796,12 +799,27 @@ apiRouter.post('/admin/bookings', requireRoles('ADMIN', 'MANAGER'), async (req, 
     certificateNumber: body.certificateNumber,
     promoNote: body.promoNote,
     holdExpiresAt: body.holdExpiresAt,
-    pilotUserId: body.pilotUserId,
+    pilotUserId: body.pilotUserId ? String(body.pilotUserId) : undefined,
     comboGroupId: body.comboGroupId,
     createdAt: body.createdAt ?? new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   }
   const storePre = readStore()
+  if (
+    isDateFullyClosed(storePre, booking.date, booking.simulatorSlug) ||
+    isSlotBlockedByMaintenance(
+      storePre,
+      booking.date,
+      booking.startTime,
+      booking.durationMin,
+      booking.simulatorSlug,
+    )
+  ) {
+    return res.status(400).json({
+      error: 'Этот день или слот закрыт (ТО / блокировка). Выберите другую дату или время.',
+      code: 'DATE_BLOCKED',
+    })
+  }
   const nowAdmin = new Date().toISOString()
   // В админке пауза gap не блокирует: только жёсткое пересечение времени полётов.
   // Пауза bookingGapMin действует для публичного бронирования на сайте.
@@ -837,12 +855,12 @@ apiRouter.post('/admin/bookings', requireRoles('ADMIN', 'MANAGER'), async (req, 
       pushNotification(s, {
         kind: 'booking',
         title: 'Новая запись в админке',
-        body: `${booking.name} · ${booking.date} ${booking.startTime} · ${simLabel}`,
-        href: notifHref('/admin', booking.id, { date: booking.date }),
-        meta: { bookingId: booking.id, date: booking.date },
+body: `${booking.name} · ${formatDisplayDate(booking.date)} ${booking.startTime} · ${simLabel}`,
+      href: notifHref('/admin', booking.id, { date: booking.date }),
+      meta: { bookingId: booking.id, date: booking.date },
       })
       pushLog(s, {
-        message: `Запись создана в админке: ${booking.name} · ${booking.date} ${booking.startTime}`,
+        message: `Запись создана в админке: ${booking.name} · ${formatDisplayDate(booking.date)} ${booking.startTime}`,
         context: 'booking',
         meta: { bookingId: booking.id },
       })
@@ -856,14 +874,30 @@ apiRouter.patch('/admin/bookings/:id', requireRoles('ADMIN', 'MANAGER'), async (
   const id = String(req.params.id)
   const body = req.body
   let updated: Booking | undefined
-  let rejected = false
+  let rejected: 'mi2' | 'blocked' | 'pilot' | false = false
   await updateStore((s) => {
     const b = s.bookings.find((x) => x.id === id)
     if (!b) return
     const nextSlug = body.simulatorSlug ?? b.simulatorSlug
     const nextDur = body.durationMin ?? b.durationMin
+    const nextDate = body.date ?? b.date
+    const nextStart = body.startTime ?? b.startTime
     if (nextSlug === 'mi-2' && Number(nextDur) > 60) {
-      rejected = true
+      rejected = 'mi2'
+      return
+    }
+    // ТО/блокировку проверяем только при смене даты/слота/тренажёра (не блокируем правку имени и т.п.)
+    const slotChanged =
+      nextDate !== b.date ||
+      nextStart !== b.startTime ||
+      Number(nextDur) !== b.durationMin ||
+      nextSlug !== b.simulatorSlug
+    if (
+      slotChanged &&
+      (isDateFullyClosed(s, nextDate, nextSlug) ||
+        isSlotBlockedByMaintenance(s, nextDate, nextStart, Number(nextDur), nextSlug))
+    ) {
+      rejected = 'blocked'
       return
     }
     const before = {
@@ -879,7 +913,37 @@ apiRouter.patch('/admin/bookings/:id', requireRoles('ADMIN', 'MANAGER'), async (
       phone: b.phone,
       email: b.email,
     }
+    const nextStatus = String(body.status ?? b.status ?? '')
+    const nextPilot =
+      'pilotUserId' in body
+        ? body.pilotUserId
+          ? String(body.pilotUserId)
+          : undefined
+        : b.pilotUserId
+    if (
+      (nextStatus === 'DONE' || nextStatus === 'IN_PROGRESS') &&
+      !nextPilot
+    ) {
+      rejected = 'pilot'
+      return
+    }
     Object.assign(b, body, { updatedAt: new Date().toISOString() })
+    if ('pilotUserId' in body) {
+      b.pilotUserId = body.pilotUserId ? String(body.pilotUserId) : undefined
+    }
+    // Если подтвердили «В процессе» уже после окончания слота — сразу «Закончили»
+    autoCompletePastBookings(s)
+    // Синхронизация с графиком: при «В процессе» / «Закончили» фиксируем смену пилота
+    if (
+      (b.status === 'DONE' || b.status === 'IN_PROGRESS') &&
+      b.pilotUserId
+    ) {
+      ensureStaffShift(s, {
+        date: b.date,
+        userId: b.pilotUserId,
+        simulatorSlug: b.simulatorSlug,
+      })
+    }
     updated = b
     const changed =
       before.name !== b.name ||
@@ -898,19 +962,33 @@ apiRouter.patch('/admin/bookings/:id', requireRoles('ADMIN', 'MANAGER'), async (
       pushNotification(s, {
         kind: 'booking',
         title: 'Запись изменена',
-        body: `${b.name} · ${b.date} ${b.startTime}–${b.endTime} · ${simLabel}`,
+        body: `${b.name} · ${formatDisplayDate(b.date)} ${b.startTime}–${b.endTime} · ${simLabel}`,
         href: notifHref('/admin', b.id, { date: b.date }),
         meta: { bookingId: b.id, date: b.date },
       })
       pushLog(s, {
-        message: `Запись изменена: ${b.name} · ${b.date} ${b.startTime} → ${b.status}`,
+        message: `Запись изменена: ${b.name} · ${formatDisplayDate(b.date)} ${b.startTime} → ${b.status}`,
         context: 'booking',
         meta: { bookingId: b.id, status: b.status },
       })
     }
   })
-  if (rejected) {
+  if (rejected === 'mi2') {
     res.status(400).json({ error: 'Для Ми-2 максимальная длительность — 60 минут' })
+    return
+  }
+  if (rejected === 'blocked') {
+    res.status(400).json({
+      error: 'Этот день или слот закрыт (ТО / блокировка). Выберите другую дату или время.',
+      code: 'DATE_BLOCKED',
+    })
+    return
+  }
+  if (rejected === 'pilot') {
+    res.status(400).json({
+      error: 'Укажите пилота: для статусов «В процессе» и «Закончили» пилот обязателен.',
+      code: 'PILOT_REQUIRED',
+    })
     return
   }
   broadcast()
@@ -929,13 +1007,13 @@ apiRouter.delete('/admin/bookings/:id', requireRoles('ADMIN', 'MANAGER'), async 
       section: 'bookings',
       entityId: prev.id,
       title: prev.name,
-      summary: `${prev.date} ${prev.startTime}–${prev.endTime} · ${sim} · ${prev.phone}`,
+      summary: `${formatDisplayDate(prev.date)} ${prev.startTime}–${prev.endTime} · ${sim} · ${prev.phone}`,
       payload: prev,
       ...actor,
     })
     s.bookings = s.bookings.filter((b) => b.id !== id)
     pushLog(s, {
-      message: `Запись удалена: ${prev.name} · ${prev.date} ${prev.startTime}`,
+      message: `Запись удалена: ${prev.name} · ${formatDisplayDate(prev.date)} ${prev.startTime}`,
       context: 'booking',
       meta: { bookingId: prev.id },
     })
@@ -947,8 +1025,13 @@ apiRouter.delete('/admin/bookings/:id', requireRoles('ADMIN', 'MANAGER'), async 
 apiRouter.get('/admin/calendar', (req, res) => {
   const { from, to } = calendarRangeForRole(req.session!.role)
   const store = readStore()
+  const days = buildCalendarDays(store, from, to).map((d) => ({
+    ...d,
+    /** День полностью закрыт (BLOCKED или ТО на весь зал) — запись недоступна */
+    fullyClosed: isDateFullyClosed(store, d.date),
+  }))
   res.json({
-    days: buildCalendarDays(store, from, to),
+    days,
     range: { from: toDateKey(from), to: toDateKey(to) },
   })
 })
@@ -967,7 +1050,7 @@ apiRouter.put('/admin/calendar/:date', requireRoles('ADMIN', 'MANAGER'), async (
     pushNotification(s, {
       kind: 'calendar',
       title: 'Изменён статус дня',
-      body: `${date} → ${CALENDAR_STATUS_LABEL[status] ?? status}`,
+      body: `${formatDisplayDate(date)} → ${CALENDAR_STATUS_LABEL[status] ?? status}`,
       href: '/admin/schedule-settings',
       meta: { date, status },
     })
@@ -983,7 +1066,7 @@ apiRouter.post('/admin/calendar/toggle-holidays', requireRoles('ADMIN', 'MANAGER
       const cur = getDayStatus(s, d)
       s.calendar[d] = cur === 'HOLIDAY' ? 'OPEN' : 'HOLIDAY'
     }
-    const sample = dates.slice(0, 3).join(', ')
+    const sample = dates.slice(0, 3).map(formatDisplayDate).join(', ')
     const more = dates.length > 3 ? ` и ещё ${dates.length - 3}` : ''
     pushNotification(s, {
       kind: 'calendar',
@@ -1002,9 +1085,22 @@ apiRouter.post('/admin/calendar/toggle-blocked', requireRoles('ADMIN', 'MANAGER'
   await updateStore((s) => {
     for (const d of dates) {
       const cur = getDayStatus(s, d)
-      s.calendar[d] = cur === 'BLOCKED' ? 'OPEN' : 'BLOCKED'
+      if (cur === 'BLOCKED') {
+        // Снимаем календарную блокировку…
+        delete s.calendar[d]
+        // …и полное ТО «весь день · весь зал»: иначе сайт остаётся закрытым
+        // через isDateFullyClosed, хотя в календаре уже OPEN (баг дашборда).
+        s.maintenance = (s.maintenance ?? []).filter((m) => {
+          const n = normalizeMaintenance(m)
+          if (n.date !== d) return true
+          const fullDayAllHall = !n.simulatorSlug && !n.startTime && !n.endTime
+          return !fullDayAllHall
+        })
+      } else {
+        s.calendar[d] = 'BLOCKED'
+      }
     }
-    const sample = dates.slice(0, 3).join(', ')
+    const sample = dates.slice(0, 3).map(formatDisplayDate).join(', ')
     const more = dates.length > 3 ? ` и ещё ${dates.length - 3}` : ''
     pushNotification(s, {
       kind: 'calendar',
@@ -1021,7 +1117,13 @@ apiRouter.post('/admin/calendar/toggle-blocked', requireRoles('ADMIN', 'MANAGER'
 apiRouter.get('/admin/staff-shifts', (req, res) => {
   const month = String(req.query.month ?? '')
   const store = readStore()
-  const rows = store.staffShifts.filter((sh) => sh.date.startsWith(month))
+  const role = req.session!.role
+  const userId = req.session!.userId
+  let rows = store.staffShifts.filter((sh) => sh.date.startsWith(month))
+  // В ЛК пилот видит только свои смены — как в «Часы пилотов»
+  if (role === 'PILOT') {
+    rows = rows.filter((sh) => sh.userId === userId)
+  }
   res.json(
     rows.map((sh) => ({
       ...sh,
@@ -1060,7 +1162,7 @@ apiRouter.post('/admin/staff-shifts', async (req, res) => {
       pushNotification(s, {
         kind: 'staff_shift',
         title: 'Вам назначена смена',
-        body: `${shift.date} · ${simLabel}`,
+        body: `${formatDisplayDate(shift.date)} · ${simLabel}`,
         href: notifHref('/admin/staff-schedule', shift.id, { date: shift.date }),
         targetUserId: userId,
         meta: { shiftId: shift.id, date: shift.date },
@@ -1070,7 +1172,7 @@ apiRouter.post('/admin/staff-shifts', async (req, res) => {
       pushNotification(s, {
         kind: 'staff_shift',
         title: 'Обновление графика персонала',
-        body: `${user.fullName} · ${shift.date} · ${simLabel}`,
+        body: `${user.fullName} · ${formatDisplayDate(shift.date)} · ${simLabel}`,
         href: notifHref('/admin/staff-schedule', shift.id, { date: shift.date }),
         meta: { shiftId: shift.id, date: shift.date, userId },
       })
@@ -1097,7 +1199,7 @@ apiRouter.delete('/admin/staff-shifts/:id', async (req, res) => {
       section: 'staff_shifts',
       entityId: shift.id,
       title: pilot?.fullName ?? 'Пилот',
-      summary: `${shift.date} · ${simLabel}`,
+      summary: `${formatDisplayDate(shift.date)} · ${simLabel}`,
       payload: { ...shift, userName: pilot?.fullName },
       ...actor,
     })
@@ -1106,7 +1208,7 @@ apiRouter.delete('/admin/staff-shifts/:id', async (req, res) => {
       pushNotification(s, {
         kind: 'staff_shift',
         title: 'Смена снята',
-        body: `${shift.date} · ${simLabel}`,
+        body: `${formatDisplayDate(shift.date)} · ${simLabel}`,
         href: notifHref('/admin/staff-schedule', undefined, { date: shift.date }),
         targetUserId: shift.userId,
         meta: { date: shift.date },
@@ -1115,7 +1217,7 @@ apiRouter.delete('/admin/staff-shifts/:id', async (req, res) => {
     pushNotification(s, {
       kind: 'staff_shift',
       title: 'Смена удалена из графика',
-      body: `${pilot?.fullName ?? 'Пилот'} · ${shift.date} · ${simLabel}`,
+      body: `${pilot?.fullName ?? 'Пилот'} · ${formatDisplayDate(shift.date)} · ${simLabel}`,
       href: notifHref('/admin/staff-schedule', undefined, { date: shift.date }),
       meta: { date: shift.date, userId: shift.userId },
     })
@@ -1162,6 +1264,120 @@ apiRouter.post('/admin/notifications/read-all', async (req, res) => {
   res.json({ ok: true })
 })
 
+/** Часы пилотов — ДО hideFromPilots: пилот читает свои часы в ЛК */
+apiRouter.get('/admin/pilot-hours', async (req, res) => {
+  const month = String(req.query.month ?? '').trim()
+  if (!/^\d{4}-\d{2}$/.test(month)) {
+    res.status(400).json({ error: 'MONTH_REQUIRED' })
+    return
+  }
+  // Досинхронизация: у полётов с пилотом должна быть смена в графике
+  let synced = false
+  await updateStore((s) => {
+    for (const b of s.bookings) {
+      if (!b.date.startsWith(month)) continue
+      if (b.status !== 'DONE' && b.status !== 'IN_PROGRESS') continue
+      if (!b.pilotUserId) continue
+      if (
+        ensureStaffShift(s, {
+          date: b.date,
+          userId: b.pilotUserId,
+          simulatorSlug: b.simulatorSlug,
+        })
+      ) {
+        synced = true
+      }
+    }
+  })
+  if (synced) broadcast()
+
+  const store = readStore()
+  const role = req.session!.role
+  const userId = req.session!.userId
+
+  const pilots = store.users.filter((u) => u.role === 'PILOT' && u.isActive)
+  const scoped =
+    role === 'PILOT' ? pilots.filter((u) => u.id === userId) : pilots
+  const scopedIds = new Set(scoped.map((p) => p.id))
+
+  const fact = new Map<string, number>()
+  const entries: Array<{
+    id: string
+    date: string
+    startTime: string
+    endTime: string
+    durationMin: number
+    simulatorSlug: string
+    status: string
+    pilotUserId: string
+    clientName: string
+  }> = []
+  for (const b of store.bookings) {
+    if (!b.pilotUserId || !scopedIds.has(b.pilotUserId)) continue
+    if (!b.date.startsWith(month)) continue
+    if (b.status !== 'DONE' && b.status !== 'IN_PROGRESS') continue
+    const sim = b.simulatorSlug === 'mi-2' ? 'mi-2' : 'boeing-737'
+    const key = `${b.pilotUserId}:${sim}`
+    fact.set(key, (fact.get(key) ?? 0) + Math.max(0, Number(b.durationMin) || 0))
+    entries.push({
+      id: b.id,
+      date: b.date,
+      startTime: b.startTime,
+      endTime: b.endTime,
+      durationMin: b.durationMin,
+      simulatorSlug: sim,
+      status: b.status,
+      pilotUserId: b.pilotUserId,
+      clientName: b.name,
+    })
+  }
+  entries.sort(
+    (a, b) =>
+      a.date.localeCompare(b.date) ||
+      a.startTime.localeCompare(b.startTime) ||
+      a.clientName.localeCompare(b.clientName, 'ru'),
+  )
+
+  const shifts = (store.staffShifts ?? [])
+    .filter((s) => s.date.startsWith(month) && scopedIds.has(s.userId))
+    .map((s) => ({
+      id: s.id,
+      date: s.date,
+      userId: s.userId,
+      simulatorSlug: s.simulatorSlug === 'mi-2' ? 'mi-2' : 'boeing-737',
+    }))
+    .sort((a, b) => a.date.localeCompare(b.date) || a.simulatorSlug.localeCompare(b.simulatorSlug))
+
+  const saved = (store.pilotHours ?? []).filter((r) => r.month === month)
+  const byKey = new Map(saved.map((r) => [`${r.userId}:${r.simulatorSlug}`, r]))
+
+  const totals = []
+  for (const p of scoped) {
+    // Всегда оба тренажёра (или только назначенные пилоту) — в т.ч. с 0 минут
+    const assigned = (p.pilotSimulators ?? []).filter(
+      (s): s is 'boeing-737' | 'mi-2' => s === 'boeing-737' || s === 'mi-2',
+    )
+    const sims =
+      assigned.length > 0 ? assigned : (['boeing-737', 'mi-2'] as const)
+    for (const sim of sims) {
+      const key = `${p.id}:${sim}`
+      const hit = byKey.get(key)
+      totals.push({
+        id: hit?.id ?? `fact-${p.id}-${sim}-${month}`,
+        month,
+        userId: p.id,
+        pilotName: p.fullName,
+        simulatorSlug: sim,
+        minutes: fact.get(key) ?? 0,
+        comment: hit?.comment ?? '',
+        fromBookings: true,
+        updatedAt: hit?.updatedAt ?? new Date().toISOString(),
+      })
+    }
+  }
+  res.json({ month, totals, entries, shifts })
+})
+
 apiRouter.use('/admin', hideFromPilots)
 
 apiRouter.get('/admin/certificates', async (_req, res) => {
@@ -1180,13 +1396,12 @@ apiRouter.post('/admin/certificates', requireRoles('ADMIN', 'MANAGER'), async (r
       ? 'ONLINE'
       : 'OFFLINE'
     : 'OFFLINE'
+  const storeSnap = readStore()
   const simulatorSlug = String(body.simulatorSlug ?? 'boeing-737')
-  const designColor = defaultDesignColor(simulatorSlug, body.designColor)
+  const designColor = defaultDesignColor(storeSnap, simulatorSlug, body.designColor)
   const cert: Certificate = {
     id: isRestore ? String(body.id) : newId(),
-    number:
-      body.number ??
-      nextCertificateNumber(readStore().counters.certificate, designColor),
+    number: body.number ?? nextCertificateNumber(storeSnap, designColor),
     phone: body.phone,
     email: String(body.email ?? '').trim(),
     fullName: body.fullName,
@@ -1241,7 +1456,7 @@ apiRouter.patch('/admin/certificates/:id', requireRoles('ADMIN', 'MANAGER'), asy
         c.paymentMethod = req.body.paymentMethod
       }
       if (req.body.simulatorSlug || req.body.designColor) {
-        c.designColor = defaultDesignColor(c.simulatorSlug, c.designColor)
+        c.designColor = defaultDesignColor(s, c.simulatorSlug, c.designColor)
       }
       expireCertificatesInStore(s)
     }
@@ -1296,7 +1511,7 @@ apiRouter.post('/admin/waiting-room', requireRoles('ADMIN', 'MANAGER'), async (r
       pushNotification(s, {
         kind: 'waiting_room',
         title: 'Зал ожидания',
-        body: `${entry.date}: ${String(entry.line).slice(0, 100)}`,
+        body: `${formatDisplayDate(entry.date)}: ${String(entry.line).slice(0, 100)}`,
         href: notifHref('/admin/waiting-room', entry.id, { date: entry.date }),
         meta: { waitingId: entry.id, date: entry.date },
       })
@@ -1330,7 +1545,7 @@ apiRouter.delete('/admin/waiting-room/:id', requireRoles('ADMIN', 'MANAGER'), as
     pushArchive(s, {
       section: 'waiting_room',
       entityId: prev.id,
-      title: prev.date,
+      title: formatDisplayDate(prev.date),
       summary: String(prev.line).slice(0, 160),
       payload: prev,
       ...actor,
@@ -1404,7 +1619,11 @@ apiRouter.put('/admin/promos', requireRoles('ADMIN', 'MANAGER'), async (req, res
         kind: 'promos',
         entityId: row.id,
         title: row.name,
-        summary: `−${row.discountPercent}% · ${row.productType} · ${row.startDate}–${row.endDate}`,
+        summary: `−${row.discountPercent}% · ${row.productType} · ${
+          row.indefinite
+            ? `${formatDisplayDate(row.startDate)} — бессрочно`
+            : `${formatDisplayDate(row.startDate)}–${formatDisplayDate(row.endDate)}`
+        }`,
         payload: row,
         ...actor,
       })
@@ -1585,9 +1804,47 @@ apiRouter.patch('/admin/settings', requireRoles('ADMIN'), async (req, res) => {
   })
 })
 
-apiRouter.get('/admin/feedback', requireRoles('ADMIN', 'MANAGER'), (_req, res) => {
+apiRouter.get('/admin/feedback', requireRoles('ADMIN', 'MANAGER'), (req, res) => {
   const store = readStore()
-  res.json(store.feedbackRequests ?? [])
+  const userId = req.session!.userId
+  const items = (store.feedbackRequests ?? []).map((f) => {
+    const readBy = f.readBy ?? {}
+    return {
+      ...f,
+      readBy,
+      read: Boolean(readBy[userId]),
+    }
+  })
+  res.json({
+    items,
+    unread: items.filter((f) => !f.read).length,
+  })
+})
+
+apiRouter.post('/admin/feedback/read-all', requireRoles('ADMIN', 'MANAGER'), async (req, res) => {
+  const userId = req.session!.userId
+  await updateStore((s) => {
+    const now = new Date().toISOString()
+    for (const f of s.feedbackRequests ?? []) {
+      if (!f.readBy) f.readBy = {}
+      if (!f.readBy[userId]) f.readBy[userId] = now
+    }
+  })
+  broadcast()
+  res.json({ ok: true })
+})
+
+apiRouter.post('/admin/feedback/:id/read', requireRoles('ADMIN', 'MANAGER'), async (req, res) => {
+  const id = String(req.params.id)
+  const userId = req.session!.userId
+  await updateStore((s) => {
+    const f = (s.feedbackRequests ?? []).find((x) => x.id === id)
+    if (!f) return
+    if (!f.readBy) f.readBy = {}
+    f.readBy[userId] = new Date().toISOString()
+  })
+  broadcast()
+  res.json({ ok: true })
 })
 
 apiRouter.get('/admin/logs', requireRoles('ADMIN'), (_req, res) => {
@@ -1597,60 +1854,32 @@ apiRouter.get('/admin/logs', requireRoles('ADMIN'), (_req, res) => {
 apiRouter.get('/admin/certificates/next-number', requireRoles('ADMIN', 'MANAGER'), (req, res) => {
   const store = readStore()
   const designColor = defaultDesignColor(
+    store,
     String(req.query.simulatorSlug ?? 'boeing-737'),
     String(req.query.designColor ?? ''),
   )
   res.json({
-    number: nextCertificateNumber(store.counters.certificate, designColor),
+    number: nextCertificateNumber(store, designColor),
+    designColor,
+    designs: designsForSimulator(storeDesigns(store), String(req.query.simulatorSlug ?? 'boeing-737')),
   })
 })
 
-apiRouter.get('/admin/pilot-hours', (req, res) => {
-  const month = String(req.query.month ?? '').trim()
-  if (!/^\d{4}-\d{2}$/.test(month)) {
-    res.status(400).json({ error: 'MONTH_REQUIRED' })
-    return
-  }
-  const store = readStore()
-  const role = req.session!.role
-  const userId = req.session!.userId
+apiRouter.get('/public/certificate-designs', (_req, res) => {
+  res.json(storeDesigns(readStore()).filter((d) => d.active !== false))
+})
 
-  // Факт минут из подтверждённых полётов (В процессе / Закончили + назначенный пилот)
-  const fact = new Map<string, number>()
-  for (const b of store.bookings) {
-    if (!b.pilotUserId) continue
-    if (!b.date.startsWith(month)) continue
-    if (b.status !== 'DONE' && b.status !== 'IN_PROGRESS') continue
-    const sim = b.simulatorSlug === 'mi-2' ? 'mi-2' : 'boeing-737'
-    const key = `${b.pilotUserId}:${sim}`
-    fact.set(key, (fact.get(key) ?? 0) + Math.max(0, Number(b.durationMin) || 0))
-  }
+apiRouter.get('/admin/settings/certificate-designs', requireRoles('ADMIN'), (_req, res) => {
+  res.json(storeDesigns(readStore()))
+})
 
-  const saved = (store.pilotHours ?? []).filter((r) => r.month === month)
-  const byKey = new Map(saved.map((r) => [`${r.userId}:${r.simulatorSlug}`, r]))
-
-  const pilots = store.users.filter((u) => u.role === 'PILOT' && u.isActive)
-  const scoped =
-    role === 'PILOT' ? pilots.filter((u) => u.id === userId) : pilots
-
-  const rows = []
-  for (const p of scoped) {
-    for (const sim of ['boeing-737', 'mi-2'] as const) {
-      const key = `${p.id}:${sim}`
-      const hit = byKey.get(key)
-      rows.push({
-        id: hit?.id ?? `fact-${p.id}-${sim}-${month}`,
-        month,
-        userId: p.id,
-        simulatorSlug: sim,
-        minutes: fact.get(key) ?? 0,
-        comment: hit?.comment ?? '',
-        fromBookings: true,
-        updatedAt: hit?.updatedAt ?? new Date().toISOString(),
-      })
-    }
-  }
-  res.json(rows)
+apiRouter.put('/admin/settings/certificate-designs', requireRoles('ADMIN'), async (req, res) => {
+  const rows = Array.isArray(req.body?.rows) ? req.body.rows : []
+  await updateStore((s) => {
+    s.certificateDesigns = normalizeCertificateDesigns(rows)
+  })
+  broadcast()
+  res.json(storeDesigns(readStore()))
 })
 
 apiRouter.put('/admin/pilot-hours', requireRoles('ADMIN', 'MANAGER'), async (req, res) => {
@@ -1824,9 +2053,19 @@ apiRouter.post('/admin/uploads', requireRoles('ADMIN'), (req, res) => {
 
 type SeriesPoint = { label: string; value: number; date: string; summary: string }
 
+/** Подпись оси графика: День-Месяц (не Месяц-День). */
+function chartDayLabel(dateKey: string): string {
+  try {
+    const d = parseISO(dateKey)
+    return isValid(d) ? format(d, 'dd-MM') : formatDisplayDate(dateKey)
+  } catch {
+    return formatDisplayDate(dateKey)
+  }
+}
+
 function emptySeriesPoint(): SeriesPoint {
   const date = format(new Date(), 'yyyy-MM-dd')
-  return { label: date.slice(5), value: 0, date, summary: 'Нет данных за этот день' }
+  return { label: chartDayLabel(date), value: 0, date, summary: 'Нет данных за этот день' }
 }
 
 function parseDateKey(raw: unknown): string | undefined {
@@ -1866,7 +2105,7 @@ function fillSeriesRange(series: SeriesPoint[], from?: string, to?: string): Ser
   return eachDateKey(from, to).map((date) => {
     const hit = byDate.get(date)
     if (hit) return hit
-    return { label: date.slice(5), value: 0, date, summary: 'Нет данных за этот день' }
+    return { label: chartDayLabel(date), value: 0, date, summary: 'Нет данных за этот день' }
   })
 }
 
@@ -1889,7 +2128,7 @@ function seriesFromBookings(rows: { date: string; simulatorSlug: string; duratio
       parts.push(`${paid} оплачено`)
       const mins = [...new Set(dayRows.map((r) => r.durationMin))].sort((a, b) => a - b)
       if (mins.length) parts.push(mins.map((m) => `${m} мин`).join(', '))
-      return { label: date.slice(5), value: dayRows.length, date, summary: parts.join(' · ') }
+      return { label: chartDayLabel(date), value: dayRows.length, date, summary: parts.join(' · ') }
     })
   return series.length ? series : [emptySeriesPoint()]
 }
@@ -1915,7 +2154,7 @@ function seriesFromCertificates(
       if (offline) parts.push(`${offline} в офисе`)
       const mins = [...new Set(dayRows.map((r) => r.durationMin))].sort((a, b) => a - b)
       if (mins.length) parts.push(mins.map((m) => `${m} мин`).join(', '))
-      return { label: date.slice(5), value: dayRows.length, date, summary: parts.join(' · ') }
+      return { label: chartDayLabel(date), value: dayRows.length, date, summary: parts.join(' · ') }
     })
   return series.length ? series : [emptySeriesPoint()]
 }
@@ -2031,6 +2270,52 @@ apiRouter.delete('/admin/demo-data', requireRoles('ADMIN'), async (_req, res) =>
   const { removed } = await clearDemoData()
   broadcast()
   res.json({ ok: true, removed })
+})
+
+/** Эффективные «часы сервера» (с учётом демо-override). */
+apiRouter.get('/admin/demo-clock', requireRoles('ADMIN', 'MANAGER', 'PILOT'), (_req, res) => {
+  const store = readStore()
+  const realNowIso = new Date().toISOString()
+  const demoNowIso = store.settings.demoNowIso ?? null
+  const effective = getStoreNow(store)
+  res.json({
+    realNowIso,
+    demoNowIso,
+    effectiveNowIso: effective.toISOString(),
+    active: Boolean(demoNowIso),
+  })
+})
+
+/** Установить / сбросить демо-время (только ADMIN). body: { demoNowIso: string | null } */
+apiRouter.put('/admin/demo-clock', requireRoles('ADMIN'), async (req, res) => {
+  const raw = req.body?.demoNowIso
+  let next: string | null = null
+  if (raw != null && String(raw).trim()) {
+    const d = new Date(String(raw))
+    if (Number.isNaN(d.getTime())) {
+      return res.status(400).json({ error: 'Некорректная дата/время', code: 'VALIDATION' })
+    }
+    next = d.toISOString()
+  }
+  await updateStore((s) => {
+    s.settings.demoNowIso = next
+    // Сразу прогоняем автозавершение под новое «сейчас»
+    autoCompletePastBookings(s)
+    const nowIso = getStoreNowIso(s)
+    for (const b of s.bookings) {
+      if (b.status === 'PENDING_CONFIRMATION' && b.holdExpiresAt && b.holdExpiresAt < nowIso) {
+        b.status = 'EXPIRED'
+      }
+    }
+  })
+  broadcast()
+  const store = readStore()
+  res.json({
+    realNowIso: new Date().toISOString(),
+    demoNowIso: store.settings.demoNowIso ?? null,
+    effectiveNowIso: getStoreNowIso(store),
+    active: Boolean(store.settings.demoNowIso),
+  })
 })
 
 apiRouter.get('/admin/maintenance', (_req, res) => {
@@ -2436,12 +2721,12 @@ function addMonthsSafe(d: Date, n: number) {
   return new Date(d.getFullYear(), d.getMonth() + n, d.getDate())
 }
 
-// Expire stale holds + complete past IN_PROGRESS → DONE
+// Expire stale holds + complete past IN_PROGRESS → DONE (учитывает демо-часы)
 setInterval(() => {
   void (async () => {
     let changed = false
     await updateStore((s) => {
-      const now = new Date().toISOString()
+      const now = getStoreNowIso(s)
       for (const b of s.bookings) {
         if (b.status === 'PENDING_CONFIRMATION' && b.holdExpiresAt && b.holdExpiresAt < now) {
           b.status = 'EXPIRED'

@@ -15,6 +15,7 @@ import { useAdminAuth } from '@/contexts/AdminAuthContext'
 import { useAdminUndo } from '@/contexts/AdminUndoContext'
 import { canEditBookings } from '@/lib/admin-access'
 import { cn } from '@/lib/utils'
+import { SiteDateInput } from '@/components/ui/site-date-input'
 
 const PENCIL = '/assets/admin/certificates_pencil_icon.svg'
 
@@ -230,11 +231,10 @@ export default function AdminWaitingRoomPage() {
         <div className="flex flex-col gap-4">
           <label className="block text-sm">
             Дата
-            <Input
-              type="date"
+            <SiteDateInput
               className="mt-1 h-9"
               value={editForm.date}
-              onChange={(e) => setEditForm((f) => ({ ...f, date: e.target.value }))}
+              onValueChange={(date) => setEditForm((f) => ({ ...f, date }))}
             />
           </label>
           <label className="block text-sm">

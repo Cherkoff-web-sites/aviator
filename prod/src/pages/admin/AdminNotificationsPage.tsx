@@ -1,5 +1,3 @@
-import { format, parseISO } from 'date-fns'
-import { ru } from 'date-fns/locale'
 import { Bell, CheckCheck } from 'lucide-react'
 import { Link } from 'react-router-dom'
 
@@ -7,6 +5,7 @@ import { Button } from '@/components/ui/button'
 import { useAdminAuth } from '@/contexts/AdminAuthContext'
 import { useLiveData } from '@/hooks/useLiveData'
 import { ADMIN_NAV_MAIN, ADMIN_NAV_SETTINGS_ICON } from '@/data/adminNav'
+import { formatAdminDateTime, rewriteIsoDatesInText } from '@/lib/admin-date'
 import { apiFetch } from '@/lib/api'
 import { cn } from '@/lib/utils'
 
@@ -49,11 +48,7 @@ function metaForNotification(n: ApiNotification) {
 }
 
 function formatWhen(iso: string) {
-  try {
-    return format(parseISO(iso), "d MMM, HH:mm", { locale: ru })
-  } catch {
-    return iso
-  }
+  return formatAdminDateTime(iso)
 }
 
 function roleHint(role: string | undefined) {
@@ -137,8 +132,12 @@ export default function AdminNotificationsPage() {
                       </span>
                       <span className="text-[11px] text-muted-foreground">{formatWhen(n.createdAt)}</span>
                     </div>
-                    <p className="mt-1 text-sm font-medium text-foreground">{n.title}</p>
-                    <p className="mt-0.5 text-sm leading-snug text-muted-foreground">{n.body}</p>
+                    <p className="mt-1 text-sm font-medium text-foreground">
+                      {rewriteIsoDatesInText(n.title)}
+                    </p>
+                    <p className="mt-0.5 text-sm leading-snug text-muted-foreground">
+                      {rewriteIsoDatesInText(n.body)}
+                    </p>
                   </div>
                   <div className="flex shrink-0 items-center gap-2 sm:flex-col sm:items-end">
                     <div className="flex flex-wrap gap-2 sm:flex-col sm:items-end">

@@ -1,4 +1,4 @@
-import { Archive, Bell, ChevronsUpDown, ExternalLink, LogOut, User } from 'lucide-react'
+import { Archive, Bell, ChevronsUpDown, ExternalLink, LogOut, ScrollText, User } from 'lucide-react'
 import { Link, useNavigate } from 'react-router-dom'
 
 import {
@@ -23,7 +23,7 @@ import {
 } from '@/components/ui/sidebar'
 import { useAdminAuth } from '@/contexts/AdminAuthContext'
 import { useLiveData } from '@/hooks/useLiveData'
-import { canViewArchive } from '@/lib/admin-access'
+import { canViewArchive, canViewTechnicalLogs } from '@/lib/admin-access'
 import { apiFetch } from '@/lib/api'
 import { cn } from '@/lib/utils'
 
@@ -124,6 +124,14 @@ export function NavUser({
                   <Link to="/admin/archive" className="flex cursor-pointer items-center gap-2">
                     <Archive />
                     Архив
+                  </Link>
+                </DropdownMenuItem>
+              ) : null}
+              {canViewTechnicalLogs(role) ? (
+                <DropdownMenuItem asChild>
+                  <Link to="/admin/logs" className="flex cursor-pointer items-center gap-2">
+                    <ScrollText />
+                    Технические логи
                   </Link>
                 </DropdownMenuItem>
               ) : null}

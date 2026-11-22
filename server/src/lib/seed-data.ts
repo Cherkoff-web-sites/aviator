@@ -13,7 +13,9 @@ import type {
   WaitingEntry,
   WorkHourEntry,
 } from '../types.js'
+import { formatDisplayDate } from './display-date.js'
 import { DEFAULT_DOCUMENTS } from './default-documents.js'
+import { DEFAULT_CERTIFICATE_DESIGNS } from './certificate-designs.js'
 
 const B737 = 'boeing-737'
 const MI2 = 'mi-2'
@@ -172,9 +174,36 @@ function makeBooking(spec: BookingSpec, idx: number, now: Date): Booking {
   }
 }
 
+function hmToMins(t: string) {
+  const [h, m] = t.split(':').map(Number)
+  return (h ?? 0) * 60 + (m ?? 0)
+}
+
+/**
+ * Статус слота «на сегодня» относительно текущего времени:
+ * до начала → как в шаблоне; в окне полёта → IN_PROGRESS; после конца → DONE
+ * (кроме CANCELLED / EXPIRED / PENDING_CONFIRMATION — их не трогаем).
+ */
+function alignTodayStatus(
+  status: BookingStatus,
+  start: string,
+  duration: number,
+  nowMins: number,
+): BookingStatus {
+  if (status === 'CANCELLED' || status === 'EXPIRED' || status === 'PENDING_CONFIRMATION') {
+    return status
+  }
+  const startMins = hmToMins(start)
+  const endMins = startMins + duration
+  if (nowMins < startMins) return status === 'IN_PROGRESS' ? 'WAITING' : status
+  if (nowMins < endMins) return 'IN_PROGRESS'
+  return status === 'WAITING' || status === 'CONFIRMED' || status === 'IN_PROGRESS' ? 'DONE' : status
+}
+
 /** Сегодня: каждый статус, оба тренажёра, все варианты оплаты и акций. */
-function todaySpecs(today: string, base: Date): BookingSpec[] {
-  const specs: BookingSpec[] = [
+function todaySpecs(today: string, base: Date, now: Date = new Date()): BookingSpec[] {
+  const nowMins = now.getHours() * 60 + now.getMinutes()
+  const raw: BookingSpec[] = [
     { date: today, start: '12:00', duration: 30, sim: B737, status: 'DONE', paid: true, online: true, client: 0, comment: 'Будем с ребёнком' },
     { date: today, start: '13:00', duration: 60, sim: B737, status: 'DONE', paid: true, client: 1, cert: '111101' },
     { date: today, start: '14:30', duration: 30, sim: B737, status: 'IN_PROGRESS', paid: true, client: 2, happy: true },
@@ -190,6 +219,10 @@ function todaySpecs(today: string, base: Date): BookingSpec[] {
     { date: today, start: '18:00', duration: 30, sim: MI2, status: 'CANCELLED', paid: true, online: true, client: 0, comment: 'Возврат оплаты оформлен' },
     { date: today, start: '20:00', duration: 30, sim: MI2, status: 'PENDING_CONFIRMATION', paid: false, client: 1, holdMinutes: 60 * 24 * 3 },
   ]
+  const specs = raw.map((s) => ({
+    ...s,
+    status: alignTodayStatus(s.status, s.start, s.duration, nowMins),
+  }))
   return isWeekendDay(base) ? specs.map((s) => ({ ...s, happy: false })) : specs
 }
 
@@ -249,7 +282,7 @@ function demoUsers(): User[] {
     { id: 'u-admin', login: 'admin', password: 'admin123', fullName: 'Тимофей', phone: '+375 29 713 10 01', role: 'ADMIN', isActive: true, color: '#16a34a', pilotSimulators: [] },
     { id: 'u-manager', login: 'manager', password: 'manager123', fullName: 'Иван Менеджеров', phone: '+375 (12) 1234567', role: 'MANAGER', isActive: true, color: '#2563eb', pilotSimulators: [] },
     { id: 'u-manager-2', login: 'manager_olga', password: 'olga123', fullName: 'Ольга Администраторова', phone: '+375 29 555 44 33', role: 'MANAGER', isActive: false, color: '#9333ea', pilotSimulators: [] },
-    { id: 'u-pilot-b737', login: 'pilot_b737', password: 'pilot737', fullName: 'Николай', phone: '+375 (12) 1111111', role: 'PILOT', isActive: true, color: '#0891b2', pilotSimulators: [B737] },
+    { id: 'u-pilot-b737', login: 'pilot_b737', password: 'pilot737', fullName: 'Николай', phone: '+375 (12) 1111111', role: 'PILOT', isActive: true, color: '#0891b2', pilotSimulators: [B737, MI2] },
     { id: 'u-pilot-mi2', login: 'pilot_mi2', password: 'pilotmi2', fullName: 'Валентин', phone: '+375 (12) 2222222', role: 'PILOT', isActive: true, color: '#ea580c', pilotSimulators: [MI2] },
     { id: 'u-pilot-both', login: 'pilot_universal', password: 'pilotboth', fullName: 'Андрей Универсалов', phone: '+375 33 321 21 21', role: 'PILOT', isActive: true, color: '#db2777', pilotSimulators: [B737, MI2] },
     { id: 'u-pilot-old', login: 'pilot_retired', password: 'retired', fullName: 'Степан (уволен)', phone: '+375 44 000 00 01', role: 'PILOT', isActive: false, color: '#64748b', pilotSimulators: [B737] },
@@ -392,7 +425,7 @@ function demoMaintenance(base: Date, nowIso: string): MaintenanceEntry[] {
     {
       id: 'demo-m-3',
       date: dk(subDays(base, 12)),
-      simulatorSlug: 'boeing-737',
+        simulatorSlug: 'boeing-737',
       startTime: null,
       endTime: null,
       notes: 'Замена проектора в кабине Boeing (выполнено)',
@@ -405,12 +438,13 @@ function demoMaintenance(base: Date, nowIso: string): MaintenanceEntry[] {
 function demoNotifications(base: Date, now: Date): AdminNotification[] {
   const ago = (minutes: number) => new Date(now.getTime() - minutes * 60_000).toISOString()
   const d = (n: number) => dk(addDays(base, n))
+  const dd = (n: number) => formatDisplayDate(d(n))
   return [
     {
       id: 'demo-n-0',
       kind: 'booking',
       title: 'Новая бронь с сайта',
-      body: `Арсений Ковалёв · ${d(0)} 12:00 · Boeing 737 · 30 мин`,
+      body: `Арсений Ковалёв · ${dd(0)} 12:00 · Boeing 737 · 30 мин`,
       href: `/admin?date=${d(0)}&highlight=demo-b-0`,
       audienceRoles: ['ADMIN', 'MANAGER'],
       readBy: {},
@@ -432,7 +466,7 @@ function demoNotifications(base: Date, now: Date): AdminNotification[] {
       id: 'demo-n-2',
       kind: 'maintenance',
       title: 'Запланировано ТО',
-      body: `${d(3)} · Boeing 737 · 12:00–16:00 — калибровка штурвала`,
+      body: `${dd(3)} · Boeing 737 · 12:00–16:00 — калибровка штурвала`,
       href: '/admin/maintenance?highlight=demo-m-0',
       audienceRoles: ['ADMIN', 'MANAGER'],
       readBy: {},
@@ -443,7 +477,7 @@ function demoNotifications(base: Date, now: Date): AdminNotification[] {
       id: 'demo-n-3',
       kind: 'staff_shift',
       title: 'Обновление графика персонала',
-      body: `Николай · ${d(1)} · Boeing 737`,
+      body: `Николай · ${dd(1)} · Boeing 737`,
       href: `/admin/staff-schedule?date=${d(1)}&highlight=demo-s-highlight-b737`,
       audienceRoles: ['ADMIN', 'MANAGER'],
       readBy: {},
@@ -454,7 +488,7 @@ function demoNotifications(base: Date, now: Date): AdminNotification[] {
       id: 'demo-n-4',
       kind: 'staff_shift',
       title: 'Вам назначена смена',
-      body: `${d(1)} · Boeing 737`,
+      body: `${dd(1)} · Boeing 737`,
       href: `/admin/staff-schedule?date=${d(1)}&highlight=demo-s-highlight-b737`,
       audienceRoles: ['PILOT'],
       targetUserId: 'u-pilot-b737',
@@ -466,7 +500,7 @@ function demoNotifications(base: Date, now: Date): AdminNotification[] {
       id: 'demo-n-5',
       kind: 'staff_shift',
       title: 'Вам назначена смена',
-      body: `${d(2)} · Ми-2`,
+      body: `${dd(2)} · Ми-2`,
       href: `/admin/staff-schedule?date=${d(2)}&highlight=demo-s-highlight-mi2`,
       audienceRoles: ['PILOT'],
       targetUserId: 'u-pilot-mi2',
@@ -478,7 +512,7 @@ function demoNotifications(base: Date, now: Date): AdminNotification[] {
       id: 'demo-n-6',
       kind: 'waiting_room',
       title: 'Зал ожидания',
-      body: `${d(0)}: Мария хочет Boeing 737 на 60 минут после 17:00`,
+      body: `${dd(0)}: Мария хочет Boeing 737 на 60 минут после 17:00`,
       href: `/admin/waiting-room?date=${d(0)}&highlight=demo-w-0`,
       audienceRoles: ['ADMIN', 'MANAGER'],
       readBy: { 'u-admin': ago(30) },
@@ -500,7 +534,7 @@ function demoNotifications(base: Date, now: Date): AdminNotification[] {
       id: 'demo-n-8',
       kind: 'booking',
       title: 'Бронь подтверждена',
-      body: `Мария Лебедева · ${d(0)} 13:00`,
+      body: `Мария Лебедева · ${dd(0)} 13:00`,
       href: `/admin?date=${d(0)}&highlight=demo-b-1`,
       audienceRoles: ['ADMIN', 'MANAGER'],
       readBy: { 'u-manager': ago(10) },
@@ -511,7 +545,7 @@ function demoNotifications(base: Date, now: Date): AdminNotification[] {
       id: 'demo-n-9',
       kind: 'calendar',
       title: 'Изменён статус дня',
-      body: `${d(5)} → выходной`,
+      body: `${dd(5)} → выходной`,
       href: '/admin/schedule-settings',
       audienceRoles: ['ADMIN', 'MANAGER'],
       readBy: {},
@@ -521,7 +555,7 @@ function demoNotifications(base: Date, now: Date): AdminNotification[] {
       id: 'demo-n-10',
       kind: 'staff_shift',
       title: 'Вам назначена смена',
-      body: `${d(0)} · Boeing 737`,
+      body: `${dd(0)} · Boeing 737`,
       href: `/admin/staff-schedule?date=${d(0)}&highlight=demo-s-highlight-both`,
       audienceRoles: ['PILOT'],
       targetUserId: 'u-pilot-both',
@@ -545,6 +579,7 @@ function demoFeedback(now: Date): FeedbackRequest[] {
     phone,
     message,
     createdAt: new Date(now.getTime() - minutesAgo * 60_000).toISOString(),
+    readBy: {},
   }))
 }
 
@@ -563,7 +598,7 @@ export function createSeedStore(
 
   const bookings = demo
     ? applyBookingGap(
-        [...todaySpecs(today, base), ...generatedSpecs(base, gapMin)].filter(
+        [...todaySpecs(today, base, now), ...generatedSpecs(base, gapMin)].filter(
           (spec) => !(spec.sim === MI2 && spec.duration > 60),
         ),
         gapMin,
@@ -594,8 +629,8 @@ export function createSeedStore(
     flightPrices: FLIGHT_PRICES.map((p, i) => ({ id: `fp-${i + 1}`, ...p })),
     certPrices: [...FLIGHT_PRICES, COMBO_CERT_PRICE].map((p, i) => ({ id: `cp-${i + 1}`, ...p })),
     promos: [
-      { id: 'pr-1', name: 'День рождения', discountPercent: 15, startDate: dk(subDays(base, 365)), endDate: dk(addDays(base, 365)), productType: 'Boeing 737, Ми-2', promoType: 'BIRTHDAY', active: true },
-      { id: 'pr-2', name: 'Счастливые часы', discountPercent: 10, startDate: dk(subDays(base, 365)), endDate: dk(addDays(base, 365)), productType: 'Boeing 737, Ми-2', promoType: 'HAPPY_HOURS', active: true },
+      { id: 'pr-1', name: 'День рождения', discountPercent: 15, startDate: dk(subDays(base, 365)), endDate: '9999-12-31', indefinite: true, productType: 'Boeing 737, Ми-2', promoType: 'BIRTHDAY', active: true },
+      { id: 'pr-2', name: 'Счастливые часы', discountPercent: 10, startDate: dk(subDays(base, 365)), endDate: '9999-12-31', indefinite: true, productType: 'Boeing 737, Ми-2', promoType: 'HAPPY_HOURS', active: true },
     ],
     documents: DEFAULT_DOCUMENTS.map((d) => ({
       ...d,
@@ -640,6 +675,7 @@ export function createSeedStore(
         { id: 'cs-combo', value: 'combo', label: 'Boeing + Ми-2', sortOrder: 3 },
       ],
     },
+    certificateDesigns: DEFAULT_CERTIFICATE_DESIGNS.map((r) => ({ ...r })),
     settings: { bookingWindowMonths: 12, bookingGapMin: gapMin },
     counters: { certificate: 111112 },
     pendingCodes: [],

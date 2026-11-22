@@ -1,9 +1,9 @@
 import * as React from 'react'
-import { Link } from 'react-router-dom'
 import { MoreVertical, Plus, Trash2 } from 'lucide-react'
 import { format, isWeekend } from 'date-fns'
 import { ru } from 'date-fns/locale'
 import ConfirmDialog from '@/components/admin/ConfirmDialog'
+import MaintenanceToModal from '@/components/admin/MaintenanceToModal'
 import { Calendar } from '@/components/ui/calendar'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -20,7 +20,9 @@ import { apiFetch } from '@/lib/api'
 import { useAdminAuth } from '@/contexts/AdminAuthContext'
 import { useAdminUndo } from '@/contexts/AdminUndoContext'
 import { canEditBookings } from '@/lib/admin-access'
+import { formatAdminDate } from '@/lib/admin-date'
 import { cn } from '@/lib/utils'
+import { SiteDateInput } from '@/components/ui/site-date-input'
 
 type WorkHour = { id: string; line: string; createdAt?: string }
 type DayStatus = 'OPEN' | 'HOLIDAY' | 'BLOCKED'
@@ -52,6 +54,7 @@ export default function AdminScheduleSettingsPage() {
   const [newLine, setNewLine] = React.useState('')
   const [deleteTarget, setDeleteTarget] = React.useState<WorkHour | null>(null)
   const [deleteInterval, setDeleteInterval] = React.useState<MaintenanceRow | null>(null)
+  const [toModalOpen, setToModalOpen] = React.useState(false)
   const [busy, setBusy] = React.useState(false)
   const todayKey = format(new Date(), 'yyyy-MM-dd')
   const [rangeForm, setRangeForm] = React.useState({
@@ -112,7 +115,7 @@ export default function AdminScheduleSettingsPage() {
     : 'OPEN'
 
   const selectedTitle = date
-    ? format(date, "d MMMM yyyy 'г.' (EEEE)", { locale: ru })
+    ? formatAdminDate(date)
     : 'День не выбран'
 
   const refreshAfterToggle = () => {
@@ -365,11 +368,36 @@ export default function AdminScheduleSettingsPage() {
 
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         {canEdit ? (
-          <Button type="button" variant="destructive" size="sm" className="h-9 w-fit gap-2" asChild>
-            <Link to="/admin/maintenance">Добавить ТО</Link>
+          <Button
+            type="button"
+            variant="destructive"
+            size="sm"
+            className="h-9 w-fit gap-2"
+            onClick={() => setToModalOpen(true)}
+          >
+            <Plus className="size-4" />
+            Добавить ТО
           </Button>
         ) : null}
       </div>
+
+      <MaintenanceToModal
+        open={toModalOpen}
+        onClose={() => setToModalOpen(false)}
+        initialDate={selectedKey ?? todayKey}
+        onCreated={(created) => {
+          pushUndo({
+            label: 'Отменить добавление ТО',
+            run: async () => {
+              await apiFetch(`/api/admin/maintenance/${created.id}?archiveSection=schedule_settings`, {
+                method: 'DELETE',
+              })
+              void reloadMaint()
+            },
+          })
+          void reloadMaint()
+        }}
+      />
 
       <div className="rounded-lg border border-border bg-background p-4">
         <h3 className="text-sm font-semibold text-foreground">Блокировка интервала (ТО)</h3>
@@ -381,20 +409,18 @@ export default function AdminScheduleSettingsPage() {
           <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             <label className="text-sm">
               С даты
-              <Input
-                type="date"
+              <SiteDateInput
                 className="mt-1 h-9"
                 value={rangeForm.from}
-                onChange={(e) => setRangeForm((f) => ({ ...f, from: e.target.value }))}
+                onValueChange={(from) => setRangeForm((f) => ({ ...f, from }))}
               />
             </label>
             <label className="text-sm">
               По дату
-              <Input
-                type="date"
+              <SiteDateInput
                 className="mt-1 h-9"
                 value={rangeForm.to}
-                onChange={(e) => setRangeForm((f) => ({ ...f, to: e.target.value }))}
+                onValueChange={(to) => setRangeForm((f) => ({ ...f, to }))}
               />
             </label>
             <label className="text-sm sm:col-span-2 lg:col-span-1">
@@ -479,7 +505,7 @@ export default function AdminScheduleSettingsPage() {
               >
                 <div className="min-w-0 flex-1 text-sm">
                   <p className="font-medium text-foreground">
-                    {m.date} · {m.startTime}–{m.endTime}
+                    {formatAdminDate(m.date)} · {m.startTime}–{m.endTime}
                   </p>
                   <p className="text-xs text-muted-foreground">
                     {m.simulatorSlug === 'mi-2'
@@ -586,7 +612,7 @@ export default function AdminScheduleSettingsPage() {
         title="Удалить блокировку интервала?"
         description={
           deleteInterval
-            ? `${deleteInterval.date} · ${deleteInterval.startTime}–${deleteInterval.endTime}. Действие можно отменить.`
+            ? `${formatAdminDate(deleteInterval.date)} · ${deleteInterval.startTime}–${deleteInterval.endTime}. Действие можно отменить.`
             : undefined
         }
         confirmLabel="Удалить"

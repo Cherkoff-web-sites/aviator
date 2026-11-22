@@ -1,14 +1,14 @@
 import * as React from 'react'
 import { differenceInCalendarDays, format, parseISO, subDays } from 'date-fns'
-import { ru } from 'date-fns/locale'
 import { useNavigate } from 'react-router-dom'
 import { Bar, BarChart, CartesianGrid, XAxis } from 'recharts'
 
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { ChartContainer, ChartTooltip, type ChartConfig } from '@/components/ui/chart'
-import { Input } from '@/components/ui/input'
+import { SiteDateInput } from '@/components/ui/site-date-input'
 import { useLiveData } from '@/hooks/useLiveData'
+import { formatAdminDate } from '@/lib/admin-date'
 import { apiFetch } from '@/lib/api'
 import { cn } from '@/lib/utils'
 
@@ -125,14 +125,7 @@ function FilterChip({
 }
 
 function formatDayTitle(dateKey: string) {
-  try {
-    const raw = format(parseISO(dateKey), "d MMMM yyyy 'г.'", { locale: ru })
-    return raw.replace(/^(\d+\s+)([а-яё]+)/i, (_, n: string, m: string) => {
-      return `${n}${m.charAt(0).toUpperCase()}${m.slice(1)}`
-    })
-  } catch {
-    return dateKey
-  }
+  return formatAdminDate(dateKey)
 }
 
 function AnalyticsBarChart({
@@ -331,7 +324,7 @@ export default function AdminAnalyticsPage() {
     period === 'all'
       ? 'За всё время'
       : from && to
-        ? `${format(parseISO(from), 'dd.MM.yyyy')} — ${format(parseISO(to), 'dd.MM.yyyy')}`
+        ? `${formatAdminDate(from)} — ${formatAdminDate(to)}`
         : ''
 
   /** Больше месяца — только столбиком, иначе графики не влезают. */
@@ -360,23 +353,26 @@ export default function AdminAnalyticsPage() {
           <div className="flex flex-wrap items-end gap-3">
             <label className="text-sm">
               <span className="text-muted-foreground">С</span>
-              <Input
-                type="date"
+              <SiteDateInput
                 className="mt-1 h-9 w-[160px]"
                 value={customFrom}
-                max={customTo || todayKey()}
-                onChange={(e) => setCustomFrom(e.target.value)}
+                onValueChange={(v) => {
+                  const max = customTo || todayKey()
+                  setCustomFrom(v && v > max ? max : v)
+                }}
               />
             </label>
             <label className="text-sm">
               <span className="text-muted-foreground">По</span>
-              <Input
-                type="date"
+              <SiteDateInput
                 className="mt-1 h-9 w-[160px]"
                 value={customTo}
-                min={customFrom}
-                max={todayKey()}
-                onChange={(e) => setCustomTo(e.target.value)}
+                onValueChange={(v) => {
+                  let next = v
+                  if (next && next > todayKey()) next = todayKey()
+                  if (next && customFrom && next < customFrom) next = customFrom
+                  setCustomTo(next)
+                }}
               />
             </label>
           </div>

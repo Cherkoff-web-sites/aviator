@@ -1,6 +1,7 @@
 import * as React from 'react'
+import { Link } from 'react-router-dom'
+import { ImageIcon } from 'lucide-react'
 
-import AdminSiteImagesEditor from '@/components/admin/AdminSiteImagesEditor'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -46,26 +47,50 @@ export default function AdminSettingsPage() {
     }
   }, [generalSettings])
 
-  const saveGeneral = async () => {
+  const saveGap = async () => {
     await apiFetch('/api/admin/settings', {
       method: 'PATCH',
-      body: JSON.stringify({ bookingGapMin: gapMin, footerSocialLinks: socialLinks }),
+      body: JSON.stringify({ bookingGapMin: gapMin }),
+    })
+    void reloadGeneral()
+  }
+
+  const saveSocial = async () => {
+    await apiFetch('/api/admin/settings', {
+      method: 'PATCH',
+      body: JSON.stringify({ footerSocialLinks: socialLinks }),
     })
     void reloadGeneral()
   }
 
   type OptionRow = { id: string; value: string; label: string; sortOrder: number }
   type OptionListKey = 'duration' | 'simulator' | 'cert_duration' | 'cert_simulator'
+  type CertDesignRow = {
+    id: string
+    key: string
+    label: string
+    code: string
+    simulatorSlug: string
+    swatch: string
+    rowBg: string
+    sortOrder: number
+    active: boolean
+  }
 
   const { data: optionListsData, reload: reloadOptionLists } = useLiveData(
     () =>
       apiFetch<Record<OptionListKey, OptionRow[]>>('/api/admin/settings/option-lists'),
     [],
   )
+  const { data: certDesignsData, reload: reloadCertDesigns } = useLiveData(
+    () => apiFetch<CertDesignRow[]>('/api/admin/settings/certificate-designs'),
+    [],
+  )
   const [durationList, setDurationList] = React.useState<OptionRow[]>([])
   const [simulatorList, setSimulatorList] = React.useState<OptionRow[]>([])
   const [certDurationList, setCertDurationList] = React.useState<OptionRow[]>([])
   const [certSimulatorList, setCertSimulatorList] = React.useState<OptionRow[]>([])
+  const [certDesigns, setCertDesigns] = React.useState<CertDesignRow[]>([])
   React.useEffect(() => {
     if (optionListsData) {
       setDurationList(optionListsData.duration ?? [])
@@ -74,6 +99,9 @@ export default function AdminSettingsPage() {
       setCertSimulatorList(optionListsData.cert_simulator ?? [])
     }
   }, [optionListsData])
+  React.useEffect(() => {
+    if (certDesignsData) setCertDesigns(certDesignsData)
+  }, [certDesignsData])
 
   const saveOptionList = async (key: OptionListKey, rows: OptionRow[]) => {
     const normalized = rows.map((r, i) => ({
@@ -89,6 +117,23 @@ export default function AdminSettingsPage() {
     void reloadOptionLists()
   }
 
+  const saveCertDesigns = async () => {
+    const normalized = certDesigns.map((r, i) => ({
+      ...r,
+      key: r.key.trim() || `design-${i + 1}`,
+      label: r.label.trim() || r.key.trim() || `Вид ${i + 1}`,
+      code: (r.code.trim().toUpperCase().slice(0, 1) || 'X'),
+      simulatorSlug: r.simulatorSlug.trim() || 'boeing-737',
+      sortOrder: i + 1,
+      active: r.active !== false,
+    }))
+    await apiFetch('/api/admin/settings/certificate-designs', {
+      method: 'PUT',
+      body: JSON.stringify({ rows: normalized }),
+    })
+    void reloadCertDesigns()
+  }
+
   const addOptionRow = (
     setter: React.Dispatch<React.SetStateAction<OptionRow[]>>,
     prefix: string,
@@ -100,6 +145,23 @@ export default function AdminSettingsPage() {
         value: '',
         label: '',
         sortOrder: rows.length + 1,
+      },
+    ])
+  }
+
+  const addCertDesign = () => {
+    setCertDesigns((rows) => [
+      ...rows,
+      {
+        id: `cd-${Date.now()}`,
+        key: `custom-${rows.length + 1}`,
+        label: '',
+        code: 'X',
+        simulatorSlug: 'boeing-737',
+        swatch: '#64748b',
+        rowBg: '#e2e8f0',
+        sortOrder: rows.length + 1,
+        active: true,
       },
     ])
   }
@@ -134,21 +196,26 @@ export default function AdminSettingsPage() {
           <CardTitle className="text-base font-semibold text-foreground">Бронирование и подвал сайта</CardTitle>
         </CardHeader>
         <CardContent className="flex flex-col gap-4 pb-6">
-          <label className="text-sm">
+          <div className="text-sm">
             <span className="text-muted-foreground">Пауза между полётами на одном тренажёре (мин)</span>
-            <Input
-              type="number"
-              min={0}
-              max={120}
-              className="mt-1 h-9 max-w-[8rem]"
-              value={gapMin}
-              onChange={(e) => setGapMin(Math.max(0, Number(e.target.value) || 0))}
-            />
+            <div className="mt-1 flex flex-wrap items-center gap-2">
+              <Input
+                type="number"
+                min={0}
+                max={120}
+                className="h-9 max-w-[8rem]"
+                value={gapMin}
+                onChange={(e) => setGapMin(Math.max(0, Number(e.target.value) || 0))}
+              />
+              <Button type="button" size="sm" onClick={() => void saveGap()}>
+                Сохранить
+              </Button>
+            </div>
             <span className="mt-1 block text-xs text-muted-foreground">
-              Для клиентов на сайте: после полёта до 15:00 следующий слот не раньше 15:00 + пауза.
-              В админке можно ставить любое время начала; блокируется только пересечение полётов.
+              Шаг слотов = длительность полёта + эта пауза. Влияет на сайт и на список «Время начала»
+              в модалке «Новая запись».
             </span>
-          </label>
+          </div>
           <div>
             <p className="text-sm font-medium text-foreground">Ссылки соцсетей в подвале</p>
             <p className="mt-1 text-xs text-muted-foreground">
@@ -170,10 +237,10 @@ export default function AdminSettingsPage() {
                 </label>
               ))}
             </div>
+            <Button type="button" size="sm" className="mt-3 w-fit" onClick={() => void saveSocial()}>
+              Сохранить ссылки
+            </Button>
           </div>
-          <Button type="button" size="sm" className="w-fit" onClick={() => void saveGeneral()}>
-            Сохранить
-          </Button>
         </CardContent>
       </Card>
 
@@ -276,7 +343,25 @@ export default function AdminSettingsPage() {
         </CardContent>
       </Card>
 
-      <AdminSiteImagesEditor />
+      <Card className="border-border/80 shadow-sm">
+        <CardHeader className="flex flex-row items-center justify-between space-y-0 gap-3 pb-4 pt-6">
+          <div className="min-w-0 space-y-1">
+            <CardTitle className="text-base font-semibold text-foreground">
+              Медиа сайта
+            </CardTitle>
+            <p className="text-sm text-muted-foreground">
+              Фото героя, слайдеров, блоков цен и галерей — на отдельной странице, чтобы не
+              загромождать настройки.
+            </p>
+          </div>
+          <Button type="button" variant="default" size="sm" className="shrink-0 gap-2" asChild>
+            <Link to="/admin/settings/media">
+              <ImageIcon className="size-4" aria-hidden />
+              Открыть медиа
+            </Link>
+          </Button>
+        </CardHeader>
+      </Card>
 
       <Card className="border-border/80 shadow-sm">
         <CardHeader className="space-y-0 pb-4 pt-6">
@@ -284,8 +369,9 @@ export default function AdminSettingsPage() {
             Списки для форм (бронь и сертификаты)
           </CardTitle>
           <p className="mt-1 text-sm text-muted-foreground">
-            value — техническое значение (минуты или slug), label — текст в выпадающем списке.
-            График работы и блокировки дат — в разделе «Настройка графика работы».
+            Параметры услуг: длительности (можно 15, 35…) и названия тренажёров. После
+            «Сохранить» сразу на сайте и в «Цены и акции». value — минуты или slug
+            (boeing-737, mi-2, combo), label — текст на кнопках.
           </p>
         </CardHeader>
         <CardContent className="flex flex-col gap-8 pb-6">
@@ -381,6 +467,134 @@ export default function AdminSettingsPage() {
               </div>
             </div>
           ))}
+        </CardContent>
+      </Card>
+
+      <Card className="border-border/80 shadow-sm">
+        <CardHeader className="space-y-0 pb-4 pt-6">
+          <CardTitle className="text-base font-semibold text-foreground">
+            Виды сертификатов (бланк и номер)
+          </CardTitle>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Каждый вид: тренажёр, цвет бланка, буква серии в номере (№S123456). От этих
+            настроек зависят проверка на сайте и выдача менеджером. Неактивный вид скрыт из
+            выбора, но старые номера остаются валидными.
+          </p>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-3 pb-6">
+          {certDesigns.map((row, i) => (
+            <div
+              key={row.id}
+              className="flex flex-col gap-2 rounded-lg border border-border p-3 sm:flex-row sm:flex-wrap sm:items-end"
+            >
+              <label className="text-xs sm:w-[7rem]">
+                <span className="text-muted-foreground">Ключ</span>
+                <Input
+                  className="mt-1 h-9 font-mono text-sm"
+                  value={row.key}
+                  onChange={(e) => {
+                    const next = [...certDesigns]
+                    next[i] = { ...row, key: e.target.value }
+                    setCertDesigns(next)
+                  }}
+                />
+              </label>
+              <label className="text-xs sm:min-w-[9rem] sm:flex-1">
+                <span className="text-muted-foreground">Название</span>
+                <Input
+                  className="mt-1 h-9"
+                  value={row.label}
+                  placeholder="Серебристый"
+                  onChange={(e) => {
+                    const next = [...certDesigns]
+                    next[i] = { ...row, label: e.target.value }
+                    setCertDesigns(next)
+                  }}
+                />
+              </label>
+              <label className="text-xs sm:w-[4.5rem]">
+                <span className="text-muted-foreground">Буква №</span>
+                <Input
+                  className="mt-1 h-9 text-center font-mono uppercase"
+                  maxLength={1}
+                  value={row.code}
+                  onChange={(e) => {
+                    const next = [...certDesigns]
+                    next[i] = { ...row, code: e.target.value.toUpperCase().slice(0, 1) }
+                    setCertDesigns(next)
+                  }}
+                />
+              </label>
+              <label className="text-xs sm:w-[9rem]">
+                <span className="text-muted-foreground">Тренажёр</span>
+                <select
+                  className="mt-1 flex h-9 w-full rounded-md border bg-background px-2 text-sm"
+                  value={row.simulatorSlug}
+                  onChange={(e) => {
+                    const next = [...certDesigns]
+                    next[i] = { ...row, simulatorSlug: e.target.value }
+                    setCertDesigns(next)
+                  }}
+                >
+                  {(certSimulatorList.length
+                    ? certSimulatorList
+                    : [
+                        { value: 'boeing-737', label: 'Boeing 737' },
+                        { value: 'mi-2', label: 'Ми-2' },
+                        { value: 'combo', label: 'Boeing + Ми-2' },
+                      ]
+                  ).map((o) => (
+                    <option key={o.value} value={o.value}>
+                      {o.label || o.value}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="text-xs sm:w-[5.5rem]">
+                <span className="text-muted-foreground">Цвет</span>
+                <Input
+                  type="color"
+                  className="mt-1 h-9 w-full cursor-pointer p-1"
+                  value={/^#[0-9a-fA-F]{6}$/.test(row.swatch) ? row.swatch : '#64748b'}
+                  onChange={(e) => {
+                    const next = [...certDesigns]
+                    next[i] = { ...row, swatch: e.target.value, rowBg: e.target.value + '55' }
+                    setCertDesigns(next)
+                  }}
+                />
+              </label>
+              <label className="flex h-9 items-center gap-2 text-xs sm:pb-0">
+                <input
+                  type="checkbox"
+                  className="size-4 accent-primary"
+                  checked={row.active !== false}
+                  onChange={(e) => {
+                    const next = [...certDesigns]
+                    next[i] = { ...row, active: e.target.checked }
+                    setCertDesigns(next)
+                  }}
+                />
+                Активен
+              </label>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="text-destructive"
+                onClick={() => setCertDesigns(certDesigns.filter((_, j) => j !== i))}
+              >
+                Удалить
+              </Button>
+            </div>
+          ))}
+          <div className="flex flex-wrap gap-2">
+            <Button type="button" size="sm" variant="outline" onClick={addCertDesign}>
+              Добавить вид
+            </Button>
+            <Button type="button" size="sm" onClick={() => void saveCertDesigns()}>
+              Сохранить виды
+            </Button>
+          </div>
         </CardContent>
       </Card>
     </div>

@@ -34,15 +34,22 @@ export default function AdminLayout() {
 
   const pageTitle = useMemo(() => {
     if (pathname === '/admin' || pathname === '/admin/') return 'Домашняя страница'
+    if (pathname.startsWith('/admin/settings/media')) return 'Медиа сайта'
     if (pathname.startsWith('/admin/settings')) return 'Настройки'
     if (pathname.startsWith('/admin/notifications')) return 'Уведомления'
     if (pathname.startsWith('/admin/archive')) return 'Архив'
     if (pathname.startsWith('/admin/feedback')) return 'Обратная связь'
-    if (pathname.startsWith('/admin/logs')) return 'Журнал'
+    if (pathname.startsWith('/admin/logs')) return 'Технические логи'
     if (pathname.startsWith('/admin/pilot-hours')) return 'Часы пилотов'
+    if (
+      pathname.startsWith('/admin/staff-schedule') &&
+      session?.role === 'PILOT'
+    ) {
+      return 'Рабочий график'
+    }
     const hit = ADMIN_NAV_MAIN.find((i) => i.to === pathname)
     return hit?.title ?? 'Раздел'
-  }, [pathname])
+  }, [pathname, session?.role])
 
   if (loading) {
     return (

@@ -1,5 +1,14 @@
-import { addDays, addMonths, differenceInCalendarDays, isSameDay, isWeekend, startOfDay } from 'date-fns'
+import {
+  addDays,
+  addMonths,
+  differenceInCalendarDays,
+  format,
+  isSameDay,
+  isWeekend,
+  startOfDay,
+} from 'date-fns'
 import type { ApiPriceRow } from '@/lib/api'
+import { formatAdminDate } from '@/lib/admin-date'
 
 export type CalendarStatus = 'OPEN' | 'BLOCKED' | 'HOLIDAY'
 
@@ -41,7 +50,8 @@ export function getCertPriceByn(
 }
 
 export function parseBirthdayDdMm(value: string, year: number): Date | null {
-  const m = value.trim().match(/^(\d{1,2})\.(\d{1,2})$/)
+  // ДД-ММ или ДД.ММ (год не нужен для ДР)
+  const m = value.trim().match(/^(\d{1,2})[-.](\d{1,2})$/)
   if (!m) return null
   const day = Number(m[1])
   const month = Number(m[2]) - 1
@@ -49,6 +59,13 @@ export function parseBirthdayDdMm(value: string, year: number): Date | null {
   const d = new Date(year, month, day)
   if (d.getMonth() !== month || d.getDate() !== day) return null
   return d
+}
+
+/** Нормализация ДР к виду ДД-ММ. */
+export function formatBirthdayDdMm(value: string): string {
+  const d = parseBirthdayDdMm(value, new Date().getFullYear())
+  if (!d) return value.trim()
+  return format(d, 'dd-MM')
 }
 
 export function isBirthdayInputValid(value: string): boolean {
@@ -211,10 +228,11 @@ export function bookingDiscountMultiplier(opts: {
   return 1
 }
 
+/** Скидка без округления: 170×0.85 → 144.5 (не 145). Дроби складываются как есть. */
 function applyDiscountToAmount(amount: number, multiplier: number): number {
   if (amount <= 0) return 0
-  if (multiplier >= 1) return Math.round(amount)
-  return Math.round(amount * multiplier)
+  if (multiplier >= 1) return amount
+  return amount * multiplier
 }
 
 export function computeBookingPriceByn(opts: {
@@ -237,13 +255,13 @@ export function computeBookingPriceByn(opts: {
 
   if (opts.legs && opts.legs.length > 0) {
     if (status === 'BLOCKED') {
-      return opts.legs.reduce((s, n) => s + Math.max(0, Math.round(n)), 0)
+      return opts.legs.reduce((s, n) => s + Math.max(0, n), 0)
     }
     return opts.legs.reduce((s, n) => s + applyDiscountToAmount(n, mult), 0)
   }
 
   const base = opts.base ?? 0
-  if (status === 'BLOCKED' || base <= 0) return base <= 0 ? 0 : Math.round(base)
+  if (status === 'BLOCKED' || base <= 0) return base <= 0 ? 0 : base
   return applyDiscountToAmount(base, mult)
 }
 
@@ -263,7 +281,54 @@ export type BookingDateDisableOpts = {
   maintenance?: PublicMaintenance[]
   /** Выбранный тренажёр — учитываем ТО только на него */
   simulatorSlug?: string | null
+  /**
+   * Комбо 2в1: день закрыт, если ТО на весь день хотя бы на одном тренажёре
+   * или нет общего свободного слота на оба.
+   */
+  comboMode?: boolean
   durationMin?: number
+  /** Дни, которые API пометил fullyClosed (зал / BLOCKED), даже если status ещё OPEN */
+  fullyClosedDates?: ReadonlySet<string> | Record<string, boolean>
+}
+
+function isFullyClosedFlag(
+  key: string,
+  fullyClosedDates: BookingDateDisableOpts['fullyClosedDates'],
+): boolean {
+  if (!fullyClosedDates) return false
+  if (fullyClosedDates instanceof Set) return fullyClosedDates.has(key)
+  return Boolean(fullyClosedDates[key])
+}
+
+/** День закрыт ТО для выбранного режима (один тренажёр или комбо). */
+export function isDateClosedForBookingMode(
+  dateKey: string,
+  maintenance: PublicMaintenance[] | undefined,
+  opts: Pick<BookingDateDisableOpts, 'simulatorSlug' | 'comboMode'>,
+): boolean {
+  if (opts.comboMode) {
+    return (
+      isDateClosedByMaintenance(dateKey, maintenance, null) ||
+      isDateClosedByMaintenance(dateKey, maintenance, 'boeing-737') ||
+      isDateClosedByMaintenance(dateKey, maintenance, 'mi-2')
+    )
+  }
+  return isDateClosedByMaintenance(dateKey, maintenance, opts.simulatorSlug)
+}
+
+function hasAnyOpenSlotForSim(
+  date: Date,
+  key: string,
+  slots: readonly string[],
+  duration: number,
+  simulatorSlug: string,
+  maintenance: PublicMaintenance[] | undefined,
+): boolean {
+  return slots.some(
+    (t) =>
+      !isTimeSlotPast(date, t) &&
+      !isSlotClosedByMaintenance(key, t, duration, simulatorSlug, maintenance),
+  )
 }
 
 export function isBookingDateDisabled(
@@ -282,7 +347,8 @@ export function isBookingDateDisabled(
   const status = effectiveDayStatus(date, calendar[key])
   // HOLIDAY (красный) — запись доступна, но без «Счастливых часов»; BLOCKED / ТО — закрыто
   if (status === 'BLOCKED') return true
-  if (isDateClosedByMaintenance(key, opts.maintenance, opts.simulatorSlug)) return true
+  if (isFullyClosedFlag(key, opts.fullyClosedDates)) return true
+  if (isDateClosedForBookingMode(key, opts.maintenance, opts)) return true
 
   if (opts.happyHoursOnly && isRedDay(date, status)) return true
 
@@ -295,36 +361,56 @@ export function isBookingDateDisabled(
     if (!isInBirthdayWindow(date, opts.birthdayDate)) return true
   }
 
-  if (opts.timeSlots?.length && isSameDay(date, today)) {
-    const slotsForDay = opts.happyHoursOnly
+  const duration = opts.durationMin ?? 30
+  const slotsForDay = opts.timeSlots?.length
+    ? opts.happyHoursOnly
       ? opts.timeSlots.filter((t) => isHappyHourTime(t))
       : opts.timeSlots
-    const duration = opts.durationMin ?? 30
-    const usable = slotsForDay.filter((t) => {
-      if (isTimeSlotPast(date, t)) return false
-      if (
-        opts.simulatorSlug &&
-        isSlotClosedByMaintenance(key, t, duration, opts.simulatorSlug, opts.maintenance)
-      ) {
-        return false
-      }
-      return true
-    })
-    if (usable.length === 0) return true
+    : null
+
+  const comboMaintOk = (t: string) => {
+    const gap = 15
+    const secondMins =
+      Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5)) + 30 + gap
+    const second = `${String(Math.floor(secondMins / 60)).padStart(2, '0')}:${String(secondMins % 60).padStart(2, '0')}`
+    const boeingFirst =
+      !isSlotClosedByMaintenance(key, t, 30, 'boeing-737', opts.maintenance) &&
+      !isSlotClosedByMaintenance(key, second, 30, 'mi-2', opts.maintenance)
+    const mi2First =
+      !isSlotClosedByMaintenance(key, t, 30, 'mi-2', opts.maintenance) &&
+      !isSlotClosedByMaintenance(key, second, 30, 'boeing-737', opts.maintenance)
+    return boeingFirst || mi2First
   }
 
-  // День с частичным ТО: если все слоты закрыты для выбранного тренажёра — дата недоступна
-  if (opts.timeSlots?.length && opts.simulatorSlug && opts.maintenance?.length) {
-    const duration = opts.durationMin ?? 30
-    const slotsForDay = opts.happyHoursOnly
-      ? opts.timeSlots.filter((t) => isHappyHourTime(t))
-      : opts.timeSlots
-    const anyOpen = slotsForDay.some(
-      (t) =>
-        !isTimeSlotPast(date, t) &&
-        !isSlotClosedByMaintenance(key, t, duration, opts.simulatorSlug!, opts.maintenance),
-    )
-    if (!anyOpen) return true
+  if (slotsForDay?.length && isSameDay(date, today)) {
+    if (opts.comboMode) {
+      const usable = slotsForDay.filter((t) => !isTimeSlotPast(date, t) && comboMaintOk(t))
+      if (usable.length === 0) return true
+    } else {
+      const usable = slotsForDay.filter((t) => {
+        if (isTimeSlotPast(date, t)) return false
+        if (
+          opts.simulatorSlug &&
+          isSlotClosedByMaintenance(key, t, duration, opts.simulatorSlug, opts.maintenance)
+        ) {
+          return false
+        }
+        return true
+      })
+      if (usable.length === 0) return true
+    }
+  }
+
+  // День с частичным ТО: если все слоты закрыты — дата недоступна (не кликабельна)
+  if (slotsForDay?.length && opts.maintenance?.length) {
+    if (opts.comboMode) {
+      const anyOpen = slotsForDay.some((t) => !isTimeSlotPast(date, t) && comboMaintOk(t))
+      if (!anyOpen) return true
+    } else if (opts.simulatorSlug) {
+      if (!hasAnyOpenSlotForSim(date, key, slotsForDay, duration, opts.simulatorSlug, opts.maintenance)) {
+        return true
+      }
+    }
   }
 
   return false
@@ -367,11 +453,13 @@ export function describeBookingDateTimeProblem(
   const key = formatDateKey(date)
   const status = effectiveDayStatus(date, calendar[key])
 
-  if (status === 'BLOCKED') {
+  if (status === 'BLOCKED' || isFullyClosedFlag(key, opts.fullyClosedDates)) {
     return 'Эта дата закрыта (блокировка или ТО на весь день). Выберите другой день.'
   }
-  if (isDateClosedByMaintenance(key, opts.maintenance, opts.simulatorSlug)) {
-    return 'На эту дату тренажёр закрыт на техобслуживание. Выберите другой день или тренажёр.'
+  if (isDateClosedForBookingMode(key, opts.maintenance, opts)) {
+    return opts.comboMode
+      ? 'На эту дату комбо недоступно: один из тренажёров закрыт на ТО. Выберите другой день.'
+      : 'На эту дату тренажёр закрыт на техобслуживание. Выберите другой день или тренажёр.'
   }
 
   if (opts.happyHoursOnly && isRedDay(date, status)) {
@@ -382,7 +470,7 @@ export function describeBookingDateTimeProblem(
     const from = startOfDay(parseIsoDate(opts.certificate.validFrom) ?? today)
     const to = startOfDay(parseIsoDate(opts.certificate.validTo) ?? today)
     if (date < from || date > to) {
-      return `Сертификат действует с ${opts.certificate.validFrom.slice(0, 10)} по ${opts.certificate.validTo.slice(0, 10)}. Выберите дату в этом периоде.`
+      return `Сертификат действует с ${formatAdminDate(opts.certificate.validFrom)} по ${formatAdminDate(opts.certificate.validTo)}. Выберите дату в этом периоде.`
     }
   } else if (opts.birthdayDiscount) {
     if (!isBirthdayInputValid(opts.birthdayDate)) {

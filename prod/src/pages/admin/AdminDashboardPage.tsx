@@ -1,6 +1,7 @@
 import * as React from 'react'
+import * as Dialog from '@radix-ui/react-dialog'
 import { format, isValid, parseISO } from 'date-fns'
-import { Check, ChevronDown, Clock, Info, Loader2, MoreHorizontal, Plus } from 'lucide-react'
+import { Check, ChevronDown, Clock, Info, Loader2, MoreHorizontal, Plus, Trash2 } from 'lucide-react'
 import { ru } from 'date-fns/locale'
 import { useSearchParams } from 'react-router-dom'
 import { Calendar } from '@/components/ui/calendar'
@@ -32,7 +33,7 @@ import { useIsMobile } from '@/hooks/use-mobile'
 import { useLiveData } from '@/hooks/useLiveData'
 import { useAdminAuth } from '@/contexts/AdminAuthContext'
 import { useAdminUndo } from '@/contexts/AdminUndoContext'
-import { ApiError, apiFetch, type ApiBooking } from '@/lib/api'
+import { ApiError, apiFetch, type AdminUser, type ApiBooking } from '@/lib/api'
 import { canEditBookings } from '@/lib/admin-access'
 import PaymentMethodIcon from '@/components/admin/PaymentMethodIcon'
 import {
@@ -41,14 +42,19 @@ import {
   SIMULATOR_OPTIONS,
   labelOf,
 } from '@/lib/admin-labels'
-import { BOOKING_TIME_SLOTS } from '@/components/booking/bookingTimeSlots'
-import { clampDurationForSimulator, durationsForSimulator } from '@/lib/flight-durations'
+import { bookingTimeSlotsFor } from '@/components/booking/bookingTimeSlots'
+import { clampDurationForSimulator } from '@/lib/flight-durations'
+import {
+  durationChoicesFromList,
+  filterDurationChoicesForSimulator,
+  simulatorChoicesFromList,
+  type OptionListRow,
+} from '@/lib/option-list-utils'
 import { formatAdminDate } from '@/lib/admin-date'
 import { isTimeHmValid, sanitizeTimeHmInput } from '@/lib/fieldInput'
 import { cn } from '@/lib/utils'
 
 const PENCIL = '/assets/admin/certificates_pencil_icon.svg'
-
 const SIM_PLANE = '✈️'
 const SIM_HELI = '🚁'
 const PAY_OK = '✅'
@@ -81,14 +87,14 @@ function EmojiCell({
 }
 
 type SimulatorType = 'plane' | 'helicopter' | 'both'
-type BookingStatus = 'in_progress' | 'done' | 'waiting' | 'canceled'
 
 type BookingRow = {
   id: string
   name: string
   phone: string
   simulator: SimulatorType
-  status: BookingStatus
+  /** API-статус (WAITING / CONFIRMED / …) — для бейджа и фильтра */
+  status: string
   paid: boolean
   time: string
   method: 'ONLINE' | 'OFFLINE'
@@ -108,6 +114,11 @@ const EMPTY_FORM = {
   paymentMethod: 'OFFLINE' as 'OFFLINE' | 'ONLINE',
   paid: false,
   status: 'WAITING',
+  pilotUserId: '',
+}
+
+function statusRequiresPilot(status: string) {
+  return status === 'DONE' || status === 'IN_PROGRESS'
 }
 
 function mapApiBooking(row: ApiBooking): BookingRow {
@@ -117,21 +128,12 @@ function mapApiBooking(row: ApiBooking): BookingRow {
       : row.simulatorSlug === 'boeing-737'
         ? 'plane'
         : 'both'
-  const statusMap: Record<string, BookingStatus> = {
-    IN_PROGRESS: 'in_progress',
-    DONE: 'done',
-    WAITING: 'waiting',
-    CANCELLED: 'canceled',
-    CONFIRMED: 'waiting',
-    PENDING_CONFIRMATION: 'in_progress',
-    EXPIRED: 'canceled',
-  }
   return {
     id: row.id,
     name: row.name,
     phone: row.phone,
     simulator,
-    status: statusMap[row.status] ?? 'waiting',
+    status: row.status,
     paid: row.paid,
     time: `${row.startTime} - ${row.endTime}`,
     method: row.paymentMethod === 'ONLINE' ? 'ONLINE' : 'OFFLINE',
@@ -139,7 +141,9 @@ function mapApiBooking(row: ApiBooking): BookingRow {
       row.comment,
       row.email ? `Email: ${row.email}` : '',
       row.promoNote ? `Акция: ${row.promoNote}` : '',
-      row.birthdayDate ? `ДР: ${row.birthdayDate}` : '',
+      row.birthdayDate
+        ? `ДР: ${row.birthdayDate.replace(/^(\d{1,2})\.(\d{1,2})$/, (_, d, m) => `${String(d).padStart(2, '0')}-${String(m).padStart(2, '0')}`)}`
+        : '',
       row.certificateNumber ? `Сертификат: ${row.certificateNumber}` : '',
       row.holdExpiresAt ? `Резерв до: ${row.holdExpiresAt.slice(11, 16)}` : '',
     ]
@@ -151,10 +155,7 @@ function mapApiBooking(row: ApiBooking): BookingRow {
 }
 
 function formatTableHeaderDate(d: Date) {
-  const raw = format(d, "d MMMM yyyy 'г.'", { locale: ru })
-  return raw.replace(/^(\d+\s+)([а-яё]+)/i, (_, n: string, m: string) => {
-    return `${n}${m.charAt(0).toUpperCase()}${m.slice(1)}`
-  })
+  return formatAdminDate(d)
 }
 
 function SimulatorIcons({ type }: { type: SimulatorType }) {
@@ -170,38 +171,64 @@ function SimulatorIcons({ type }: { type: SimulatorType }) {
   )
 }
 
-function StatusBadge({ status }: { status: BookingStatus }) {
+function StatusBadge({ status }: { status: string }) {
+  const label = labelOf(BOOKING_STATUS_OPTIONS, status, status)
   switch (status) {
-    case 'in_progress':
+    case 'IN_PROGRESS':
       return (
         <span className="inline-flex items-center gap-1.5 rounded-full bg-muted px-2.5 py-1 text-xs font-medium text-foreground">
           <Loader2 className="size-3.5 shrink-0 animate-spin text-muted-foreground" />
-          В процессе
+          {label}
         </span>
       )
-    case 'done':
+    case 'DONE':
       return (
         <span className="inline-flex items-center gap-1.5 rounded-full bg-green-500/10 px-2.5 py-1 text-xs font-medium text-green-700 dark:text-green-400">
           <Check className="size-3.5 shrink-0 text-green-700 dark:text-green-400" />
-          Закончили
+          {label}
         </span>
       )
-    case 'waiting':
+    case 'WAITING':
+      return (
+        <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-500/10 px-2.5 py-1 text-xs font-medium text-amber-800 dark:text-amber-300">
+          <Clock className="size-3.5 shrink-0 text-amber-700 dark:text-amber-300" />
+          {label}
+        </span>
+      )
+    case 'CONFIRMED':
+      return (
+        <span className="inline-flex items-center gap-1.5 rounded-full bg-blue-500/10 px-2.5 py-1 text-xs font-medium text-blue-700 dark:text-blue-300">
+          <Check className="size-3.5 shrink-0 text-blue-700 dark:text-blue-300" />
+          {label}
+        </span>
+      )
+    case 'PENDING_CONFIRMATION':
       return (
         <span className="inline-flex items-center gap-1.5 rounded-full bg-muted px-2.5 py-1 text-xs font-medium text-foreground">
-          <Clock className="size-3.5 shrink-0 text-muted-foreground" />
-          Ожидаем
+          <Loader2 className="size-3.5 shrink-0 animate-spin text-muted-foreground" />
+          {label}
         </span>
       )
-    case 'canceled':
+    case 'EXPIRED':
+      return (
+        <span className="inline-flex items-center gap-1.5 rounded-full bg-orange-500/10 px-2.5 py-1 text-xs font-medium text-orange-800 dark:text-orange-300">
+          <Info className="size-3.5 shrink-0 text-orange-700 dark:text-orange-300" />
+          {label}
+        </span>
+      )
+    case 'CANCELLED':
       return (
         <span className="inline-flex items-center gap-1.5 rounded-full bg-destructive/10 px-2.5 py-1 text-xs font-medium text-destructive">
           <Info className="size-3.5 shrink-0 text-destructive" />
-          Отменен
+          {label}
         </span>
       )
     default:
-      return null
+      return (
+        <span className="inline-flex items-center gap-1.5 rounded-full bg-muted px-2.5 py-1 text-xs font-medium text-foreground">
+          {label}
+        </span>
+      )
   }
 }
 
@@ -256,6 +283,9 @@ export default function AdminDashboardPage() {
   const [deleteTarget, setDeleteTarget] = React.useState<BookingRow | null>(null)
   const [saveConfirmOpen, setSaveConfirmOpen] = React.useState(false)
   const [discardConfirmOpen, setDiscardConfirmOpen] = React.useState(false)
+  const [pilotAskOpen, setPilotAskOpen] = React.useState(false)
+  const [pilotAskDraft, setPilotAskDraft] = React.useState('')
+  const [pilotAskContinueSave, setPilotAskContinueSave] = React.useState(false)
   const [actionBusy, setActionBusy] = React.useState(false)
   const [formError, setFormError] = React.useState('')
   const [form, setForm] = React.useState(EMPTY_FORM)
@@ -290,51 +320,126 @@ export default function AdminDashboardPage() {
   const dateKey = format(headerDate, 'yyyy-MM-dd')
   const { data: calPayload } = useLiveData(
     () =>
-      apiFetch<{ days: { date: string; status: string }[]; range: { from: string; to: string } }>(
-        '/api/admin/calendar',
-      ),
+      apiFetch<{
+        days: { date: string; status: string; fullyClosed?: boolean }[]
+        range: { from: string; to: string }
+      }>('/api/admin/calendar'),
     [],
   )
   const calDays = calPayload?.days ?? []
   const calRange = calPayload?.range
+  /** BLOCKED в календаре или fullyClosed (ТО на весь зал) — день недоступен для записи */
   const blockedKeys = React.useMemo(
-    () => new Set(calDays.filter((d) => d.status === 'BLOCKED').map((d) => d.date)),
+    () =>
+      new Set(
+        calDays
+          .filter((d) => d.status === 'BLOCKED' || d.fullyClosed)
+          .map((d) => d.date),
+      ),
     [calDays],
   )
   const holidayKeys = React.useMemo(
     () => new Set(calDays.filter((d) => d.status === 'HOLIDAY').map((d) => d.date)),
     [calDays],
   )
+  const dayFullyClosed = blockedKeys.has(dateKey)
 
   const { data: apiRows, reload } = useLiveData(
     () => apiFetch<ApiBooking[]>(`/api/admin/bookings?date=${dateKey}`),
     [dateKey],
   )
-
-  const blockedDatesList = React.useMemo(
+  const { data: optionLists } = useLiveData(
     () =>
-      calDays
-        .filter((d) => d.status === 'BLOCKED')
-        .map((d) => d.date)
-        .sort(),
-    [calDays],
+      apiFetch<{
+        duration: OptionListRow[]
+        simulator: OptionListRow[]
+      }>('/api/admin/settings/option-lists'),
+    [],
   )
-  const [unblockDate, setUnblockDate] = React.useState<string | null>(null)
-  const [calBusy, setCalBusy] = React.useState(false)
+  const bookingSimOptions = React.useMemo(
+    () =>
+      simulatorChoicesFromList(optionLists?.simulator, [...SIMULATOR_OPTIONS]).filter(
+        (s) => s.value !== 'combo',
+      ),
+    [optionLists],
+  )
+  const bookingDurationChoices = React.useMemo(
+    () =>
+      filterDurationChoicesForSimulator(
+        durationChoicesFromList(optionLists?.duration),
+        form.simulatorSlug,
+      ),
+    [optionLists, form.simulatorSlug],
+  )
+  const { data: publicSettings } = useLiveData(
+    () => apiFetch<{ bookingGapMin: number }>('/api/public/settings'),
+    [],
+  )
+  const bookingGapMin = publicSettings?.bookingGapMin ?? 15
+  const startTimeSlots = React.useMemo(
+    () => bookingTimeSlotsFor(bookingGapMin, form.durationMin || 30),
+    [bookingGapMin, form.durationMin],
+  )
+  // Подтягиваем автозавершение «В процессе» → «Закончили» по времени, даже без socket
+  React.useEffect(() => {
+    const t = window.setInterval(() => {
+      void reload()
+    }, 30_000)
+    return () => window.clearInterval(t)
+  }, [reload])
+  const { data: pilotsData } = useLiveData(
+    () => (canEdit ? apiFetch<AdminUser[]>('/api/admin/pilots') : Promise.resolve([])),
+    [canEdit],
+  )
+  const pilots = pilotsData ?? []
+  const monthKey = dateKey.slice(0, 7)
+  const { data: shiftsData } = useLiveData(
+    () =>
+      canEdit
+        ? apiFetch<{ userId: string; simulatorSlug: string; date: string }[]>(
+            `/api/admin/staff-shifts?month=${monthKey}`,
+          )
+            .then((list) => list.filter((s) => s.date === dateKey))
+            .catch(() => [])
+        : Promise.resolve([]),
+    [canEdit, dateKey, monthKey],
+  )
+  const dayShifts = shiftsData ?? []
+  const pilotNameById = React.useMemo(() => {
+    const map = new Map<string, string>()
+    for (const p of pilots) map.set(p.id, p.fullName)
+    return map
+  }, [pilots])
+  const orderedPilots = React.useMemo(() => {
+    const list = [...pilots]
+    const onShift = new Set(dayShifts.map((s) => s.userId))
+    const onThisSim = new Set(
+      dayShifts
+        .filter((s) => s.simulatorSlug === form.simulatorSlug)
+        .map((s) => s.userId),
+    )
+    list.sort((a, b) => {
+      const aSim = onThisSim.has(a.id) ? 0 : onShift.has(a.id) ? 1 : 2
+      const bSim = onThisSim.has(b.id) ? 0 : onShift.has(b.id) ? 1 : 2
+      if (aSim !== bSim) return aSim - bSim
+      return a.fullName.localeCompare(b.fullName, 'ru')
+    })
+    return list
+  }, [pilots, dayShifts, form.simulatorSlug])
 
-  const confirmUnblock = async () => {
-    if (!unblockDate || !canEdit) return
-    setCalBusy(true)
-    try {
-      await apiFetch('/api/admin/calendar/toggle-blocked', {
-        method: 'POST',
-        body: JSON.stringify({ dates: [unblockDate] }),
-      })
-      setUnblockDate(null)
-    } finally {
-      setCalBusy(false)
-    }
-  }
+  const openPilotAsk = React.useCallback(
+    (continueSave: boolean) => {
+      const preferred =
+        form.pilotUserId ||
+        dayShifts.find((s) => s.simulatorSlug === form.simulatorSlug)?.userId ||
+        orderedPilots[0]?.id ||
+        ''
+      setPilotAskDraft(preferred)
+      setPilotAskContinueSave(continueSave)
+      setPilotAskOpen(true)
+    },
+    [form.pilotUserId, form.simulatorSlug, dayShifts, orderedPilots],
+  )
 
   const mapped = (apiRows ?? []).map(mapApiBooking)
   const { rowProps } = useHighlightRow(apiRows !== null)
@@ -345,6 +450,8 @@ export default function AdminDashboardPage() {
     setFormError('')
     setDiscardConfirmOpen(false)
     setSaveConfirmOpen(false)
+    setPilotAskOpen(false)
+    setPilotAskContinueSave(false)
   }
 
   const requestCloseForm = () => {
@@ -356,6 +463,7 @@ export default function AdminDashboardPage() {
   }
 
   const openCreate = () => {
+    if (dayFullyClosed) return
     setEditId(null)
     setForm(EMPTY_FORM)
     setInitialForm(EMPTY_FORM)
@@ -369,12 +477,17 @@ export default function AdminDashboardPage() {
       phone: row.raw.phone,
       email: row.raw.email,
       startTime: row.raw.startTime,
-      durationMin: clampDurationForSimulator(row.raw.simulatorSlug, row.raw.durationMin),
+      durationMin: clampDurationForSimulator(
+        row.raw.simulatorSlug,
+        row.raw.durationMin,
+        optionLists?.duration,
+      ),
       simulatorSlug: row.raw.simulatorSlug,
       comment: row.raw.comment,
-      paymentMethod: row.raw.paymentMethod,
+      paymentMethod: row.raw.paymentMethod === 'ONLINE' ? ('ONLINE' as const) : ('OFFLINE' as const),
       paid: row.raw.paid,
       status: row.raw.status,
+      pilotUserId: row.raw.pilotUserId ?? '',
     }
     setEditId(row.id)
     setForm(next)
@@ -383,8 +496,38 @@ export default function AdminDashboardPage() {
     setFormOpen(true)
   }
 
+  const requestSave = () => {
+    if (!canEdit || !formDirty) return
+    if (editId && statusRequiresPilot(form.status) && !form.pilotUserId) {
+      openPilotAsk(true)
+      return
+    }
+    setSaveConfirmOpen(true)
+  }
+
+  const confirmPilotAsk = () => {
+    if (!pilotAskDraft) return
+    setForm((f) => ({ ...f, pilotUserId: pilotAskDraft }))
+    setFormError('')
+    setPilotAskOpen(false)
+    if (pilotAskContinueSave) {
+      setPilotAskContinueSave(false)
+      setSaveConfirmOpen(true)
+    }
+  }
+
   const save = async () => {
     if (!canEdit || !formDirty) return
+    if (!editId && dayFullyClosed) {
+      setSaveConfirmOpen(false)
+      setFormError('День закрыт (ТО / блокировка). Запись на эту дату недоступна.')
+      return
+    }
+    if (editId && statusRequiresPilot(form.status) && !form.pilotUserId) {
+      setSaveConfirmOpen(false)
+      openPilotAsk(true)
+      return
+    }
     const startTime = form.startTime.trim()
     if (!isTimeHmValid(startTime)) {
       setSaveConfirmOpen(false)
@@ -405,6 +548,7 @@ export default function AdminDashboardPage() {
         ...form,
         startTime,
         status: editId ? form.status : 'WAITING',
+        pilotUserId: form.pilotUserId || null,
       }
 
       if (editId) {
@@ -487,17 +631,17 @@ export default function AdminDashboardPage() {
         id: 'phone',
         header: 'Телефон',
         accessor: 'phone',
+        sortable: false,
         headerClassName: 'min-w-[150px] whitespace-nowrap',
         className: 'whitespace-nowrap',
       },
       {
         id: 'simulator',
         header: '',
+        filterLabel: 'Тренажёр',
         accessor: (r) => r.raw.simulatorSlug,
         filterType: 'enum',
-        enumOptions: [...SIMULATOR_OPTIONS],
-        hideColumnFilter: true,
-        sortable: false,
+        enumOptions: bookingSimOptions,
         headerClassName: 'w-14 px-2 text-center',
         className: 'px-2 text-center',
         cell: (row) => <SimulatorIcons type={row.simulator} />,
@@ -505,10 +649,10 @@ export default function AdminDashboardPage() {
       {
         id: 'status',
         header: 'Статус',
-        accessor: (r) => r.raw.status,
+        accessor: 'status',
         filterType: 'enum',
         enumOptions: [...BOOKING_STATUS_OPTIONS],
-        filterValue: (r) => labelOf(BOOKING_STATUS_OPTIONS, r.raw.status),
+        filterValue: (r) => labelOf(BOOKING_STATUS_OPTIONS, r.status),
         headerClassName: 'min-w-[120px] whitespace-nowrap',
         cell: (row) => <StatusBadge status={row.status} />,
       },
@@ -524,9 +668,14 @@ export default function AdminDashboardPage() {
       {
         id: 'time',
         header: 'Время',
-        accessor: 'time',
+        accessor: (r) => r.raw.startTime,
+        sortable: false,
+        filterType: 'timeRange',
+        filterLabel: 'Время',
+        filterValue: (r) => r.time,
         headerClassName: 'min-w-[110px] whitespace-nowrap',
         className: 'whitespace-nowrap text-[13px]',
+        cell: (row) => row.time,
       },
       {
         id: 'method',
@@ -534,16 +683,37 @@ export default function AdminDashboardPage() {
         accessor: 'method',
         filterType: 'enum',
         enumOptions: [...PAYMENT_METHOD_OPTIONS],
-        hideColumnFilter: true,
-        sortable: false,
+        filterValue: (r) => labelOf(PAYMENT_METHOD_OPTIONS, r.method),
         headerClassName: 'w-12 text-center',
         className: 'text-center',
         cell: (row) => <PaymentMethodIcon method={row.method} />,
       },
       {
+        id: 'pilot',
+        header: 'Пилот',
+        accessor: (r) => r.raw.pilotUserId ?? '',
+        filterType: 'enum',
+        enumOptions: [
+          { value: '__none__', label: 'Не назначен' },
+          ...pilots.map((p) => ({ value: p.id, label: p.fullName })),
+        ],
+        filterMatch: (r) => r.raw.pilotUserId || '__none__',
+        filterValue: (r) =>
+          r.raw.pilotUserId
+            ? (pilotNameById.get(r.raw.pilotUserId) ?? r.raw.pilotUserId)
+            : 'Не назначен',
+        headerClassName: 'min-w-[120px] whitespace-nowrap',
+        className: 'whitespace-nowrap text-sm',
+        cell: (row) =>
+          row.raw.pilotUserId
+            ? (pilotNameById.get(row.raw.pilotUserId) ?? '—')
+            : '—',
+      },
+      {
         id: 'comment',
         header: 'Комментарий',
         accessor: 'comment',
+        sortable: false,
         headerClassName: 'min-w-[160px]',
         className: 'max-w-[220px] text-sm leading-snug',
       },
@@ -554,19 +724,9 @@ export default function AdminDashboardPage() {
               header: '',
               sortable: false,
               filterable: false,
-              headerClassName: 'w-[52px] text-right pr-2',
+              headerClassName: 'w-10 text-right pr-2',
               cell: (row: BookingRow) => (
-                <div className="flex justify-end gap-0.5">
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    className="size-8"
-                    onClick={() => openEdit(row)}
-                    aria-label="Редактировать"
-                  >
-                    <img src={PENCIL} alt="" className="size-4" width={16} height={16} />
-                  </Button>
+                <div className="flex justify-end">
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
                       <Button variant="ghost" size="icon" className="size-8">
@@ -575,10 +735,15 @@ export default function AdminDashboardPage() {
                       </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end">
+                      <DropdownMenuItem onClick={() => openEdit(row)}>
+                        <img src={PENCIL} alt="" className="size-4" width={16} height={16} />
+                        Редактировать
+                      </DropdownMenuItem>
                       <DropdownMenuItem
                         className="text-destructive focus:bg-destructive/10 focus:text-destructive"
                         onClick={() => setDeleteTarget(row)}
                       >
+                        <Trash2 className="size-4" />
                         Удалить
                       </DropdownMenuItem>
                     </DropdownMenuContent>
@@ -589,7 +754,7 @@ export default function AdminDashboardPage() {
           ] satisfies AdminColumnDef<BookingRow>[])
         : []),
     ],
-    [canEdit],
+    [canEdit, pilots, pilotNameById, bookingSimOptions],
   )
 
   const bookingsTable = useAdminDataTable(mapped, bookingColumns)
@@ -615,58 +780,38 @@ export default function AdminDashboardPage() {
         }}
         modifiers={{
           holiday: (d) => holidayKeys.has(format(d, 'yyyy-MM-dd')),
+          blocked: (d) => blockedKeys.has(format(d, 'yyyy-MM-dd')),
         }}
         modifiersClassNames={{
           holiday: '[&_button]:text-destructive [&_button]:font-semibold',
+          blocked: '[&_button]:line-through [&_button]:opacity-50',
         }}
-      />
-
-      {blockedDatesList.length > 0 ? (
-        <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3">
-          <p className="text-xs font-medium uppercase tracking-wide text-destructive">
-            Заблокированные даты
-          </p>
-          <div className="mt-2 flex flex-wrap gap-2">
-            {blockedDatesList.map((d) => (
-              <button
-                key={d}
-                type="button"
-                disabled={!canEdit}
-                className="inline-flex rounded-md border border-destructive/40 bg-background px-2 py-1 text-xs font-medium text-destructive transition-colors hover:bg-destructive/10 disabled:opacity-50"
-                onClick={() => canEdit && setUnblockDate(d)}
-              >
-                {formatAdminDate(d)} — снять блок
-              </button>
-            ))}
-          </div>
-        </div>
-      ) : null}
-
-      <ConfirmDialog
-        open={!!unblockDate}
-        title="Снять блокировку даты?"
-        description={
-          unblockDate
-            ? `Дата ${unblockDate} снова станет доступна для брони на обоих тренажёрах.`
-            : undefined
-        }
-        confirmLabel="Снять блокировку"
-        busy={calBusy}
-        onConfirm={() => void confirmUnblock()}
-        onCancel={() => setUnblockDate(null)}
       />
 
       <div className="flex flex-col gap-4 rounded-lg border bg-background p-4">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <p className="text-sm font-medium leading-tight text-foreground">
-            {formatTableHeaderDate(headerDate)}
-          </p>
+          <div className="min-w-0 space-y-1">
+            <p className="text-sm font-medium leading-tight text-foreground">
+              {formatTableHeaderDate(headerDate)}
+            </p>
+            {dayFullyClosed ? (
+              <p className="text-xs text-destructive">
+                День закрыт (ТО / блокировка) — новые записи недоступны.
+              </p>
+            ) : null}
+          </div>
           {canEdit ? (
             <Button
               type="button"
               variant="outline"
               size="sm"
               className="h-9 w-full shrink-0 gap-2 sm:w-auto"
+              disabled={dayFullyClosed}
+              title={
+                dayFullyClosed
+                  ? 'День закрыт (ТО / блокировка)'
+                  : undefined
+              }
               onClick={openCreate}
             >
               <Plus className="size-4 shrink-0" />
@@ -719,11 +864,7 @@ export default function AdminDashboardPage() {
                   <select
                     aria-label="Выбрать слот из списка"
                     className="absolute inset-0 cursor-pointer opacity-0"
-                    value={
-                      (BOOKING_TIME_SLOTS as readonly string[]).includes(form.startTime)
-                        ? form.startTime
-                        : ''
-                    }
+                    value={startTimeSlots.includes(form.startTime) ? form.startTime : ''}
                     onChange={(e) => {
                       const v = e.target.value
                       if (v) {
@@ -732,12 +873,12 @@ export default function AdminDashboardPage() {
                       }
                     }}
                   >
-                    {!(BOOKING_TIME_SLOTS as readonly string[]).includes(form.startTime) ? (
+                    {!startTimeSlots.includes(form.startTime) ? (
                       <option value="" disabled>
                         Своё время
                       </option>
                     ) : null}
-                    {BOOKING_TIME_SLOTS.map((t) => (
+                    {startTimeSlots.map((t) => (
                       <option key={t} value={t}>
                         {t}
                       </option>
@@ -754,8 +895,13 @@ export default function AdminDashboardPage() {
                   className="mt-1 h-9 w-full rounded-md border bg-background px-2 text-sm"
                   value={form.status}
                   onChange={(e) => {
+                    const status = e.target.value
                     setFormError('')
-                    setForm((f) => ({ ...f, status: e.target.value }))
+                    setForm((f) => ({ ...f, status }))
+                    if (statusRequiresPilot(status) && !form.pilotUserId) {
+                      // Спросить пилота сразу при переводе в «В процессе» / «Закончили»
+                      queueMicrotask(() => openPilotAsk(false))
+                    }
                   }}
                 >
                   {BOOKING_STATUS_OPTIONS.map((o) => (
@@ -765,12 +911,14 @@ export default function AdminDashboardPage() {
                   ))}
                 </select>
               ) : (
-                <Input
-                  className="mt-1 h-9"
-                  value="Ожидаем"
-                  readOnly
+                <select
+                  className="mt-1 h-9 w-full rounded-md border bg-muted/40 px-2 text-sm text-muted-foreground disabled:cursor-not-allowed disabled:opacity-70"
+                  value="WAITING"
+                  disabled
                   title="Новые записи всегда создаются со статусом «Ожидаем»"
-                />
+                >
+                  <option value="WAITING">Ожидаем</option>
+                </select>
               )}
             </label>
             <label className="text-sm">
@@ -784,12 +932,49 @@ export default function AdminDashboardPage() {
                   setForm((f) => ({
                     ...f,
                     simulatorSlug,
-                    durationMin: clampDurationForSimulator(simulatorSlug, f.durationMin),
+                    durationMin: clampDurationForSimulator(
+                      simulatorSlug,
+                      f.durationMin,
+                      optionLists?.duration,
+                    ),
                   }))
                 }}
               >
-                <option value="boeing-737">Boeing 737</option>
-                <option value="mi-2">Ми-2</option>
+                {bookingSimOptions.map((o) => (
+                  <option key={o.value} value={o.value}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="text-sm">
+              <span className="text-muted-foreground">
+                Пилот
+                {statusRequiresPilot(form.status) ? ' *' : ''}
+              </span>
+              <select
+                className="mt-1 h-9 w-full rounded-md border bg-background px-2 text-sm"
+                value={form.pilotUserId}
+                onChange={(e) => {
+                  setFormError('')
+                  setForm((f) => ({ ...f, pilotUserId: e.target.value }))
+                }}
+              >
+                <option value="">
+                  {statusRequiresPilot(form.status) ? 'Выберите пилота' : 'Не назначен'}
+                </option>
+                {orderedPilots.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.fullName}
+                    {dayShifts.some(
+                      (s) => s.userId === p.id && s.simulatorSlug === form.simulatorSlug,
+                    )
+                      ? ' · смена'
+                      : dayShifts.some((s) => s.userId === p.id)
+                        ? ' · на смене'
+                        : ''}
+                  </option>
+                ))}
               </select>
             </label>
             <label className="text-sm">
@@ -802,9 +987,9 @@ export default function AdminDashboardPage() {
                   setForm((f) => ({ ...f, durationMin: Number(e.target.value) }))
                 }}
               >
-                {durationsForSimulator(form.simulatorSlug).map((d) => (
-                  <option key={d} value={d}>
-                    {d}
+                {bookingDurationChoices.map((d) => (
+                  <option key={d.value} value={d.value}>
+                    {d.label}
                   </option>
                 ))}
               </select>
@@ -847,7 +1032,7 @@ export default function AdminDashboardPage() {
             ) : null}
             <div className="flex flex-wrap gap-2 sm:col-span-2">
               {formDirty ? (
-                <Button type="button" onClick={() => setSaveConfirmOpen(true)}>
+                <Button type="button" onClick={requestSave}>
                   Сохранить
                 </Button>
               ) : null}
@@ -857,6 +1042,72 @@ export default function AdminDashboardPage() {
             </div>
           </div>
         </AdminFormModal>
+
+        <Dialog.Root
+          open={pilotAskOpen}
+          onOpenChange={(v) => {
+            if (!v) {
+              setPilotAskOpen(false)
+              setPilotAskContinueSave(false)
+            }
+          }}
+        >
+          <Dialog.Portal>
+            <Dialog.Overlay className="fixed inset-0 z-[230] bg-black/45" />
+            <Dialog.Content className="fixed left-1/2 top-1/2 z-[231] w-[min(calc(100vw-2rem),420px)] -translate-x-1/2 -translate-y-1/2 rounded-xl border border-border bg-background p-5 shadow-xl outline-none">
+              <Dialog.Title className="text-base font-semibold text-foreground">
+                Кто был пилотом?
+              </Dialog.Title>
+              <Dialog.Description className="mt-2 text-sm leading-relaxed text-muted-foreground">
+                Для статуса «
+                {labelOf(BOOKING_STATUS_OPTIONS, form.status, form.status)}» нужно закрепить полёт
+                за пилотом — иначе часы не попадут в хронометраж.
+              </Dialog.Description>
+              <label className="mt-4 block text-sm">
+                <span className="text-muted-foreground">Пилот *</span>
+                <select
+                  className="mt-1 h-9 w-full rounded-md border bg-background px-2 text-sm"
+                  value={pilotAskDraft}
+                  onChange={(e) => setPilotAskDraft(e.target.value)}
+                  autoFocus
+                >
+                  <option value="">Выберите пилота</option>
+                  {orderedPilots.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.fullName}
+                      {dayShifts.some(
+                        (s) => s.userId === p.id && s.simulatorSlug === form.simulatorSlug,
+                      )
+                        ? ' · смена'
+                        : dayShifts.some((s) => s.userId === p.id)
+                          ? ' · на смене'
+                          : ''}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <div className="mt-5 flex flex-wrap justify-end gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => {
+                    setPilotAskOpen(false)
+                    setPilotAskContinueSave(false)
+                  }}
+                >
+                  Отмена
+                </Button>
+                <Button
+                  type="button"
+                  disabled={!pilotAskDraft}
+                  onClick={confirmPilotAsk}
+                >
+                  Подтвердить
+                </Button>
+              </div>
+            </Dialog.Content>
+          </Dialog.Portal>
+        </Dialog.Root>
 
         <ConfirmDialog
           open={discardConfirmOpen}
@@ -943,16 +1194,27 @@ export default function AdminDashboardPage() {
                           <p className="text-xs text-muted-foreground">{row.phone}</p>
                         </div>
                         {canEdit ? (
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="icon"
-                            className="size-8 shrink-0"
-                            onClick={() => openEdit(row)}
-                            aria-label="Редактировать"
-                          >
-                            <img src={PENCIL} alt="" className="size-4" width={16} height={16} />
-                          </Button>
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button variant="ghost" size="icon" className="size-8 shrink-0">
+                                <MoreHorizontal className="size-4" />
+                                <span className="sr-only">Ещё</span>
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                              <DropdownMenuItem onClick={() => openEdit(row)}>
+                                <img src={PENCIL} alt="" className="size-4" width={16} height={16} />
+                                Редактировать
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
+                                className="text-destructive focus:bg-destructive/10 focus:text-destructive"
+                                onClick={() => setDeleteTarget(row)}
+                              >
+                                <Trash2 className="size-4" />
+                                Удалить
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
                         ) : null}
                       </div>
                       <div className="mt-1.5 flex flex-wrap items-center gap-1.5">

@@ -1,5 +1,4 @@
 import * as React from 'react'
-import { format, parseISO, isValid } from 'date-fns'
 import { Archive, RotateCcw, Trash2 } from 'lucide-react'
 import ConfirmDialog from '@/components/admin/ConfirmDialog'
 import {
@@ -16,6 +15,7 @@ import {
   ACCOUNT_ROLE_OPTIONS,
   BOOKING_STATUS_OPTIONS,
 } from '@/lib/admin-labels'
+import { formatAdminDate, formatAdminDateTime } from '@/lib/admin-date'
 import { cn } from '@/lib/utils'
 
 type ArchiveEntry = {
@@ -46,12 +46,7 @@ type ArchivePayload = {
 }
 
 function fmtDate(iso: string) {
-  try {
-    const d = parseISO(iso)
-    return isValid(d) ? format(d, 'dd.MM.yyyy HH:mm') : iso
-  } catch {
-    return iso
-  }
+  return formatAdminDateTime(iso)
 }
 
 function daysLeft(expiresAt: string) {
@@ -293,13 +288,14 @@ function archiveColumnsForSection(
         accessor: (e) => payloadStr(e.payload, 'date'),
         filterValue: (e) => {
           const p = e.payload
-          return `${payloadStr(p, 'date')} ${payloadStr(p, 'startTime')} ${payloadStr(p, 'endTime')}`
+          return `${formatAdminDate(payloadStr(p, 'date'))} ${payloadStr(p, 'startTime')} ${payloadStr(p, 'endTime')}`
         },
         cell: (entry) => {
           const p = entry.payload
           return (
             <span className="whitespace-nowrap text-sm">
-              {payloadStr(p, 'date')} {payloadStr(p, 'startTime')}–{payloadStr(p, 'endTime')}
+              {formatAdminDate(payloadStr(p, 'date'))} {payloadStr(p, 'startTime')}–
+              {payloadStr(p, 'endTime')}
             </span>
           )
         },
@@ -362,10 +358,11 @@ function archiveColumnsForSection(
         header: 'Период',
         accessor: (e) => payloadStr(e.payload, 'validFrom'),
         filterValue: (e) =>
-          `${payloadStr(e.payload, 'validFrom')} ${payloadStr(e.payload, 'validTo')}`,
+          `${formatAdminDate(payloadStr(e.payload, 'validFrom'))} ${formatAdminDate(payloadStr(e.payload, 'validTo'))}`,
         cell: (entry) => (
           <span className="text-sm">
-            {payloadStr(entry.payload, 'validFrom')} — {payloadStr(entry.payload, 'validTo')}
+            {formatAdminDate(payloadStr(entry.payload, 'validFrom'))} —{' '}
+            {formatAdminDate(payloadStr(entry.payload, 'validTo'))}
           </span>
         ),
       },
@@ -379,6 +376,8 @@ function archiveColumnsForSection(
         id: 'date',
         header: 'Дата',
         accessor: (e) => payloadStr(e.payload, 'date'),
+        filterValue: (e) => formatAdminDate(payloadStr(e.payload, 'date')),
+        cell: (entry) => formatAdminDate(payloadStr(entry.payload, 'date')),
         className: 'whitespace-nowrap',
       },
       {
@@ -405,7 +404,13 @@ function archiveColumnsForSection(
         },
         className: 'font-medium',
       },
-      { id: 'date', header: 'Дата', accessor: (e) => payloadStr(e.payload, 'date') },
+      {
+        id: 'date',
+        header: 'Дата',
+        accessor: (e) => payloadStr(e.payload, 'date'),
+        filterValue: (e) => formatAdminDate(payloadStr(e.payload, 'date')),
+        cell: (entry) => formatAdminDate(payloadStr(entry.payload, 'date')),
+      },
       {
         id: 'simulator',
         header: 'Тренажёр',

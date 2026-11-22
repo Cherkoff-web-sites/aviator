@@ -12,11 +12,16 @@ export default defineConfig({
     },
   },
   server: {
+    // Windows: без явного IPv4 Vite часто слушает только ::1, браузер на 127.0.0.1 —
+    // «соединение прервано» / Connection refused.
+    host: '127.0.0.1',
+    port: 5173,
+    strictPort: true,
     proxy: {
-      '/api': 'http://localhost:3001',
-      '/uploads': 'http://localhost:3001',
+      '/api': 'http://127.0.0.1:3001',
+      '/uploads': 'http://127.0.0.1:3001',
       '/socket.io': {
-        target: 'http://localhost:3001',
+        target: 'http://127.0.0.1:3001',
         ws: true,
       },
     },

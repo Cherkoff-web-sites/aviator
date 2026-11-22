@@ -3,6 +3,7 @@ import SimulatorPricingSection from '../components/SimulatorPricingSection'
 import SiteCtaBanner from '../components/SiteCtaBanner'
 import SiteFooter from '../components/SiteFooter'
 import SiteHeader from '../components/SiteHeader'
+import { usePublicCertPrices } from '../hooks/usePublicCertPrices'
 import { usePublicFlightPrices } from '../hooks/usePublicFlightPrices'
 import { useSiteImages } from '../hooks/useSiteImages'
 import {
@@ -25,9 +26,11 @@ const HAPPY_TERMS = [
 function PricesPage() {
   const { images } = useSiteImages()
   const flightPrices = usePublicFlightPrices()
+  const certPrices = usePublicCertPrices()
   const boeingSim = applySiteImagesToSimulator('boeing-737', images)
   const mi2Sim = applySiteImagesToSimulator('mi-2', images)
-  const comboBlock = mergeComboPricesIntoBlock(applyComboPricingBlock(images), flightPrices)
+  // Блок «2в1» на /prices — сертификат combo из «Цены на сертификаты»
+  const comboBlock = mergeComboPricesIntoBlock(applyComboPricingBlock(images), certPrices)
   if (!boeingSim || !mi2Sim) {
     throw new Error('[PricesPage] Не найдены данные тренажёров boeing-737 или mi-2.')
   }

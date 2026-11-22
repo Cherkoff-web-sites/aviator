@@ -218,6 +218,7 @@ export default function AdminAccountsPage() {
       id: 'password',
       header: 'Пароль',
       accessor: 'password',
+      sortable: false,
       className: 'whitespace-nowrap font-mono text-[13px]',
       cell: (row) => row.password || '—',
     },
@@ -225,12 +226,15 @@ export default function AdminAccountsPage() {
       id: 'phone',
       header: 'Телефон',
       accessor: 'phone',
+      sortable: false,
       className: 'whitespace-nowrap',
     },
     {
       id: 'role',
       header: 'Роль',
       accessor: (r) => r.role,
+      filterType: 'enum',
+      enumOptions: [...ACCOUNT_ROLE_OPTIONS],
       filterValue: (r) => roleLabel(r),
       cell: (row) => (
         <span className="min-w-[140px] whitespace-nowrap text-sm">{roleLabel(row)}</span>
@@ -240,7 +244,12 @@ export default function AdminAccountsPage() {
       id: 'isActive',
       header: 'Статус',
       accessor: 'isActive',
-      filterType: 'boolean',
+      filterType: 'enum',
+      enumOptions: [
+        { value: 'true', label: 'Активен' },
+        { value: 'false', label: 'Неактивен' },
+      ],
+      filterMatch: (r) => (r.isActive ? 'true' : 'false'),
       filterValue: (r) => (r.isActive ? 'Активен' : 'Неактивен'),
       cell: (row) =>
         row.isActive ? (
@@ -253,6 +262,7 @@ export default function AdminAccountsPage() {
       id: 'color',
       header: 'Цвет',
       accessor: 'color',
+      sortable: false,
       filterValue: (r) => colorLabel(r.color),
       hideColumnFilter: true,
       cell: (row) => (

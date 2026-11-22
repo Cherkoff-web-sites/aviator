@@ -1,5 +1,9 @@
 import type { UserRole } from '@/lib/api'
-import { ADMIN_NAV_MAIN, ADMIN_NAV_SETTINGS_ICON } from '@/data/adminNav'
+import {
+  ADMIN_NAV_FEEDBACK,
+  ADMIN_NAV_MAIN,
+  ADMIN_NAV_SETTINGS_ICON,
+} from '@/data/adminNav'
 
 const PILOT_HIDDEN = new Set([
   '/admin/certificates',
@@ -10,31 +14,46 @@ const PILOT_HIDDEN = new Set([
   '/admin/analytics',
   '/admin/maintenance',
   '/admin/settings',
+  '/admin/feedback',
 ])
 
 const MANAGER_HIDDEN = new Set(['/admin/accounts', '/admin/settings'])
 
 export function navItemsForRole(role: UserRole) {
   const hidden = role === 'PILOT' ? PILOT_HIDDEN : role === 'MANAGER' ? MANAGER_HIDDEN : new Set<string>()
-  return ADMIN_NAV_MAIN.filter((item) => !hidden.has(item.to))
+  return ADMIN_NAV_MAIN.filter((item) => !hidden.has(item.to)).map((item) =>
+    role === 'PILOT' && item.to === '/admin/staff-schedule'
+      ? { ...item, title: 'Рабочий график' }
+      : item,
+  )
 }
 
-export function settingsNavForRole(role: UserRole) {
-  if (role !== 'ADMIN') return []
-  return [
-    {
+export type SecondaryNavItem = {
+  title: string
+  url: string
+  iconSrc: string
+  iconSlot: string
+  badgeKey?: 'feedback'
+}
+
+export function settingsNavForRole(role: UserRole): SecondaryNavItem[] {
+  const items: SecondaryNavItem[] = []
+  if (role === 'ADMIN' || role === 'MANAGER') {
+    items.push({ ...ADMIN_NAV_FEEDBACK, badgeKey: 'feedback' })
+  }
+  if (role === 'ADMIN') {
+    items.push({
       title: 'Настройки',
       url: '/admin/settings',
       iconSrc: ADMIN_NAV_SETTINGS_ICON,
       iconSlot: 'nav_settings',
-    },
-    {
-      title: 'Журнал',
-      url: '/admin/logs',
-      iconSrc: ADMIN_NAV_SETTINGS_ICON,
-      iconSlot: 'nav_logs',
-    },
-  ]
+    })
+  }
+  return items
+}
+
+export function canViewTechnicalLogs(role: UserRole | null | undefined) {
+  return role === 'ADMIN'
 }
 
 export function canEditBookings(role: UserRole) {

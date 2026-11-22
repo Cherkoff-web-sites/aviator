@@ -151,10 +151,33 @@ function StatusConfirmCard({
   )
 }
 
+type DemoClock = {
+  effectiveNowIso: string
+  demoNowIso: string | null
+  active: boolean
+}
+
 export default function StatusConfirmHost() {
   const { session } = useAdminAuth()
   const canEdit = session ? canEditBookings(session.role) : false
-  const todayKey = format(new Date(), 'yyyy-MM-dd')
+
+  const { data: clock, reload: reloadClock } = useLiveData(
+    () =>
+      canEdit
+        ? apiFetch<DemoClock>('/api/admin/demo-clock')
+        : Promise.resolve({
+            effectiveNowIso: new Date().toISOString(),
+            demoNowIso: null,
+            active: false,
+          }),
+    [canEdit],
+  )
+
+  const effectiveNow = React.useMemo(
+    () => new Date(clock?.effectiveNowIso ?? Date.now()),
+    [clock?.effectiveNowIso],
+  )
+  const todayKey = format(effectiveNow, 'yyyy-MM-dd')
 
   const { data: rows, reload } = useLiveData(
     () => apiFetch<ApiBooking[]>(`/api/admin/bookings?date=${todayKey}`),
@@ -162,9 +185,12 @@ export default function StatusConfirmHost() {
   )
 
   React.useEffect(() => {
-    const t = window.setInterval(() => void reload(), 15_000)
+    const t = window.setInterval(() => {
+      void reload()
+      void reloadClock()
+    }, 15_000)
     return () => window.clearInterval(t)
-  }, [reload])
+  }, [reload, reloadClock])
 
   const { data: pilots } = useLiveData(
     () => (canEdit ? apiFetch<AdminUser[]>('/api/admin/pilots') : Promise.resolve([])),
@@ -191,11 +217,11 @@ export default function StatusConfirmHost() {
   }, [])
 
   const queue = React.useMemo(() => {
-    const nowMins = timeToMins(format(new Date(), 'HH:mm'))
+    const nowMins = timeToMins(format(effectiveNow, 'HH:mm'))
     return (rows ?? [])
       .filter((r) => needsConfirm(r, todayKey, nowMins))
       .sort((a, b) => a.startTime.localeCompare(b.startTime))
-  }, [rows, todayKey])
+  }, [rows, todayKey, effectiveNow])
 
   if (!canEdit || queue.length === 0) return null
 

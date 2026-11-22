@@ -128,6 +128,8 @@ export type ApiPromo = {
   discountPercent: number
   startDate: string
   endDate: string
+  /** Без даты окончания */
+  indefinite?: boolean
   productType: string
   promoType: string
   active: boolean
