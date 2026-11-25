@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { useLiveData } from '@/hooks/useLiveData'
 import { apiFetch } from '@/lib/api'
+import { clipCertificateSeriesCode } from '@/lib/certificate-design'
 import { FOOTER_SOCIAL_ICONS } from '@/data/socialAssets'
 
 type Document = { key: string; title: string; content: string }
@@ -71,6 +72,7 @@ export default function AdminSettingsPage() {
     label: string
     code: string
     simulatorSlug: string
+    durationMin: number
     swatch: string
     rowBg: string
     sortOrder: number
@@ -118,15 +120,30 @@ export default function AdminSettingsPage() {
   }
 
   const saveCertDesigns = async () => {
-    const normalized = certDesigns.map((r, i) => ({
-      ...r,
-      key: r.key.trim() || `design-${i + 1}`,
-      label: r.label.trim() || r.key.trim() || `Вид ${i + 1}`,
-      code: (r.code.trim().toUpperCase().slice(0, 1) || 'X'),
-      simulatorSlug: r.simulatorSlug.trim() || 'boeing-737',
-      sortOrder: i + 1,
-      active: r.active !== false,
-    }))
+    const normalized = certDesigns.map((r, i) => {
+      const code =
+        clipCertificateSeriesCode(r.code.trim().replace(/^№\s*/, '')) || `X${i + 1}-`
+      const key =
+        r.key.trim() ||
+        code
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, '-')
+          .replace(/^-|-$/g, '') ||
+        `design-${i + 1}`
+      return {
+        ...r,
+        key,
+        label: code,
+        code,
+        simulatorSlug: r.simulatorSlug.trim() || 'boeing-737',
+        durationMin:
+          typeof r.durationMin === 'number' && r.durationMin > 0
+            ? Math.round(r.durationMin)
+            : 60,
+        sortOrder: i + 1,
+        active: r.active !== false,
+      }
+    })
     await apiFetch('/api/admin/settings/certificate-designs', {
       method: 'PUT',
       body: JSON.stringify({ rows: normalized }),
@@ -155,9 +172,10 @@ export default function AdminSettingsPage() {
       {
         id: `cd-${Date.now()}`,
         key: `custom-${rows.length + 1}`,
-        label: '',
-        code: 'X',
+        label: 'NEW-',
+        code: 'NEW-',
         simulatorSlug: 'boeing-737',
+        durationMin: 60,
         swatch: '#64748b',
         rowBg: '#e2e8f0',
         sortOrder: rows.length + 1,
@@ -393,22 +411,6 @@ export default function AdminSettingsPage() {
                 prefix: 's',
                 valuePlaceholder: 'boeing-737',
               },
-              {
-                title: 'Сертификаты: длительность',
-                key: 'cert_duration' as const,
-                rows: certDurationList,
-                setRows: setCertDurationList,
-                prefix: 'cd',
-                valuePlaceholder: '60',
-              },
-              {
-                title: 'Сертификаты: тренажёры / продукт',
-                key: 'cert_simulator' as const,
-                rows: certSimulatorList,
-                setRows: setCertSimulatorList,
-                prefix: 'cs',
-                valuePlaceholder: 'combo',
-              },
             ] as const
           ).map((block) => (
             <div key={block.key}>
@@ -473,12 +475,12 @@ export default function AdminSettingsPage() {
       <Card className="border-border/80 shadow-sm">
         <CardHeader className="space-y-0 pb-4 pt-6">
           <CardTitle className="text-base font-semibold text-foreground">
-            Виды сертификатов (бланк и номер)
+            Сертификаты: серии, тренажёр, длительность
           </CardTitle>
           <p className="mt-1 text-sm text-muted-foreground">
-            Каждый вид: тренажёр, цвет бланка, буква серии в номере (№S123456). От этих
-            настроек зависят проверка на сайте и выдача менеджером. Неактивный вид скрыт из
-            выбора, но старые номера остаются валидными.
+            Серия (например EB-B737NG-) — название бланка. К ней привязаны тренажёр, минуты и
+            цвет. В полном номере считаются только буквы и цифры — максимум 13; тире не входят в
+            лимит. В серии оставляем запас минимум на одну цифру.
           </p>
         </CardHeader>
         <CardContent className="flex flex-col gap-3 pb-6">
@@ -487,40 +489,26 @@ export default function AdminSettingsPage() {
               key={row.id}
               className="flex flex-col gap-2 rounded-lg border border-border p-3 sm:flex-row sm:flex-wrap sm:items-end"
             >
-              <label className="text-xs sm:w-[7rem]">
-                <span className="text-muted-foreground">Ключ</span>
+              <label className="text-xs sm:min-w-[11rem] sm:flex-1">
+                <span className="text-muted-foreground">Серия (название)</span>
                 <Input
-                  className="mt-1 h-9 font-mono text-sm"
-                  value={row.key}
-                  onChange={(e) => {
-                    const next = [...certDesigns]
-                    next[i] = { ...row, key: e.target.value }
-                    setCertDesigns(next)
-                  }}
-                />
-              </label>
-              <label className="text-xs sm:min-w-[9rem] sm:flex-1">
-                <span className="text-muted-foreground">Название</span>
-                <Input
-                  className="mt-1 h-9"
-                  value={row.label}
-                  placeholder="Серебристый"
-                  onChange={(e) => {
-                    const next = [...certDesigns]
-                    next[i] = { ...row, label: e.target.value }
-                    setCertDesigns(next)
-                  }}
-                />
-              </label>
-              <label className="text-xs sm:w-[4.5rem]">
-                <span className="text-muted-foreground">Буква №</span>
-                <Input
-                  className="mt-1 h-9 text-center font-mono uppercase"
-                  maxLength={1}
+                  className="mt-1 h-9 font-mono text-sm uppercase"
                   value={row.code}
+                  maxLength={24}
+                  placeholder="EB-B737NG-"
                   onChange={(e) => {
+                    const code = clipCertificateSeriesCode(e.target.value)
                     const next = [...certDesigns]
-                    next[i] = { ...row, code: e.target.value.toUpperCase().slice(0, 1) }
+                    next[i] = {
+                      ...row,
+                      code,
+                      label: code,
+                      key:
+                        code
+                          .toLowerCase()
+                          .replace(/[^a-z0-9]+/g, '-')
+                          .replace(/^-|-$/g, '') || row.key,
+                    }
                     setCertDesigns(next)
                   }}
                 />
@@ -550,8 +538,22 @@ export default function AdminSettingsPage() {
                   ))}
                 </select>
               </label>
+              <label className="text-xs sm:w-[6rem]">
+                <span className="text-muted-foreground">Минуты</span>
+                <Input
+                  className="mt-1 h-9 font-mono text-sm"
+                  inputMode="numeric"
+                  value={String(row.durationMin ?? 60)}
+                  onChange={(e) => {
+                    const n = Number(e.target.value.replace(/\D/g, '')) || 0
+                    const next = [...certDesigns]
+                    next[i] = { ...row, durationMin: n }
+                    setCertDesigns(next)
+                  }}
+                />
+              </label>
               <label className="text-xs sm:w-[5.5rem]">
-                <span className="text-muted-foreground">Цвет</span>
+                <span className="text-muted-foreground">Цвет бланка</span>
                 <Input
                   type="color"
                   className="mt-1 h-9 w-full cursor-pointer p-1"
@@ -587,12 +589,74 @@ export default function AdminSettingsPage() {
               </Button>
             </div>
           ))}
-          <div className="flex flex-wrap gap-2">
+          <div className="mt-2 flex flex-col gap-3 border-t border-border pt-4">
+            <p className="text-sm font-medium">Сертификаты: длительность (список для форм)</p>
+            <p className="text-xs text-muted-foreground">
+              Дополнительный справочник минут для цен/подарочной формы. Основная длительность серии
+              задаётся в таблице выше.
+            </p>
+            <div className="flex flex-col gap-2">
+              {certDurationList.map((item, i) => (
+                <div key={item.id} className="flex flex-wrap items-center gap-2">
+                  <Input
+                    className="h-9 max-w-[8rem] font-mono text-sm"
+                    value={item.value}
+                    placeholder="60"
+                    onChange={(e) => {
+                      const next = [...certDurationList]
+                      next[i] = { ...item, value: e.target.value }
+                      setCertDurationList(next)
+                    }}
+                  />
+                  <Input
+                    className="h-9 min-w-[12rem] flex-1"
+                    value={item.label}
+                    placeholder="Подпись"
+                    onChange={(e) => {
+                      const next = [...certDurationList]
+                      next[i] = { ...item, label: e.target.value }
+                      setCertDurationList(next)
+                    }}
+                  />
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="text-destructive"
+                    onClick={() =>
+                      setCertDurationList(certDurationList.filter((_, j) => j !== i))
+                    }
+                  >
+                    Удалить
+                  </Button>
+                </div>
+              ))}
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={() => addOptionRow(setCertDurationList, 'cd')}
+              >
+                Добавить длительность
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={() => void saveOptionList('cert_duration', certDurationList)}
+              >
+                Сохранить длительности
+              </Button>
+            </div>
+          </div>
+          <div className="flex flex-wrap gap-2 pt-2">
             <Button type="button" size="sm" variant="outline" onClick={addCertDesign}>
-              Добавить вид
+              Добавить серию
             </Button>
             <Button type="button" size="sm" onClick={() => void saveCertDesigns()}>
-              Сохранить виды
+              Сохранить серии
             </Button>
           </div>
         </CardContent>

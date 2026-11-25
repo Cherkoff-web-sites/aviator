@@ -49,9 +49,9 @@ export function sanitizeCertificateNumberInput(value: string): string {
   return value.replace(/[^A-Za-zА-Яа-яЁё0-9№#\-]/g, '').replace(/\s+/g, '').slice(0, 32)
 }
 
-/** Только цифры номера сертификата (без буквы серии). */
-export function sanitizeCertificateDigitsInput(value: string): string {
-  return value.replace(/\D/g, '').slice(0, 12)
+/** Только цифры номера сертификата (без серии). */
+export function sanitizeCertificateDigitsInput(value: string, maxLen = 12): string {
+  return value.replace(/\D/g, '').slice(0, Math.max(0, maxLen))
 }
 
 export function sanitizeNoteInput(value: string): string {
@@ -97,7 +97,9 @@ export function isEmailInputValid(email: string): boolean {
 }
 
 export function isCertificateNumberInputValid(value: string): boolean {
-  const t = value.trim()
-  return t.length >= 4 && t.length <= 32 && !CERT_INVALID.test(t)
+  const t = value.trim().replace(/^№\s*/i, '')
+  if (!t || CERT_INVALID.test(t)) return false
+  const alnum = t.replace(/[^A-Za-z0-9]/g, '')
+  return alnum.length >= 4 && alnum.length <= 13
 }
 

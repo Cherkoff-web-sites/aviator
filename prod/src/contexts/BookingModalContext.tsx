@@ -15,7 +15,7 @@ export type BookingPromo = 'birthday' | 'happy-hours'
 
 export type BookingOpenPayload = {
   simulatorSlug?: BookingSimulatorSlug | null
-  durationMin?: 30 | 60 | 90 | 120 | null
+  durationMin?: number | null
   promo?: BookingPromo | null
   /** Полёт 2в1: 30 мин Boeing + 30 мин Ми-2. */
   combo?: boolean

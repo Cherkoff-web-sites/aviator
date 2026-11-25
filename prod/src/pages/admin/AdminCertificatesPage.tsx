@@ -1,7 +1,9 @@
 import * as React from 'react'
-import { format, addMonths, isValid, parseISO } from 'date-fns'
+import { format, parseISO } from 'date-fns'
+import { ru } from 'date-fns/locale'
 import { MoreHorizontal, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { Calendar } from '@/components/ui/calendar'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -38,18 +40,21 @@ import {
 import {
   allDesignOptions,
   buildCertificateNumber,
-  certificateDisplayStatus,
+  certificateUrgency,
+  defaultCertificateValidToIso,
   defaultDesignForSim,
   designMeta,
   designOptionsForSim,
+  maxDigitsForCode,
   parseCertificateParts,
+  URGENCY_BADGE_CLASS,
   type CertificateDesignColor,
 } from '@/lib/certificate-design'
 import { useCertificateDesigns } from '@/hooks/useCertificateDesigns'
+import { useServerClock } from '@/contexts/ServerClockContext'
 import { sanitizeCertificateDigitsInput } from '@/lib/fieldInput'
 import { formatAdminDate } from '@/lib/admin-date'
 import { cn } from '@/lib/utils'
-import { SiteDateInput } from '@/components/ui/site-date-input'
 
 const PENCIL = '/assets/admin/certificates_pencil_icon.svg'
 
@@ -60,11 +65,14 @@ export default function AdminCertificatesPage() {
   const [formOpen, setFormOpen] = React.useState(false)
   const [editId, setEditId] = React.useState<string | null>(null)
   const [saveConfirmOpen, setSaveConfirmOpen] = React.useState(false)
+  const [saveError, setSaveError] = React.useState('')
   const [deleteTarget, setDeleteTarget] = React.useState<ApiCertificate | null>(null)
   const [actionBusy, setActionBusy] = React.useState(false)
   const { session } = useAdminAuth()
   const { pushUndo } = useAdminUndo()
+  const { now: serverNow } = useServerClock()
   const canEdit = session ? canEditBookings(session.role) : false
+  const todayKey = format(serverNow, 'yyyy-MM-dd')
 
   const { data, reload } = useLiveData(
     () => apiFetch<ApiCertificate[]>('/api/admin/certificates'),
@@ -82,15 +90,14 @@ export default function AdminCertificatesPage() {
     paymentMethod: 'OFFLINE' as 'ONLINE' | 'OFFLINE',
     paymentStatus: 'PAID' as const,
     validFrom: format(new Date(), 'yyyy-MM-dd'),
-    validTo: format(addMonths(new Date(), 3), 'yyyy-MM-dd'),
+    validTo: defaultCertificateValidToIso(format(new Date(), 'yyyy-MM-dd')),
     simulatorSlug: 'boeing-737',
-    designColor: 'silver' as CertificateDesignColor,
+    designColor: 'es-b737ng' as CertificateDesignColor,
     status: 'ACTIVE',
     comment: '',
   })
 
   const { designs: certDesignRows } = useCertificateDesigns(true)
-  const designOptions = designOptionsForSim(form.simulatorSlug, certDesignRows)
   const seriesOptions = allDesignOptions(certDesignRows)
 
   const { data: optionLists } = useLiveData(
@@ -134,18 +141,22 @@ export default function AdminCertificatesPage() {
 
   const openCreate = () => {
     setEditId(null)
-    const simulatorSlug = 'boeing-737'
-    const designColor = defaultDesignForSim(simulatorSlug, certDesignRows)
+    setSaveError('')
+    const first = seriesOptions[0]
+    const designColor = first?.value ?? defaultDesignForSim('boeing-737', certDesignRows)
+    const simulatorSlug = first?.simulatorSlug ?? 'boeing-737'
+    const durationMin =
+      typeof first?.durationMin === 'number' && first.durationMin > 0 ? first.durationMin : 60
     setForm({
       number: '',
       phone: '',
       email: '',
       fullName: '',
-      durationMin: 30,
+      durationMin,
       paymentMethod: 'OFFLINE',
       paymentStatus: 'PAID',
       validFrom: format(new Date(), 'yyyy-MM-dd'),
-      validTo: format(addMonths(new Date(), 3), 'yyyy-MM-dd'),
+      validTo: defaultCertificateValidToIso(format(new Date(), 'yyyy-MM-dd')),
       simulatorSlug,
       designColor,
       status: 'ACTIVE',
@@ -159,6 +170,7 @@ export default function AdminCertificatesPage() {
 
   const openEdit = (row: ApiCertificate) => {
     setEditId(row.id)
+    setSaveError('')
     const allowed = designOptionsForSim(row.simulatorSlug, certDesignRows)
     const raw = row.designColor as CertificateDesignColor | undefined
     const designColor = allowed.some((o) => o.value === raw)
@@ -202,9 +214,8 @@ export default function AdminCertificatesPage() {
       filterType: 'enum',
       enumOptions: seriesOptions.map((o) => ({
         value: o.code,
-        label: `№${o.code} · ${o.label}`,
+        label: o.code,
       })),
-      // Статичная часть: буква серии (S/T/G…), цифры генерируются отдельно
       filterMatch: (r) =>
         designMeta(
           r.designColor || defaultDesignForSim(r.simulatorSlug, certDesignRows),
@@ -286,29 +297,18 @@ export default function AdminCertificatesPage() {
       accessor: 'status',
       filterType: 'enum',
       enumOptions: [...CERTIFICATE_STATUS_OPTIONS],
-      // ACTIVE + прошедшая дата → EXPIRED (как в бейдже), иначе API-статус
+      // ACTIVE + прошедшая дата (по серверным/демо-часам) → EXPIRED
       filterMatch: (r) => {
         if (r.status === 'CANCELLED' || r.status === 'USED' || r.status === 'PARTIAL') {
           return r.status
         }
-        const today = new Date()
-        const todayKey = [
-          today.getFullYear(),
-          String(today.getMonth() + 1).padStart(2, '0'),
-          String(today.getDate()).padStart(2, '0'),
-        ].join('-')
+        if (r.status === 'PENDING_CONFIRMATION') return r.status
         if (r.status === 'EXPIRED' || r.validTo < todayKey) return 'EXPIRED'
         return r.status || 'ACTIVE'
       },
-      filterValue: (r) => certificateDisplayStatus(r.validTo, r.status).label,
+      filterValue: (r) => certificateUrgency(r.validTo, r.status, serverNow).label,
       cell: (row) => {
-        const display = certificateDisplayStatus(row.validTo, row.status)
-        const toneClass =
-          display.tone === 'green'
-            ? 'bg-emerald-100 text-emerald-800 border-emerald-200'
-            : display.tone === 'red'
-              ? 'bg-red-100 text-red-800 border-red-200'
-              : 'bg-muted text-muted-foreground border-border'
+        const display = certificateUrgency(row.validTo, row.status, serverNow)
         return (
           <div className="flex flex-col gap-1">
             <span className="text-xs text-muted-foreground">
@@ -317,7 +317,7 @@ export default function AdminCertificatesPage() {
             <span
               className={cn(
                 'inline-flex w-fit rounded-md border px-2 py-0.5 text-xs font-semibold',
-                toneClass,
+                URGENCY_BADGE_CLASS[display.tone],
               )}
             >
               {display.label}
@@ -366,12 +366,19 @@ export default function AdminCertificatesPage() {
 
   const save = async () => {
     setActionBusy(true)
+    setSaveError('')
     try {
       const payload = {
         ...form,
+        number: form.number.trim(),
         paymentStatus: 'PAID' as const,
         paymentMethod: (editId ? form.paymentMethod : 'OFFLINE') as 'ONLINE' | 'OFFLINE',
         designColor: form.designColor,
+      }
+      if (!payload.number) {
+        setSaveError('Укажите номер сертификата')
+        setSaveConfirmOpen(false)
+        return
       }
       if (editId) {
         const previous = rows.find((r) => r.id === editId)
@@ -407,6 +414,13 @@ export default function AdminCertificatesPage() {
       setFormOpen(false)
       setSaveConfirmOpen(false)
       void reload()
+    } catch (err) {
+      const msg =
+        err instanceof Error && err.message.trim()
+          ? err.message
+          : 'Не удалось сохранить сертификат'
+      setSaveError(msg)
+      setSaveConfirmOpen(false)
     } finally {
       setActionBusy(false)
     }
@@ -457,26 +471,31 @@ export default function AdminCertificatesPage() {
         <div className="grid gap-3 sm:grid-cols-2">
           <div className="text-sm sm:col-span-2">
             <span className="text-muted-foreground">
-              {editId ? 'Номер' : 'Номер (как на сайте: серия + цифры)'}
+              {editId ? 'Номер' : 'Серия + номер (макс. 13 букв/цифр, тире не считаются)'}
             </span>
             <div className="mt-1 flex items-center gap-1.5">
-              <span className="flex h-9 items-center rounded-md border bg-muted/40 px-2.5 text-sm font-semibold text-muted-foreground">
-                №
-              </span>
               <select
-                className="h-9 w-[7.5rem] rounded-md border bg-background px-2 text-sm font-mono"
+                className="h-9 min-w-[10rem] flex-1 rounded-md border bg-background px-2 text-sm font-mono"
                 value={numberParts.code}
                 onChange={(e) => {
                   const code = e.target.value
                   const design = seriesOptions.find((o) => o.code === code)
-                  if (design) {
-                    setForm((f) => ({ ...f, designColor: design.value }))
-                  }
+                  const simulatorSlug = design?.simulatorSlug ?? form.simulatorSlug
+                  const durationMin =
+                    typeof design?.durationMin === 'number' && design.durationMin > 0
+                      ? design.durationMin
+                      : form.durationMin
+                  const designColor = design?.value ?? form.designColor
+                  setForm((f) => ({
+                    ...f,
+                    designColor,
+                    simulatorSlug,
+                    durationMin,
+                  }))
                   if (!editId) {
-                    void loadNextNumber(
-                      form.simulatorSlug,
-                      design?.value ?? form.designColor,
-                    ).then((number) => setForm((f) => ({ ...f, number })))
+                    void loadNextNumber(simulatorSlug, designColor).then((number) =>
+                      setForm((f) => ({ ...f, number })),
+                    )
                   } else {
                     applyNumberParts(code, numberParts.digits)
                   }
@@ -484,26 +503,34 @@ export default function AdminCertificatesPage() {
               >
                 {seriesOptions.map((o) => (
                   <option key={o.value} value={o.code}>
-                    {o.code} — {o.label}
+                    {o.code}
                   </option>
                 ))}
               </select>
               <Input
-                className="h-9 flex-1 font-mono"
+                className="h-9 w-[6.5rem] font-mono"
                 inputMode="numeric"
                 value={numberParts.digits}
-                readOnly={!editId}
-                title={!editId ? 'Цифры подставляет система' : undefined}
+                title="Можно изменить вручную; дубликаты не сохранятся"
                 onChange={(e) => {
-                  if (!editId) return
-                  applyNumberParts(numberParts.code, sanitizeCertificateDigitsInput(e.target.value))
+                  applyNumberParts(
+                    numberParts.code,
+                    sanitizeCertificateDigitsInput(
+                      e.target.value,
+                      maxDigitsForCode(numberParts.code),
+                    ),
+                  )
                 }}
               />
             </div>
             {!editId ? (
               <p className="mt-1 text-xs text-muted-foreground">
-                Буква серии зависит от вида бланка; цифры — следующий свободный номер.
+                Серия задаёт тренажёр, минуты и цвет бланка. Номер подставляется следующий
+                свободный — можно поправить вручную.
               </p>
+            ) : null}
+            {saveError ? (
+              <p className="mt-1.5 text-sm font-medium text-destructive">{saveError}</p>
             ) : null}
           </div>
           {(
@@ -526,123 +553,67 @@ export default function AdminCertificatesPage() {
               />
             </label>
           ))}
-          <label className="text-sm">
-            <span className="text-muted-foreground">С</span>
-            <SiteDateInput
-              className="mt-1 h-9"
-              value={form.validFrom}
-              onValueChange={(value) => {
-                const from = parseISO(value)
-                setForm((f) => ({
-                  ...f,
-                  validFrom: value,
-                  validTo:
-                    value && isValid(from)
-                      ? format(addMonths(from, 3), 'yyyy-MM-dd')
-                      : f.validTo,
-                }))
-              }}
-            />
-          </label>
-          <label className="text-sm">
-            <span className="text-muted-foreground">По</span>
-            <SiteDateInput
-              className="mt-1 h-9"
-              value={form.validTo}
-              onValueChange={(validTo) => setForm((f) => ({ ...f, validTo }))}
-            />
-          </label>
-          <label className="text-sm">
-            <span className="text-muted-foreground">Тренажёр</span>
-            <select
-              className={selectClass}
-              value={form.simulatorSlug}
-              onChange={(e) => {
-                const simulatorSlug = e.target.value
-                const nextColors = designOptionsForSim(simulatorSlug, certDesignRows)
-                setForm((f) => {
-                  const designColor = nextColors.some((o) => o.value === f.designColor)
-                    ? f.designColor
-                    : defaultDesignForSim(simulatorSlug, certDesignRows)
-                  if (!editId) {
-                    void loadNextNumber(simulatorSlug, designColor).then((number) =>
-                      setForm((cur) => ({ ...cur, number })),
-                    )
-                  }
-                  const allowed = filterDurationChoicesForSimulator(
-                    durationChoicesFromList(
-                      optionLists?.cert_duration ?? optionLists?.duration,
-                    ),
-                    simulatorSlug,
-                  )
-                  return {
-                    ...f,
-                    simulatorSlug,
-                    durationMin: clampDurationChoice(allowed, f.durationMin),
-                    designColor,
-                  }
-                })
-              }}
-            >
-              {certSimOptions.map((o) => (
-                <option key={o.value} value={o.value}>
-                  {o.label}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="text-sm">
-            <span className="text-muted-foreground">Минуты</span>
-            <select
-              className={selectClass}
-              value={form.durationMin}
-              onChange={(e) => setForm((f) => ({ ...f, durationMin: Number(e.target.value) }))}
-            >
-              {durationChoiceRows.map((d) => (
-                <option key={d.value} value={d.value}>
-                  {d.label}
-                </option>
-              ))}
-            </select>
-          </label>
           <div className="text-sm sm:col-span-2">
-            <span className="text-muted-foreground">Вид бланка</span>
-            <p className="mt-0.5 text-xs text-muted-foreground">
-              Виды из «Настройки». Смена вида обновляет букву серии в номере.
+            <span className="text-muted-foreground">Срок действия</span>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Выберите дату начала в календаре. Дата окончания — автоматически +90 дней (~3 месяца).
             </p>
-            <div className="mt-2 flex flex-wrap gap-2">
-              {designOptions.map((o) => {
-                const selected = form.designColor === o.value
-                return (
-                  <button
-                    key={o.value}
-                    type="button"
-                    className={cn(
-                      'inline-flex items-center gap-2 rounded-md border px-2.5 py-1.5 text-sm transition-colors',
-                      selected
-                        ? 'border-foreground ring-1 ring-foreground'
-                        : 'border-border hover:bg-muted/50',
-                    )}
-                    style={{ backgroundColor: o.rowBg }}
-                    onClick={() => {
-                      setForm((f) => ({ ...f, designColor: o.value }))
-                      if (!editId) {
-                        void loadNextNumber(form.simulatorSlug, o.value).then((number) =>
-                          setForm((cur) => ({ ...cur, number })),
-                        )
-                      } else {
-                        applyNumberParts(o.code, numberParts.digits)
-                      }
-                    }}
-                  >
-                    <span
-                      className="inline-block size-3.5 shrink-0 rounded-full border border-black/15"
-                      style={{ backgroundColor: o.swatch }}
-                    />
-                    {o.label}
-                  </button>
-                )
-              })}
+            <div className="mt-2 flex flex-col gap-3 sm:flex-row sm:items-start">
+              <Calendar
+                mode="single"
+                locale={ru}
+                selected={form.validFrom ? parseISO(form.validFrom) : undefined}
+                onSelect={(d) => {
+                  if (!d) return
+                  const validFrom = format(d, 'yyyy-MM-dd')
+                  setForm((f) => ({
+                    ...f,
+                    validFrom,
+                    validTo: defaultCertificateValidToIso(validFrom),
+                  }))
+                }}
+                className="w-fit max-w-full rounded-lg border"
+              />
+              <div className="flex min-w-[12rem] flex-col gap-2 rounded-lg border bg-muted/30 p-3 text-sm">
+                <div>
+                  <p className="text-xs text-muted-foreground">С</p>
+                  <p className="font-medium tabular-nums">{formatAdminDate(form.validFrom)}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">По (авто)</p>
+                  <p className="font-medium tabular-nums">{formatAdminDate(form.validTo)}</p>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div className="text-sm">
+            <span className="text-muted-foreground">Тренажёр</span>
+            <p className="mt-1 flex h-9 items-center rounded-md border bg-muted/40 px-3 text-sm">
+              {certSimOptions.find((o) => o.value === form.simulatorSlug)?.label ??
+                form.simulatorSlug}
+            </p>
+          </div>
+          <div className="text-sm">
+            <span className="text-muted-foreground">Минуты</span>
+            <p className="mt-1 flex h-9 items-center rounded-md border bg-muted/40 px-3 text-sm font-mono">
+              {form.durationMin} мин
+            </p>
+          </div>
+          <div className="text-sm sm:col-span-2">
+            <span className="text-muted-foreground">Цвет бланка</span>
+            <div className="mt-2 inline-flex items-center gap-2 rounded-md border border-border px-2.5 py-1.5 text-sm"
+              style={{
+                backgroundColor:
+                  designMeta(form.designColor, certDesignRows).rowBg,
+              }}
+            >
+              <span
+                className="inline-block size-3.5 shrink-0 rounded-full border border-black/15"
+                style={{
+                  backgroundColor: designMeta(form.designColor, certDesignRows).swatch,
+                }}
+              />
+              {designMeta(form.designColor, certDesignRows).code}
             </div>
           </div>
           <label className="text-sm">
@@ -652,7 +623,9 @@ export default function AdminCertificatesPage() {
               value={form.status}
               onChange={(e) => setForm((f) => ({ ...f, status: e.target.value }))}
             >
-              {CERTIFICATE_STATUS_OPTIONS.map((o) => (
+              {CERTIFICATE_STATUS_OPTIONS.filter((o) =>
+                editId ? true : o.value !== 'PENDING_CONFIRMATION',
+              ).map((o) => (
                 <option key={o.value} value={o.value}>
                   {o.label}
                 </option>
@@ -677,7 +650,7 @@ export default function AdminCertificatesPage() {
               </select>
             ) : (
               <p className="mt-1 flex h-9 items-center text-sm text-foreground">
-                В офисе
+                При посещении
                 <span className="ml-2 text-xs text-muted-foreground">(для сертификатов из админки)</span>
               </p>
             )}

@@ -37,7 +37,10 @@ export function getBaseFlightPrice(
   aircraft: 'boeing-737' | 'mi-2',
   durationMin: number,
 ): number {
-  return rows.find((r) => r.simulatorSlug === aircraft && r.durationMin === durationMin)?.priceByn ?? 0
+  const hit = rows.find(
+    (r) => r.simulatorSlug === aircraft && Number(r.durationMin) === Number(durationMin),
+  )
+  return hit ? Number(hit.priceByn) || 0 : 0
 }
 
 export function getCertPriceByn(
@@ -50,8 +53,8 @@ export function getCertPriceByn(
 }
 
 export function parseBirthdayDdMm(value: string, year: number): Date | null {
-  // ДД-ММ или ДД.ММ (год не нужен для ДР)
-  const m = value.trim().match(/^(\d{1,2})[-.](\d{1,2})$/)
+  // ДД.ММ или ДД-ММ (год не нужен для ДР)
+  const m = value.trim().match(/^(\d{1,2})[.\-](\d{1,2})$/)
   if (!m) return null
   const day = Number(m[1])
   const month = Number(m[2]) - 1
@@ -61,11 +64,11 @@ export function parseBirthdayDdMm(value: string, year: number): Date | null {
   return d
 }
 
-/** Нормализация ДР к виду ДД-ММ. */
+/** Нормализация ДР к виду ДД.ММ. */
 export function formatBirthdayDdMm(value: string): string {
   const d = parseBirthdayDdMm(value, new Date().getFullYear())
   if (!d) return value.trim()
-  return format(d, 'dd-MM')
+  return format(d, 'dd.MM')
 }
 
 export function isBirthdayInputValid(value: string): boolean {
@@ -202,8 +205,10 @@ export function isSlotClosedByMaintenance(
 }
 
 /**
- * Коэффициент скидки: ДР −15%, счастливые часы −10%, иначе без скидки.
- * Для 2в1 применяется к каждой ноге 30 мин отдельно (не к «часовому» тарифу).
+ * Коэффициент скидки из % акции в админке.
+ * ДР — только если клиент включил скидку и дата в окне ±3 дня.
+ * Счастливые часы — только если клиент выбрал эту акцию и слот 12:00–15:00 в будни.
+ * Для 2в1 применяется к каждой ноге 30 мин отдельно.
  */
 export function bookingDiscountMultiplier(opts: {
   birthdayDiscount: boolean
@@ -211,6 +216,12 @@ export function bookingDiscountMultiplier(opts: {
   selectedDate: Date
   selectedTime: string
   dayStatus?: CalendarStatus
+  /** % из админки; если не задан — дефолт 15 */
+  birthdayDiscountPercent?: number
+  /** Клиент явно выбрал «Счастливые часы» */
+  happyHoursSelected?: boolean
+  /** % из админки; если не задан — дефолт 10 */
+  happyHoursDiscountPercent?: number
 }): number {
   const status = effectiveDayStatus(opts.selectedDate, opts.dayStatus)
   if (status === 'BLOCKED') return 1
@@ -220,10 +231,21 @@ export function bookingDiscountMultiplier(opts: {
     opts.birthdayDate.trim() &&
     isInBirthdayWindow(opts.selectedDate, opts.birthdayDate)
   ) {
-    return 0.85
+    const pct =
+      typeof opts.birthdayDiscountPercent === 'number' && opts.birthdayDiscountPercent > 0
+        ? opts.birthdayDiscountPercent
+        : 15
+    return Math.max(0, 1 - Math.min(100, pct) / 100)
   }
-  if (isHappyHourSlot(opts.selectedTime, opts.selectedDate, opts.dayStatus)) {
-    return 0.9
+  if (
+    opts.happyHoursSelected &&
+    isHappyHourSlot(opts.selectedTime, opts.selectedDate, opts.dayStatus)
+  ) {
+    const pct =
+      typeof opts.happyHoursDiscountPercent === 'number' && opts.happyHoursDiscountPercent > 0
+        ? opts.happyHoursDiscountPercent
+        : 10
+    return Math.max(0, 1 - Math.min(100, pct) / 100)
   }
   return 1
 }
@@ -240,8 +262,7 @@ export function computeBookingPriceByn(opts: {
   base?: number
   /**
    * 2в1: цены ног по 30 мин (Boeing + Ми-2).
-   * Скидка 15%/10% начисляется на каждую ногу, затем суммы складываются:
-   * (170−15%) + (170−15%), а не скидка от часового тарифа 300.
+   * Скидка % начисляется на каждую ногу, затем суммы складываются.
    */
   legs?: number[]
   birthdayDiscount: boolean
@@ -249,6 +270,9 @@ export function computeBookingPriceByn(opts: {
   selectedDate: Date
   selectedTime: string
   dayStatus?: CalendarStatus
+  birthdayDiscountPercent?: number
+  happyHoursSelected?: boolean
+  happyHoursDiscountPercent?: number
 }): number {
   const status = effectiveDayStatus(opts.selectedDate, opts.dayStatus)
   const mult = bookingDiscountMultiplier(opts)
@@ -287,6 +311,8 @@ export type BookingDateDisableOpts = {
    */
   comboMode?: boolean
   durationMin?: number
+  /** Эффективное «сейчас» (демо-часы сервера). */
+  now?: Date
   /** Дни, которые API пометил fullyClosed (зал / BLOCKED), даже если status ещё OPEN */
   fullyClosedDates?: ReadonlySet<string> | Record<string, boolean>
 }
@@ -323,10 +349,11 @@ function hasAnyOpenSlotForSim(
   duration: number,
   simulatorSlug: string,
   maintenance: PublicMaintenance[] | undefined,
+  now?: Date,
 ): boolean {
   return slots.some(
     (t) =>
-      !isTimeSlotPast(date, t) &&
+      !isTimeSlotPast(date, t, now) &&
       !isSlotClosedByMaintenance(key, t, duration, simulatorSlug, maintenance),
   )
 }
@@ -336,7 +363,8 @@ export function isBookingDateDisabled(
   calendar: Record<string, CalendarStatus>,
   opts: BookingDateDisableOpts,
 ): boolean {
-  const today = startOfDay(new Date())
+  const now = opts.now ?? new Date()
+  const today = startOfDay(now)
   if (date < today) return true
   const max = addMonths(today, opts.bookingWindowMonths)
   if (date > max) return true
@@ -384,11 +412,13 @@ export function isBookingDateDisabled(
 
   if (slotsForDay?.length && isSameDay(date, today)) {
     if (opts.comboMode) {
-      const usable = slotsForDay.filter((t) => !isTimeSlotPast(date, t) && comboMaintOk(t))
+      const usable = slotsForDay.filter(
+        (t) => !isTimeSlotPast(date, t, now) && comboMaintOk(t),
+      )
       if (usable.length === 0) return true
     } else {
       const usable = slotsForDay.filter((t) => {
-        if (isTimeSlotPast(date, t)) return false
+        if (isTimeSlotPast(date, t, now)) return false
         if (
           opts.simulatorSlug &&
           isSlotClosedByMaintenance(key, t, duration, opts.simulatorSlug, opts.maintenance)
@@ -404,10 +434,12 @@ export function isBookingDateDisabled(
   // День с частичным ТО: если все слоты закрыты — дата недоступна (не кликабельна)
   if (slotsForDay?.length && opts.maintenance?.length) {
     if (opts.comboMode) {
-      const anyOpen = slotsForDay.some((t) => !isTimeSlotPast(date, t) && comboMaintOk(t))
+      const anyOpen = slotsForDay.some(
+        (t) => !isTimeSlotPast(date, t, now) && comboMaintOk(t),
+      )
       if (!anyOpen) return true
     } else if (opts.simulatorSlug) {
-      if (!hasAnyOpenSlotForSim(date, key, slotsForDay, duration, opts.simulatorSlug, opts.maintenance)) {
+      if (!hasAnyOpenSlotForSim(date, key, slotsForDay, duration, opts.simulatorSlug, opts.maintenance, now)) {
         return true
       }
     }
@@ -420,7 +452,7 @@ export function findFirstBookableDate(
   calendar: Record<string, CalendarStatus>,
   opts: BookingDateDisableOpts,
 ): Date | null {
-  const today = startOfDay(new Date())
+  const today = startOfDay(opts.now ?? new Date())
   const max = addMonths(today, opts.bookingWindowMonths)
   for (let d = today; d <= max; d = addDays(d, 1)) {
     if (!isBookingDateDisabled(d, calendar, opts)) return d

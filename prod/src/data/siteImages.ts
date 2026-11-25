@@ -111,15 +111,15 @@ export const DEFAULT_SITE_IMAGES: SiteImages = {
   comboPricingBackground: '/assets/simulator/sm_price_2.webp',
 }
 
-/** `/uploads/...` → абсолютный URL API; остальное без изменений. */
+/**
+ * Пути `/uploads/...` и `/assets/...` оставляем относительными к origin страницы
+ * (Vite proxy / nginx → API). Абсолютный VITE_API_URL ломал превью, если сайт
+ * открыт не как localhost (127.0.0.1, LAN, прод).
+ */
 export function resolveMediaUrl(url: string): string {
   if (!url) return url
   if (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('data:')) {
     return url
-  }
-  if (url.startsWith('/uploads/')) {
-    const base = (import.meta.env.VITE_API_URL as string | undefined) ?? ''
-    return `${base.replace(/\/$/, '')}${url}`
   }
   return url
 }

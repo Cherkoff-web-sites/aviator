@@ -186,8 +186,19 @@ function EditablePriceTable({
   const dirty = JSON.stringify(local) !== JSON.stringify(rows)
   const deleteRow = local.find((r) => r.id === deleteId)
   const slugLabel = (slug: string) => labelOf(simulatorOptions, slug, slug)
-  const durationsForSlug = (slug: string) =>
-    filterDurationChoicesForSimulator([...durationChoices], slug)
+  const durationsForSlug = (slug: string, currentMin?: number) => {
+    const base = filterDurationChoicesForSimulator([...durationChoices], slug)
+    if (
+      typeof currentMin === 'number' &&
+      currentMin > 0 &&
+      !base.some((d) => d.value === currentMin)
+    ) {
+      return [...base, { value: currentMin, label: `${currentMin} мин (нет в списках)` }].sort(
+        (a, b) => a.value - b.value,
+      )
+    }
+    return base
+  }
 
   const addRow = () => {
     const allowed = durationsForSlug(defaultSlug)
@@ -284,7 +295,7 @@ function EditablePriceTable({
                             setLocal(next)
                           }}
                         >
-                          {durationsForSlug(r.simulatorSlug).map((d) => (
+                          {durationsForSlug(r.simulatorSlug, r.durationMin).map((d) => (
                             <option key={d.value} value={d.value}>
                               {d.label}
                             </option>
@@ -351,11 +362,17 @@ function EditablePriceTable({
                       {canEdit ? (
                         <Input
                           type="number"
+                          min={0}
+                          step={1}
                           className="h-8 w-24"
                           value={r.priceByn}
                           onChange={(e) => {
                             const next = [...local]
-                            next[i] = { ...r, priceByn: Number(e.target.value) }
+                            const n = Number(e.target.value)
+                            next[i] = {
+                              ...r,
+                              priceByn: Number.isFinite(n) ? Math.max(0, n) : 0,
+                            }
                             setLocal(next)
                           }}
                         />
@@ -473,7 +490,10 @@ export default function AdminPricesPromosPage() {
     [optionLists],
   )
   const promoProductOptions = React.useMemo<PromoProductOption[]>(
-    () => flightSimOptions.map((o) => ({ id: o.value, label: o.label })),
+    () => [
+      ...flightSimOptions.map((o) => ({ id: o.value, label: o.label })),
+      { id: 'combo', label: 'Boeing + Ми-2' },
+    ],
     [flightSimOptions],
   )
 
@@ -502,15 +522,53 @@ export default function AdminPricesPromosPage() {
     void r2()
   }
 
+  const addPromo = () => {
+    const today = new Date().toISOString().slice(0, 10)
+    setPromoLocal((rows) => [
+      ...rows,
+      {
+        id: `pr-${Date.now()}`,
+        name: 'Новая акция',
+        discountPercent: 10,
+        startDate: today,
+        endDate: today,
+        indefinite: false,
+        productType: formatProductType(
+          promoProductOptions.map((o) => o.id),
+          promoProductOptions,
+        ),
+        promoType: 'CUSTOM',
+        active: true,
+      },
+    ])
+  }
+
   const savePromos = async () => {
     setPromoBusy(true)
     try {
       const previous = promos.map((p) => ({ ...p }))
-      const rows = promoLocal.map((p) => ({
-        ...p,
-        indefinite: Boolean(p.indefinite),
-        endDate: p.indefinite ? '9999-12-31' : p.endDate,
-      }))
+      const rows = promoLocal.map((p) => {
+        const startDate = String(p.startDate || '').slice(0, 10)
+        let endDate = p.indefinite ? '9999-12-31' : String(p.endDate || '').slice(0, 10)
+        if (!p.indefinite && endDate && startDate && endDate < startDate) {
+          endDate = startDate
+        }
+        const discountPercent = Math.max(
+          0,
+          Math.min(100, Math.round(Number(p.discountPercent) || 0)),
+        )
+        return {
+          ...p,
+          name: String(p.name || '').trim() || 'Акция',
+          discountPercent,
+          startDate,
+          endDate,
+          indefinite: Boolean(p.indefinite),
+          productType: String(p.productType || '').trim(),
+          promoType: p.promoType || 'CUSTOM',
+          active: Boolean(p.active),
+        }
+      })
       await apiFetch('/api/admin/promos', {
         method: 'PUT',
         body: JSON.stringify({ rows }),
@@ -593,18 +651,30 @@ export default function AdminPricesPromosPage() {
         }}
       />
       <Card className="border-border/80 shadow-sm">
-        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-4 pt-6">
-          <CardTitle className="text-base font-semibold">Акции</CardTitle>
+        <CardHeader className="flex flex-row items-start justify-between space-y-0 gap-3 pb-4 pt-6">
+          <div className="min-w-0 space-y-1">
+            <CardTitle className="text-base font-semibold">Акции</CardTitle>
+            <p className="text-sm font-normal text-muted-foreground">
+              % скидки, срок и «Активна» сразу влияют на сайт и бронирование. Тип BIRTHDAY /
+              HAPPY_HOURS привязан к карточкам на «Ценах» и переключателям в форме брони.
+            </p>
+          </div>
           {canEdit ? (
-            <Button
-              type="button"
-              variant={promoDirty ? 'default' : 'secondary'}
-              size="sm"
-              disabled={!promoDirty}
-              onClick={() => setPromoSaveOpen(true)}
-            >
-              Сохранить
-            </Button>
+            <div className="flex shrink-0 gap-2">
+              <Button type="button" variant="outline" size="sm" className="gap-1" onClick={addPromo}>
+                <Plus className="size-4" />
+                Добавить
+              </Button>
+              <Button
+                type="button"
+                variant={promoDirty ? 'default' : 'secondary'}
+                size="sm"
+                disabled={!promoDirty}
+                onClick={() => setPromoSaveOpen(true)}
+              >
+                Сохранить
+              </Button>
+            </div>
           ) : null}
         </CardHeader>
         <CardContent className="pb-6">
@@ -619,9 +689,20 @@ export default function AdminPricesPromosPage() {
                   <TableHead>Продукт</TableHead>
                   <TableHead>Тип</TableHead>
                   <TableHead>Активна</TableHead>
+                  {canEdit ? <TableHead className="w-10" /> : null}
                 </TableRow>
               </TableHeader>
               <TableBody>
+                {promoLocal.length === 0 ? (
+                  <TableRow>
+                    <TableCell
+                      colSpan={canEdit ? 8 : 7}
+                      className="h-16 text-center text-sm text-muted-foreground"
+                    >
+                      Нет акций. {canEdit ? 'Нажмите «Добавить».' : null}
+                    </TableCell>
+                  </TableRow>
+                ) : null}
                 {promoLocal.map((p, i) => (
                   <TableRow key={p.id}>
                     <TableCell>
@@ -643,11 +724,19 @@ export default function AdminPricesPromosPage() {
                       {canEdit ? (
                         <Input
                           type="number"
+                          min={0}
+                          max={100}
                           className="h-8 w-20"
                           value={p.discountPercent}
                           onChange={(e) => {
                             const n = [...promoLocal]
-                            n[i] = { ...p, discountPercent: Number(e.target.value) }
+                            n[i] = {
+                              ...p,
+                              discountPercent: Math.max(
+                                0,
+                                Math.min(100, Number(e.target.value) || 0),
+                              ),
+                            }
                             setPromoLocal(n)
                           }}
                         />
@@ -675,7 +764,11 @@ export default function AdminPricesPromosPage() {
                               value={p.endDate === '9999-12-31' ? '' : p.endDate}
                               onValueChange={(endDate) => {
                                 const n = [...promoLocal]
-                                n[i] = { ...p, endDate, indefinite: false }
+                                const fixed =
+                                  endDate && p.startDate && endDate < p.startDate
+                                    ? p.startDate
+                                    : endDate
+                                n[i] = { ...p, endDate: fixed, indefinite: false }
                                 setPromoLocal(n)
                               }}
                             />
@@ -754,6 +847,8 @@ export default function AdminPricesPromosPage() {
                       {canEdit ? (
                         <input
                           type="checkbox"
+                          className="size-4 accent-primary"
+                          title="Выключена — кнопки скидки на сайте disabled"
                           checked={p.active}
                           onChange={(e) => {
                             const n = [...promoLocal]
@@ -767,6 +862,22 @@ export default function AdminPricesPromosPage() {
                         'Нет'
                       )}
                     </TableCell>
+                    {canEdit ? (
+                      <TableCell>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="size-8 text-destructive"
+                          title="Удалить акцию"
+                          onClick={() =>
+                            setPromoLocal(promoLocal.filter((_, j) => j !== i))
+                          }
+                        >
+                          <Trash2 className="size-4" />
+                        </Button>
+                      </TableCell>
+                    ) : null}
                   </TableRow>
                 ))}
               </TableBody>

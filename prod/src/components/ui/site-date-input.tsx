@@ -15,13 +15,13 @@ type SiteDateInputProps = Omit<
 }
 
 /**
- * Поле даты: на экране всегда ДД-ММ-ГГГГ, в value наружу — ISO yyyy-MM-dd.
+ * Поле даты: на экране всегда ДД.ММ.ГГГГ, в value наружу — ISO yyyy-MM-dd.
  */
 export function SiteDateInput({
   value,
   onValueChange,
   className,
-  placeholder = 'ДД-ММ-ГГГГ',
+  placeholder = 'ДД.ММ.ГГГГ',
   onBlur,
   ...rest
 }: SiteDateInputProps) {

@@ -117,14 +117,23 @@ export default function AdminSiteImagesEditor() {
     [],
   )
   const [draft, setDraft] = React.useState<SiteImages>(DEFAULT_SITE_IMAGES)
+  const draftRef = React.useRef(draft)
   const [saving, setSaving] = React.useState(false)
   const [savedAt, setSavedAt] = React.useState<string | null>(null)
 
   const baseline = data ?? DEFAULT_SITE_IMAGES
 
   React.useEffect(() => {
-    if (data) setDraft(structuredClone(data))
+    if (data) {
+      const next = structuredClone(data)
+      draftRef.current = next
+      setDraft(next)
+    }
   }, [data])
+
+  React.useEffect(() => {
+    draftRef.current = draft
+  }, [draft])
 
   const dirty = React.useMemo(
     () => JSON.stringify(draft) !== JSON.stringify(baseline),
@@ -136,9 +145,11 @@ export default function AdminSiteImagesEditor() {
     try {
       const next = await apiFetch<SiteImages>('/api/admin/settings/site-images', {
         method: 'PUT',
-        body: JSON.stringify(draft),
+        body: JSON.stringify(draftRef.current),
       })
-      setDraft(structuredClone(next))
+      const cloned = structuredClone(next)
+      draftRef.current = cloned
+      setDraft(cloned)
       setSavedAt(new Date().toLocaleTimeString())
       void reload()
     } finally {
@@ -147,20 +158,28 @@ export default function AdminSiteImagesEditor() {
   }
 
   const setHero = (key: keyof SiteImages['heroes'], url: string) => {
-    setDraft((d) => ({ ...d, heroes: { ...d.heroes, [key]: url } }))
+    setDraft((d) => {
+      const next = { ...d, heroes: { ...d.heroes, [key]: url } }
+      draftRef.current = next
+      return next
+    })
   }
 
   const setSimField = <K extends keyof SiteImages['simulators']>(
     slug: K,
     patch: Partial<SiteImages['simulators'][K]>,
   ) => {
-    setDraft((d) => ({
-      ...d,
-      simulators: {
-        ...d.simulators,
-        [slug]: { ...d.simulators[slug], ...patch },
-      },
-    }))
+    setDraft((d) => {
+      const next = {
+        ...d,
+        simulators: {
+          ...d.simulators,
+          [slug]: { ...d.simulators[slug], ...patch },
+        },
+      }
+      draftRef.current = next
+      return next
+    })
   }
 
   const slotSave = {
@@ -295,7 +314,13 @@ export default function AdminSiteImagesEditor() {
             label="Фон блока «Полёт 2в1»"
             value={draft.comboPricingBackground}
             baseline={baseline.comboPricingBackground}
-            onChange={(comboPricingBackground) => setDraft((d) => ({ ...d, comboPricingBackground }))}
+            onChange={(comboPricingBackground) =>
+              setDraft((d) => {
+                const next = { ...d, comboPricingBackground }
+                draftRef.current = next
+                return next
+              })
+            }
             {...slotSave}
           />
         </CardContent>
@@ -312,16 +337,20 @@ export default function AdminSiteImagesEditor() {
               variant="outline"
               size="sm"
               onClick={() =>
-                setDraft((d) => ({
-                  ...d,
-                  gallery: {
-                    ...d.gallery,
-                    [slug]: [
-                      ...d.gallery[slug],
-                      { src: '', alt: `Новый слайд ${d.gallery[slug].length + 1}` },
-                    ],
-                  },
-                }))
+                setDraft((d) => {
+                  const next = {
+                    ...d,
+                    gallery: {
+                      ...d.gallery,
+                      [slug]: [
+                        ...d.gallery[slug],
+                        { src: '', alt: `Новый слайд ${d.gallery[slug].length + 1}` },
+                      ],
+                    },
+                  }
+                  draftRef.current = next
+                  return next
+                })
               }
             >
               Добавить слайд
@@ -336,21 +365,27 @@ export default function AdminSiteImagesEditor() {
                 index={index}
                 onSave={() => void save()}
                 saving={saving}
-                onChange={(next) =>
+                onChange={(nextSlide) =>
                   setDraft((d) => {
                     const list = [...d.gallery[slug]]
-                    list[index] = next
-                    return { ...d, gallery: { ...d.gallery, [slug]: list } }
+                    list[index] = nextSlide
+                    const next = { ...d, gallery: { ...d.gallery, [slug]: list } }
+                    draftRef.current = next
+                    return next
                   })
                 }
                 onRemove={() =>
-                  setDraft((d) => ({
-                    ...d,
-                    gallery: {
-                      ...d.gallery,
-                      [slug]: d.gallery[slug].filter((_, i) => i !== index),
-                    },
-                  }))
+                  setDraft((d) => {
+                    const next = {
+                      ...d,
+                      gallery: {
+                        ...d.gallery,
+                        [slug]: d.gallery[slug].filter((_, i) => i !== index),
+                      },
+                    }
+                    draftRef.current = next
+                    return next
+                  })
                 }
               />
             ))}

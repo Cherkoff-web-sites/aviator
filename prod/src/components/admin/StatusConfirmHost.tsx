@@ -3,6 +3,7 @@ import { format } from 'date-fns'
 
 import { Button } from '@/components/ui/button'
 import { useAdminAuth } from '@/contexts/AdminAuthContext'
+import { useServerClock } from '@/contexts/ServerClockContext'
 import { useLiveData } from '@/hooks/useLiveData'
 import { apiFetch, type AdminUser, type ApiBooking } from '@/lib/api'
 import { canEditBookings } from '@/lib/admin-access'
@@ -13,6 +14,7 @@ function timeToMins(t: string) {
   return (h ?? 0) * 60 + (m ?? 0)
 }
 
+/** WAITING после старта — ждём ручное «клиент пришёл / не пришёл». */
 function needsConfirm(row: ApiBooking, todayKey: string, nowMins: number) {
   if (row.status !== 'WAITING') return false
   if (row.date !== todayKey) return false
@@ -32,7 +34,7 @@ function StatusConfirmCard({
   stackIndex: number
   onDone: () => void
 }) {
-  const [status, setStatus] = React.useState<'IN_PROGRESS' | 'CANCELLED'>('IN_PROGRESS')
+  const [status, setStatus] = React.useState<'CONFIRMED' | 'CANCELLED'>('CONFIRMED')
   const [pilotUserId, setPilotUserId] = React.useState('')
   const [busy, setBusy] = React.useState(false)
 
@@ -52,7 +54,7 @@ function StatusConfirmCard({
   }, [pilots, shifts, booking.simulatorSlug])
 
   React.useEffect(() => {
-    setStatus('IN_PROGRESS')
+    setStatus('CONFIRMED')
     const preferred =
       booking.pilotUserId ||
       shifts.find((s) => s.simulatorSlug === booking.simulatorSlug)?.userId ||
@@ -62,14 +64,14 @@ function StatusConfirmCard({
   }, [booking.id, booking.pilotUserId, booking.simulatorSlug, orderedPilots, shifts])
 
   const confirm = async () => {
-    if (status === 'IN_PROGRESS' && !pilotUserId) return
+    if (status === 'CONFIRMED' && !pilotUserId) return
     setBusy(true)
     try {
       await apiFetch(`/api/admin/bookings/${booking.id}`, {
         method: 'PATCH',
         body: JSON.stringify({
           status,
-          pilotUserId: status === 'IN_PROGRESS' ? pilotUserId : null,
+          pilotUserId: status === 'CONFIRMED' ? pilotUserId : null,
         }),
       })
       onDone()
@@ -96,23 +98,23 @@ function StatusConfirmCard({
       aria-labelledby={`status-confirm-${booking.id}`}
     >
       <h3 id={`status-confirm-${booking.id}`} className="text-sm font-semibold text-foreground">
-        Подтвердите статус записи
+        Клиент пришёл?
       </h3>
       <p className="mt-1 text-xs leading-snug text-muted-foreground">
         {booking.name} · {booking.startTime}–{booking.endTime} · {simLabel}
         <br />
-        Окно нельзя закрыть без действия.
+        Окно нельзя закрыть без действия. Дальше статусы сменятся автоматически.
       </p>
       <div className="mt-3 flex flex-col gap-3">
         <label className="text-sm">
-          <span className="text-muted-foreground">Новый статус *</span>
+          <span className="text-muted-foreground">Действие *</span>
           <select
             className="mt-1 flex h-9 w-full rounded-md border bg-background px-2 text-sm"
             value={status}
-            onChange={(e) => setStatus(e.target.value as 'IN_PROGRESS' | 'CANCELLED')}
+            onChange={(e) => setStatus(e.target.value as 'CONFIRMED' | 'CANCELLED')}
           >
-            <option value="IN_PROGRESS">В процессе (клиент пришёл)</option>
-            <option value="CANCELLED">Отменен (не пришёл)</option>
+            <option value="CONFIRMED">Подтверждена (клиент пришёл)</option>
+            <option value="CANCELLED">Отменён (не пришёл)</option>
           </select>
         </label>
         <label className="text-sm">
@@ -151,32 +153,10 @@ function StatusConfirmCard({
   )
 }
 
-type DemoClock = {
-  effectiveNowIso: string
-  demoNowIso: string | null
-  active: boolean
-}
-
 export default function StatusConfirmHost() {
   const { session } = useAdminAuth()
   const canEdit = session ? canEditBookings(session.role) : false
-
-  const { data: clock, reload: reloadClock } = useLiveData(
-    () =>
-      canEdit
-        ? apiFetch<DemoClock>('/api/admin/demo-clock')
-        : Promise.resolve({
-            effectiveNowIso: new Date().toISOString(),
-            demoNowIso: null,
-            active: false,
-          }),
-    [canEdit],
-  )
-
-  const effectiveNow = React.useMemo(
-    () => new Date(clock?.effectiveNowIso ?? Date.now()),
-    [clock?.effectiveNowIso],
-  )
+  const { now: effectiveNow } = useServerClock()
   const todayKey = format(effectiveNow, 'yyyy-MM-dd')
 
   const { data: rows, reload } = useLiveData(
@@ -187,10 +167,9 @@ export default function StatusConfirmHost() {
   React.useEffect(() => {
     const t = window.setInterval(() => {
       void reload()
-      void reloadClock()
     }, 15_000)
     return () => window.clearInterval(t)
-  }, [reload, reloadClock])
+  }, [reload])
 
   const { data: pilots } = useLiveData(
     () => (canEdit ? apiFetch<AdminUser[]>('/api/admin/pilots') : Promise.resolve([])),
@@ -209,12 +188,6 @@ export default function StatusConfirmHost() {
         : Promise.resolve([]),
     [canEdit, todayKey, monthKey],
   )
-
-  const [, setTick] = React.useState(0)
-  React.useEffect(() => {
-    const t = window.setInterval(() => setTick((n) => n + 1), 30_000)
-    return () => window.clearInterval(t)
-  }, [])
 
   const queue = React.useMemo(() => {
     const nowMins = timeToMins(format(effectiveNow, 'HH:mm'))

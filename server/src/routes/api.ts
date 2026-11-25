@@ -1,11 +1,18 @@
 import { Router, type Request, type Response, type NextFunction } from 'express'
-import { addDays, format, isValid, parseISO, startOfDay } from 'date-fns'
+import { format, isValid, parseISO, startOfDay } from 'date-fns'
 import { formatDisplayDate } from '../lib/display-date.js'
-import { readStore, updateStore, newId, fillDemoData, clearDemoData } from '../lib/store.js'
+import {
+  readStore,
+  updateStore,
+  newId,
+  fillDemoData,
+  clearDemoData,
+  clearAllOperationalData,
+} from '../lib/store.js'
 import { getDocument } from '../lib/documents.js'
 import { normalizeSiteImages } from '../lib/site-images.js'
 import { saveDataUrlUpload } from '../lib/uploads.js'
-import { getStoreNow, getStoreNowIso } from '../lib/clock.js'
+import { clockPayload, getStoreNow, getStoreNowIso } from '../lib/clock.js'
 import {
   addMinutesToTime,
   buildCalendarDays,
@@ -17,6 +24,7 @@ import {
   getDayStatus,
   toDateKey,
 } from '../lib/helpers.js'
+import { defaultCertificateValidTo } from '../lib/dates.js'
 import { pushLog } from '../lib/app-log.js'
 import { emitAdmin, emitAll } from '../lib/socket.js'
 import {
@@ -56,12 +64,20 @@ import type {
   Promo,
 } from '../types.js'
 import {
+  allocateNextCertificateNumber,
   defaultDesignKey,
   designByKey,
   designsForSimulator,
-  nextCertificateNumber as buildCertNumber,
+  isCertificateNumberTaken,
   normalizeCertificateDesigns,
+  normalizeCertificateNumber,
 } from '../lib/certificate-designs.js'
+import {
+  isPromoUsableOnDate,
+  promoAppliesToSimulator,
+  promoByType,
+  promoNoteLabel,
+} from '../lib/promos.js'
 
 function storeDesigns(store: { certificateDesigns?: CertificateDesign[] }) {
   return normalizeCertificateDesigns(store.certificateDesigns)
@@ -71,16 +87,25 @@ function defaultDesignColor(
   store: { certificateDesigns?: CertificateDesign[] },
   simulatorSlug: string,
   preferred?: string,
+  durationMin?: number,
 ) {
-  return defaultDesignKey(storeDesigns(store), simulatorSlug, preferred)
+  return defaultDesignKey(storeDesigns(store), simulatorSlug, preferred, durationMin)
 }
 
 function nextCertificateNumber(
-  store: { certificateDesigns?: CertificateDesign[]; counters: { certificate: number } },
+  store: {
+    certificateDesigns?: CertificateDesign[]
+    certificates?: { number: string }[]
+    counters: { certificate: number }
+  },
   designColor: string,
 ): string {
   const design = designByKey(storeDesigns(store), designColor)
-  return buildCertNumber(store.counters.certificate, design)
+  return allocateNextCertificateNumber(
+    store.certificates ?? [],
+    design,
+    store.counters.certificate,
+  )
 }
 
 function timeToMins(t: string): number {
@@ -103,6 +128,9 @@ function intervalsOverlap(
   return a0 < b1 + gapMin && b0 < a1 + gapMin
 }
 
+/** Холд / код подтверждения email с сайта — 5 минут. */
+const EMAIL_HOLD_MS = 5 * 60_000
+
 function bookingGapMin(store: { settings?: { bookingGapMin?: number } }) {
   const g = store.settings?.bookingGapMin
   return typeof g === 'number' && g >= 0 ? g : 15
@@ -119,11 +147,24 @@ function isBookingOccupyingSlot(b: Booking, nowIso: string): boolean {
 function expireCertificatesInStore(s: {
   certificates: Certificate[]
   certificateDesigns?: CertificateDesign[]
+  settings?: { demoNowIso?: string | null; demoNowSetAtIso?: string | null }
 }) {
-  const today = format(startOfDay(new Date()), 'yyyy-MM-dd')
+  // «Сегодня» = эффективные часы store (демо-дата), не wall-clock сервера.
+  const now = getStoreNow(s as Parameters<typeof getStoreNow>[0])
+  const today = format(startOfDay(now), 'yyyy-MM-dd')
+  const nowIso = now.toISOString()
   for (const c of s.certificates) {
     c.paymentStatus = 'PAID'
-    if (!c.designColor) c.designColor = defaultDesignColor(s, c.simulatorSlug)
+    c.designColor = defaultDesignColor(s, c.simulatorSlug, c.designColor, c.durationMin)
+    if (
+      c.status === 'PENDING_CONFIRMATION' &&
+      c.holdExpiresAt &&
+      c.holdExpiresAt < nowIso
+    ) {
+      c.status = 'EXPIRED'
+      c.holdExpiresAt = undefined
+      continue
+    }
     if (
       (c.status === 'ACTIVE' || c.status === 'PARTIAL') &&
       c.validTo < today
@@ -235,7 +276,7 @@ apiRouter.get('/public/certificates/validate', (req, res) => {
     return cn === norm || cn === `№${norm.replace(/^№/, '')}` || cn.replace(/^№/, '') === norm.replace(/^№/, '')
   })
   if (!cert || cert.status !== 'ACTIVE') return res.json({ valid: false })
-  const today = format(startOfDay(new Date()), 'yyyy-MM-dd')
+  const today = format(startOfDay(getStoreNow(store)), 'yyyy-MM-dd')
   if (cert.validFrom > today || cert.validTo < today) {
     return res.json({ valid: false, reason: 'EXPIRED' })
   }
@@ -284,6 +325,11 @@ apiRouter.get('/public/settings', (_req, res) => {
   })
 })
 
+/** Эффективные часы сервера (с учётом демо) — для сайта и админки. */
+apiRouter.get('/public/clock', (_req, res) => {
+  res.json(clockPayload(readStore()))
+})
+
 /** Списки длительностей/тренажёров для форм брони и сертификатов. */
 apiRouter.get('/public/option-lists', (_req, res) => {
   const lists = readStore().optionLists ?? {}
@@ -320,7 +366,8 @@ apiRouter.get('/public/prices/certificates', (_req, res) => {
 })
 
 apiRouter.get('/public/promos', (_req, res) => {
-  res.json(readStore().promos.filter((p) => p.active))
+  // Все акции: сайт сам решает, доступна ли кнопка (срок / active).
+  res.json(readStore().promos)
 })
 
 apiRouter.get('/public/contacts', (_req, res) => {
@@ -375,12 +422,51 @@ apiRouter.post('/public/bookings', async (req, res) => {
     res.status(400).json({ error: 'Для Ми-2 максимальная длительность — 60 минут' })
     return
   }
-  const holdExpiresAt = new Date(Date.now() + 30 * 60_000).toISOString()
+  const storeForPromo = readStore()
+  const todayKey = toDateKey(getStoreNow(storeForPromo))
+  const birthdayPromo = promoByType(storeForPromo.promos, 'BIRTHDAY')
+  const happyPromo = promoByType(storeForPromo.promos, 'HAPPY_HOURS')
+  const simSlug = String(body.simulatorSlug ?? 'boeing-737')
+
+  if (body.isBirthdayPromo) {
+    if (!isPromoUsableOnDate(birthdayPromo, todayKey)) {
+      res.status(400).json({
+        error: 'Акция «День рождения» сейчас недоступна (срок или отключена).',
+        code: 'PROMO_INACTIVE',
+      })
+      return
+    }
+    if (!promoAppliesToSimulator(birthdayPromo, simSlug)) {
+      res.status(400).json({
+        error: 'Скидка на день рождения не действует для выбранного тренажёра.',
+        code: 'PROMO_PRODUCT',
+      })
+      return
+    }
+  }
+  if (body.isHappyHoursPromo) {
+    if (!isPromoUsableOnDate(happyPromo, todayKey)) {
+      res.status(400).json({
+        error: 'Акция «Счастливые часы» сейчас недоступна (срок или отключена).',
+        code: 'PROMO_INACTIVE',
+      })
+      return
+    }
+    if (!promoAppliesToSimulator(happyPromo, simSlug)) {
+      res.status(400).json({
+        error: '«Счастливые часы» не действуют для выбранного тренажёра.',
+        code: 'PROMO_PRODUCT',
+      })
+      return
+    }
+  }
+
+  const holdExpiresAt = new Date(Date.now() + EMAIL_HOLD_MS).toISOString()
   const code = generateCode(6)
   const endTime = addMinutesToTime(body.startTime, body.durationMin)
   const notes: string[] = []
-  if (body.isBirthdayPromo) notes.push('ДР-15%')
-  if (body.isHappyHoursPromo) notes.push('Счастливые часы -10%')
+  if (body.isBirthdayPromo && birthdayPromo) notes.push(promoNoteLabel(birthdayPromo))
+  if (body.isHappyHoursPromo && happyPromo) notes.push(promoNoteLabel(happyPromo))
   if (body.certificateNumber) {
     notes.push(`EB-${String(body.simulatorSlug).toUpperCase()}-${body.certificateNumber}`)
   }
@@ -405,13 +491,14 @@ apiRouter.post('/public/bookings', async (req, res) => {
     email: body.email,
     status: 'PENDING_CONFIRMATION',
     paid: false,
-    paymentMethod: body.paymentMethod ?? 'OFFLINE',
+    paymentMethod: body.paymentMethod === 'OFFLINE' ? 'OFFLINE' : 'ONLINE',
     comment,
     isBirthdayPromo: !!body.isBirthdayPromo,
     birthdayDate: body.birthdayDate,
     certificateNumber: body.certificateNumber,
     promoNote,
     holdExpiresAt,
+    otpResendCount: 0,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   }
@@ -472,7 +559,7 @@ apiRouter.post('/public/bookings', async (req, res) => {
     s.pendingCodes.push({
       bookingId: booking.id,
       code,
-      expiresAt: new Date(Date.now() + 30 * 60_000).toISOString(),
+      expiresAt: holdExpiresAt,
       sentAt: new Date().toISOString(),
     })
     const simLabel = booking.simulatorSlug === 'mi-2' ? 'Ми-2' : 'Boeing 737'
@@ -552,12 +639,28 @@ apiRouter.post('/public/bookings/combo', async (req, res) => {
     })
   }
 
-  const holdExpiresAt = new Date(Date.now() + 30 * 60_000).toISOString()
+  const todayKey = toDateKey(getStoreNow(storeCheck))
+  const birthdayPromo = promoByType(storeCheck.promos, 'BIRTHDAY')
+  const happyPromo = promoByType(storeCheck.promos, 'HAPPY_HOURS')
+  if (body.isBirthdayPromo && !isPromoUsableOnDate(birthdayPromo, todayKey)) {
+    return res.status(400).json({
+      error: 'Акция «День рождения» сейчас недоступна (срок или отключена).',
+      code: 'PROMO_INACTIVE',
+    })
+  }
+  if (body.isHappyHoursPromo && !isPromoUsableOnDate(happyPromo, todayKey)) {
+    return res.status(400).json({
+      error: 'Акция «Счастливые часы» сейчас недоступна (срок или отключена).',
+      code: 'PROMO_INACTIVE',
+    })
+  }
+
+  const holdExpiresAt = new Date(Date.now() + EMAIL_HOLD_MS).toISOString()
   const code = generateCode(6)
   const comboGroupId = newId()
   const notes: string[] = ['2в1']
-  if (body.isHappyHoursPromo) notes.push('Счастливые часы -10%')
-  if (body.isBirthdayPromo) notes.push('ДР-15%')
+  if (body.isHappyHoursPromo && happyPromo) notes.push(promoNoteLabel(happyPromo))
+  if (body.isBirthdayPromo && birthdayPromo) notes.push(promoNoteLabel(birthdayPromo))
   const promoNote = notes.join(', ')
   let comment = String(body.comment ?? '')
   if (!comment.includes('2в1')) {
@@ -579,13 +682,14 @@ apiRouter.post('/public/bookings/combo', async (req, res) => {
     email,
     status: 'PENDING_CONFIRMATION' as const,
     paid: false,
-    paymentMethod: body.paymentMethod ?? 'OFFLINE',
+    paymentMethod: body.paymentMethod === 'OFFLINE' ? 'OFFLINE' : 'ONLINE',
     comment,
     isBirthdayPromo: !!body.isBirthdayPromo,
     birthdayDate: body.birthdayDate,
     certificateNumber: body.certificateNumber,
     promoNote,
     holdExpiresAt,
+    otpResendCount: 0,
     comboGroupId,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
@@ -632,42 +736,70 @@ apiRouter.post('/public/bookings/combo', async (req, res) => {
   })
 })
 
+/** Пока почта не подключена — единственный валидный OTP (и после resend тоже). */
+const DEV_OTP_CODE = '123456'
+
 apiRouter.post('/public/bookings/:id/confirm', async (req, res) => {
   const id = String(req.params.id)
-  const code = String(req.body.code ?? '')
+  const code = String(req.body.code ?? '').trim()
   const store = readStore()
   const booking = store.bookings.find((b) => b.id === id)
   if (!booking) return res.status(404).json({ error: 'NOT_FOUND' })
-  const match = store.pendingCodes.find(
-    (c) => c.bookingId === id && c.code === code,
-  )
-  if (!match) return res.status(400).json({ error: 'INVALID_CODE' })
+  if (booking.status === 'EXPIRED') {
+    return res.status(400).json({ error: 'CODE_EXPIRED', message: 'Истёк код подтверждения' })
+  }
+  if (booking.status !== 'PENDING_CONFIRMATION') {
+    return res.status(400).json({ error: 'ALREADY_CONFIRMED' })
+  }
+  const nowIso = new Date().toISOString()
+  if (booking.holdExpiresAt && booking.holdExpiresAt < nowIso) {
+    await updateStore((s) => {
+      const b = s.bookings.find((x) => x.id === id)
+      if (b && b.status === 'PENDING_CONFIRMATION') {
+        b.status = 'EXPIRED'
+        b.updatedAt = nowIso
+      }
+      if (b?.comboGroupId) {
+        for (const row of s.bookings) {
+          if (row.comboGroupId === b.comboGroupId && row.status === 'PENDING_CONFIRMATION') {
+            row.status = 'EXPIRED'
+            row.updatedAt = nowIso
+          }
+        }
+      }
+    })
+    broadcast()
+    return res.status(400).json({ error: 'CODE_EXPIRED', message: 'Истёк код подтверждения' })
+  }
+  // Пока без реальной почты — сравниваем только с фиксированным кодом
+  if (code !== DEV_OTP_CODE) {
+    return res.status(400).json({ error: 'INVALID_CODE', message: 'Неверный код' })
+  }
 
   await updateStore((s) => {
     const b = s.bookings.find((x) => x.id === id)
-    if (b) {
-      // После OTP — статус «Ожидаем»; связанные комбо-записи с тем же кодом тоже
-      const groupIds = new Set<string>([id])
-      const groupCode = match.code
-      for (const pc of s.pendingCodes) {
-        if (pc.code === groupCode) groupIds.add(pc.bookingId)
+    if (!b) return
+    const groupIds = new Set<string>([id])
+    if (b.comboGroupId) {
+      for (const row of s.bookings) {
+        if (row.comboGroupId === b.comboGroupId) groupIds.add(row.id)
       }
-      for (const bid of groupIds) {
-        const row = s.bookings.find((x) => x.id === bid)
-        if (!row) continue
-        row.status = 'WAITING'
-        row.holdExpiresAt = undefined
-        row.updatedAt = new Date().toISOString()
-      }
-      pushNotification(s, {
-        kind: 'booking',
-        title: 'Бронь подтверждена',
-        body: `${b.name} · ${formatDisplayDate(b.date)} ${b.startTime}`,
-        href: notifHref('/admin', b.id, { date: b.date }),
-        meta: { bookingId: b.id, date: b.date },
-      })
     }
-    s.pendingCodes = s.pendingCodes.filter((c) => c.bookingId !== id && c.code !== match.code)
+    for (const bid of groupIds) {
+      const row = s.bookings.find((x) => x.id === bid)
+      if (!row || row.status !== 'PENDING_CONFIRMATION') continue
+      row.status = 'WAITING'
+      row.holdExpiresAt = undefined
+      row.updatedAt = new Date().toISOString()
+    }
+    s.pendingCodes = s.pendingCodes.filter((c) => !groupIds.has(c.bookingId))
+    pushNotification(s, {
+      kind: 'booking',
+      title: 'Email подтверждён',
+      body: `${b.name} · ${formatDisplayDate(b.date)} ${b.startTime}`,
+      href: notifHref('/admin', b.id, { date: b.date }),
+      meta: { bookingId: b.id, date: b.date },
+    })
   })
   broadcast()
   res.json(readStore().bookings.find((b) => b.id === id))
@@ -676,41 +808,78 @@ apiRouter.post('/public/bookings/:id/confirm', async (req, res) => {
 apiRouter.post('/public/bookings/:id/resend-code', async (req, res) => {
   const id = String(req.params.id)
   const store = readStore()
+  const booking = store.bookings.find((b) => b.id === id)
+  if (!booking) return res.status(404).json({ error: 'NOT_FOUND' })
+  if (booking.status !== 'PENDING_CONFIRMATION') {
+    return res.status(400).json({ error: 'NOT_PENDING' })
+  }
+  if ((booking.otpResendCount ?? 0) >= 1) {
+    return res.status(429).json({ error: 'RESEND_LIMIT', message: 'Повторная отправка доступна один раз' })
+  }
+  const nowIso = new Date().toISOString()
+  // Общий лимит 5 мин от заявки — resend таймер не продлевает
+  if (booking.holdExpiresAt && booking.holdExpiresAt < nowIso) {
+    return res.status(400).json({ error: 'CODE_EXPIRED', message: 'Истёк код подтверждения' })
+  }
   const last = [...store.pendingCodes].reverse().find((c) => c.bookingId === id)
   if (last && Date.now() - new Date(last.sentAt).getTime() < 60_000) {
     return res.status(429).json({ error: 'RESEND_TOO_SOON' })
   }
-  const booking = store.bookings.find((b) => b.id === id)
-  if (!booking) return res.status(404).json({ error: 'NOT_FOUND' })
   const code = generateCode(6)
+  const holdExpiresAt =
+    booking.holdExpiresAt ?? new Date(Date.now() + EMAIL_HOLD_MS).toISOString()
   await updateStore((s) => {
-    s.pendingCodes.push({
-      bookingId: id,
-      code,
-      expiresAt: new Date(Date.now() + 30 * 60_000).toISOString(),
-      sentAt: new Date().toISOString(),
-    })
+    const b = s.bookings.find((x) => x.id === id)
+    if (!b) return
+    b.otpResendCount = (b.otpResendCount ?? 0) + 1
+    b.updatedAt = new Date().toISOString()
+    if (b.comboGroupId) {
+      for (const row of s.bookings) {
+        if (row.comboGroupId === b.comboGroupId) {
+          row.otpResendCount = b.otpResendCount
+          row.updatedAt = b.updatedAt
+        }
+      }
+    }
+    // Обновляем/добавляем код для всех id группы (срок = исходный holdExpiresAt)
+    const groupIds = b.comboGroupId
+      ? s.bookings.filter((x) => x.comboGroupId === b.comboGroupId).map((x) => x.id)
+      : [id]
+    s.pendingCodes = s.pendingCodes.filter((c) => !groupIds.includes(c.bookingId))
+    const sentAt = new Date().toISOString()
+    for (const bid of groupIds) {
+      s.pendingCodes.push({ bookingId: bid, code, expiresAt: holdExpiresAt, sentAt })
+    }
   })
   console.log(`[BOOKING CODE] ${booking.email}: ${code}`)
-  res.json({ ok: true })
+  res.json({ ok: true, resendLeft: 0, holdExpiresAt })
 })
 
 apiRouter.post('/public/certificates', async (req, res) => {
   const body = req.body
   const store = readStore()
-  const designColor = defaultDesignColor(
-    store,
-    String(body.simulatorSlug ?? 'boeing-737'),
-    body.designColor,
-  )
+  const simulatorSlug = String(body.simulatorSlug ?? 'boeing-737')
+  const durationMin = Number(body.durationMin) || 60
+  const designColor = defaultDesignColor(store, simulatorSlug, body.designColor, durationMin)
+  const design = designByKey(storeDesigns(store), designColor)
   const number = nextCertificateNumber(store, designColor)
-  const today = format(startOfDay(new Date()), 'yyyy-MM-dd')
-  const validTo = format(addDays(new Date(), 90), 'yyyy-MM-dd')
+  if (isCertificateNumberTaken(store.certificates, number)) {
+    return res.status(409).json({
+      error: `Номер сертификата «${number}» уже занят. Обновите страницу и попробуйте снова.`,
+      code: 'CERT_NUMBER_TAKEN',
+    })
+  }
 
   const email = String(body.email ?? '').trim()
   if (!email) {
     return res.status(400).json({ error: 'Укажите email для отправки сертификата', code: 'VALIDATION' })
   }
+
+  const fromDate = startOfDay(new Date())
+  const today = format(fromDate, 'yyyy-MM-dd')
+  const validTo = format(defaultCertificateValidTo(fromDate), 'yyyy-MM-dd')
+  const holdExpiresAt = new Date(Date.now() + EMAIL_HOLD_MS).toISOString()
+  const code = generateCode(6)
 
   const cert: Certificate = {
     id: newId(),
@@ -718,37 +887,133 @@ apiRouter.post('/public/certificates', async (req, res) => {
     phone: body.phone,
     email,
     fullName: `${body.firstName} ${body.lastName}`.trim(),
-    durationMin: body.durationMin,
+    durationMin: design.durationMin || durationMin,
     paymentStatus: 'PAID',
     paymentMethod: body.paymentMethod === 'OFFLINE' ? 'OFFLINE' : 'ONLINE',
     validFrom: today,
     validTo,
-    simulatorSlug: body.simulatorSlug,
-    status: 'ACTIVE',
+    simulatorSlug: design.simulatorSlug || simulatorSlug,
+    status: 'PENDING_CONFIRMATION',
     designColor,
     comment: body.comment ?? '',
     createdAt: new Date().toISOString(),
+    holdExpiresAt,
+    otpResendCount: 0,
   }
 
   await updateStore((s) => {
     s.certificates.unshift(cert)
     s.counters.certificate += 1
-    pushNotification(s, {
-      kind: 'certificate',
-      title: 'Продан сертификат',
-      body: `${cert.number} · ${cert.fullName} · ${cert.durationMin} мин · на сайте`,
-      href: notifHref('/admin/certificates', cert.id),
-      meta: { certificateId: cert.id },
+    s.pendingCodes.push({
+      bookingId: cert.id,
+      code,
+      expiresAt: holdExpiresAt,
+      sentAt: new Date().toISOString(),
     })
     pushLog(s, {
-      message: `Сертификат с сайта: ${cert.number} · ${cert.fullName}`,
+      message: `Сертификат с сайта (ожидает email): ${cert.number} · ${cert.fullName}`,
       context: 'certificate',
       meta: { certificateId: cert.id },
     })
   })
   broadcast()
-  console.log(`[CERTIFICATE] ${cert.number} for ${cert.fullName} → ${cert.email}`)
-  res.status(201).json(cert)
+  console.log(`[CERTIFICATE CODE] ${cert.email}: ${code} (dev OTP ${DEV_OTP_CODE})`)
+  res.status(201).json({
+    certificateId: cert.id,
+    number: cert.number,
+    holdExpiresAt,
+  })
+})
+
+apiRouter.post('/public/certificates/:id/confirm', async (req, res) => {
+  const id = String(req.params.id)
+  const code = String(req.body.code ?? '').trim()
+  const store = readStore()
+  const cert = store.certificates.find((c) => c.id === id)
+  if (!cert) return res.status(404).json({ error: 'NOT_FOUND' })
+  if (cert.status === 'EXPIRED') {
+    return res.status(400).json({ error: 'CODE_EXPIRED', message: 'Истёк код подтверждения' })
+  }
+  if (cert.status !== 'PENDING_CONFIRMATION') {
+    return res.status(400).json({ error: 'ALREADY_CONFIRMED' })
+  }
+  const nowIso = new Date().toISOString()
+  if (cert.holdExpiresAt && cert.holdExpiresAt < nowIso) {
+    await updateStore((s) => {
+      const c = s.certificates.find((x) => x.id === id)
+      if (c && c.status === 'PENDING_CONFIRMATION') {
+        c.status = 'EXPIRED'
+        c.holdExpiresAt = undefined
+      }
+      s.pendingCodes = s.pendingCodes.filter((p) => p.bookingId !== id)
+    })
+    broadcast()
+    return res.status(400).json({ error: 'CODE_EXPIRED', message: 'Истёк код подтверждения' })
+  }
+  if (code !== DEV_OTP_CODE) {
+    return res.status(400).json({ error: 'INVALID_CODE', message: 'Неверный код' })
+  }
+
+  await updateStore((s) => {
+    const c = s.certificates.find((x) => x.id === id)
+    if (!c || c.status !== 'PENDING_CONFIRMATION') return
+    c.status = 'ACTIVE'
+    c.holdExpiresAt = undefined
+    s.pendingCodes = s.pendingCodes.filter((p) => p.bookingId !== id)
+    pushNotification(s, {
+      kind: 'certificate',
+      title: 'Продан сертификат',
+      body: `${c.number} · ${c.fullName} · ${c.durationMin} мин · на сайте`,
+      href: notifHref('/admin/certificates', c.id),
+      meta: { certificateId: c.id },
+    })
+    pushLog(s, {
+      message: `Сертификат подтверждён: ${c.number} · ${c.fullName}`,
+      context: 'certificate',
+      meta: { certificateId: c.id },
+    })
+  })
+  broadcast()
+  const confirmed = readStore().certificates.find((c) => c.id === id)
+  res.json(confirmed)
+})
+
+apiRouter.post('/public/certificates/:id/resend-code', async (req, res) => {
+  const id = String(req.params.id)
+  const store = readStore()
+  const cert = store.certificates.find((c) => c.id === id)
+  if (!cert) return res.status(404).json({ error: 'NOT_FOUND' })
+  if (cert.status !== 'PENDING_CONFIRMATION') {
+    return res.status(400).json({ error: 'NOT_PENDING' })
+  }
+  if ((cert.otpResendCount ?? 0) >= 1) {
+    return res.status(429).json({ error: 'RESEND_LIMIT', message: 'Повторная отправка доступна один раз' })
+  }
+  const nowIso = new Date().toISOString()
+  if (cert.holdExpiresAt && cert.holdExpiresAt < nowIso) {
+    return res.status(400).json({ error: 'CODE_EXPIRED', message: 'Истёк код подтверждения' })
+  }
+  const last = [...store.pendingCodes].reverse().find((c) => c.bookingId === id)
+  if (last && Date.now() - new Date(last.sentAt).getTime() < 60_000) {
+    return res.status(429).json({ error: 'RESEND_TOO_SOON' })
+  }
+  const code = generateCode(6)
+  const holdExpiresAt =
+    cert.holdExpiresAt ?? new Date(Date.now() + EMAIL_HOLD_MS).toISOString()
+  await updateStore((s) => {
+    const c = s.certificates.find((x) => x.id === id)
+    if (!c) return
+    c.otpResendCount = (c.otpResendCount ?? 0) + 1
+    s.pendingCodes = s.pendingCodes.filter((p) => p.bookingId !== id)
+    s.pendingCodes.push({
+      bookingId: id,
+      code,
+      expiresAt: holdExpiresAt,
+      sentAt: new Date().toISOString(),
+    })
+  })
+  console.log(`[CERTIFICATE CODE] ${cert.email}: ${code} (dev OTP ${DEV_OTP_CODE})`)
+  res.json({ ok: true, resendLeft: 0, holdExpiresAt })
 })
 
 // --- Session info ---
@@ -922,7 +1187,9 @@ apiRouter.patch('/admin/bookings/:id', requireRoles('ADMIN', 'MANAGER'), async (
           : undefined
         : b.pilotUserId
     if (
-      (nextStatus === 'DONE' || nextStatus === 'IN_PROGRESS') &&
+      (nextStatus === 'DONE' ||
+        nextStatus === 'IN_PROGRESS' ||
+        nextStatus === 'CONFIRMED') &&
       !nextPilot
     ) {
       rejected = 'pilot'
@@ -932,11 +1199,13 @@ apiRouter.patch('/admin/bookings/:id', requireRoles('ADMIN', 'MANAGER'), async (
     if ('pilotUserId' in body) {
       b.pilotUserId = body.pilotUserId ? String(body.pilotUserId) : undefined
     }
-    // Если подтвердили «В процессе» уже после окончания слота — сразу «Закончили»
+    // CONFIRMED → IN_PROGRESS / IN_PROGRESS → DONE по времени
     autoCompletePastBookings(s)
-    // Синхронизация с графиком: при «В процессе» / «Закончили» фиксируем смену пилота
+    // Синхронизация с графиком при назначении пилота
     if (
-      (b.status === 'DONE' || b.status === 'IN_PROGRESS') &&
+      (b.status === 'DONE' ||
+        b.status === 'IN_PROGRESS' ||
+        b.status === 'CONFIRMED') &&
       b.pilotUserId
     ) {
       ensureStaffShift(s, {
@@ -987,7 +1256,8 @@ apiRouter.patch('/admin/bookings/:id', requireRoles('ADMIN', 'MANAGER'), async (
   }
   if (rejected === 'pilot') {
     res.status(400).json({
-      error: 'Укажите пилота: для статусов «В процессе» и «Закончили» пилот обязателен.',
+      error:
+        'Укажите пилота: для статусов «Подтверждена», «В процессе» и «Закончили» пилот обязателен.',
       code: 'PILOT_REQUIRED',
     })
     return
@@ -1399,19 +1669,38 @@ apiRouter.post('/admin/certificates', requireRoles('ADMIN', 'MANAGER'), async (r
     : 'OFFLINE'
   const storeSnap = readStore()
   const simulatorSlug = String(body.simulatorSlug ?? 'boeing-737')
-  const designColor = defaultDesignColor(storeSnap, simulatorSlug, body.designColor)
+  const durationMin = Number(body.durationMin) || 60
+  const designColor = defaultDesignColor(
+    storeSnap,
+    simulatorSlug,
+    body.designColor,
+    durationMin,
+  )
+  const design = designByKey(storeDesigns(storeSnap), designColor)
+  const number = String(body.number ?? '').trim()
+    ? normalizeCertificateNumber(body.number)
+    : nextCertificateNumber(storeSnap, designColor)
+  if (!number) {
+    return res.status(400).json({ error: 'Укажите номер сертификата', code: 'VALIDATION' })
+  }
+  if (isCertificateNumberTaken(storeSnap.certificates, number, isRestore ? String(body.id) : null)) {
+    return res.status(409).json({
+      error: `Сертификат с номером «${number}» уже существует. Укажите другой номер.`,
+      code: 'CERT_NUMBER_TAKEN',
+    })
+  }
   const cert: Certificate = {
     id: isRestore ? String(body.id) : newId(),
-    number: body.number ?? nextCertificateNumber(storeSnap, designColor),
+    number,
     phone: body.phone,
     email: String(body.email ?? '').trim(),
     fullName: body.fullName,
-    durationMin: body.durationMin,
+    durationMin: design.durationMin || durationMin,
     paymentStatus: 'PAID',
     paymentMethod,
     validFrom: body.validFrom,
     validTo: body.validTo,
-    simulatorSlug,
+    simulatorSlug: design.simulatorSlug || simulatorSlug,
     status: body.status ?? 'ACTIVE',
     designColor,
     comment: body.comment ?? '',
@@ -1423,7 +1712,7 @@ apiRouter.post('/admin/certificates', requireRoles('ADMIN', 'MANAGER'), async (r
       clearArchiveEntity(s, 'certificates', cert.id)
     }
     s.certificates.unshift(cert)
-    if (!body.number && !body.id) s.counters.certificate += 1
+    if (!body.id) s.counters.certificate += 1
     expireCertificatesInStore(s)
     if (!body.id) {
       pushNotification(s, {
@@ -1446,6 +1735,20 @@ apiRouter.post('/admin/certificates', requireRoles('ADMIN', 'MANAGER'), async (r
 
 apiRouter.patch('/admin/certificates/:id', requireRoles('ADMIN', 'MANAGER'), async (req, res) => {
   const id = String(req.params.id)
+  const storeSnap = readStore()
+  if (req.body?.number != null) {
+    const number = normalizeCertificateNumber(req.body.number)
+    if (!number) {
+      return res.status(400).json({ error: 'Укажите номер сертификата', code: 'VALIDATION' })
+    }
+    if (isCertificateNumberTaken(storeSnap.certificates, number, id)) {
+      return res.status(409).json({
+        error: `Сертификат с номером «${number}» уже существует. Укажите другой номер.`,
+        code: 'CERT_NUMBER_TAKEN',
+      })
+    }
+    req.body.number = number
+  }
   let updated: Certificate | undefined
   await updateStore((s) => {
     const c = s.certificates.find((x) => x.id === id)
@@ -2058,7 +2361,7 @@ type SeriesPoint = { label: string; value: number; date: string; summary: string
 function chartDayLabel(dateKey: string): string {
   try {
     const d = parseISO(dateKey)
-    return isValid(d) ? format(d, 'dd-MM') : formatDisplayDate(dateKey)
+    return isValid(d) ? format(d, 'dd.MM') : formatDisplayDate(dateKey)
   } catch {
     return formatDisplayDate(dateKey)
   }
@@ -2273,18 +2576,16 @@ apiRouter.delete('/admin/demo-data', requireRoles('ADMIN'), async (_req, res) =>
   res.json({ ok: true, removed })
 })
 
+/** Полная очистка операционных данных (брони, сертификаты, уведомления и т.д.). */
+apiRouter.delete('/admin/all-data', requireRoles('ADMIN'), async (_req, res) => {
+  const { removed } = await clearAllOperationalData()
+  broadcast()
+  res.json({ ok: true, removed })
+})
+
 /** Эффективные «часы сервера» (с учётом демо-override). */
 apiRouter.get('/admin/demo-clock', requireRoles('ADMIN', 'MANAGER', 'PILOT'), (_req, res) => {
-  const store = readStore()
-  const realNowIso = new Date().toISOString()
-  const demoNowIso = store.settings.demoNowIso ?? null
-  const effective = getStoreNow(store)
-  res.json({
-    realNowIso,
-    demoNowIso,
-    effectiveNowIso: effective.toISOString(),
-    active: Boolean(demoNowIso),
-  })
+  res.json(clockPayload(readStore()))
 })
 
 /** Установить / сбросить демо-время (только ADMIN). body: { demoNowIso: string | null } */
@@ -2300,23 +2601,19 @@ apiRouter.put('/admin/demo-clock', requireRoles('ADMIN'), async (req, res) => {
   }
   await updateStore((s) => {
     s.settings.demoNowIso = next
+    s.settings.demoNowSetAtIso = next ? new Date().toISOString() : null
     // Сразу прогоняем автозавершение под новое «сейчас»
     autoCompletePastBookings(s)
-    const nowIso = getStoreNowIso(s)
+    // OTP-холд — по реальному времени (не демо-часы)
+    const realNowIso = new Date().toISOString()
     for (const b of s.bookings) {
-      if (b.status === 'PENDING_CONFIRMATION' && b.holdExpiresAt && b.holdExpiresAt < nowIso) {
+      if (b.status === 'PENDING_CONFIRMATION' && b.holdExpiresAt && b.holdExpiresAt < realNowIso) {
         b.status = 'EXPIRED'
       }
     }
   })
   broadcast()
-  const store = readStore()
-  res.json({
-    realNowIso: new Date().toISOString(),
-    demoNowIso: store.settings.demoNowIso ?? null,
-    effectiveNowIso: getStoreNowIso(store),
-    active: Boolean(store.settings.demoNowIso),
-  })
+  res.json(clockPayload(readStore()))
 })
 
 apiRouter.get('/admin/maintenance', (_req, res) => {
@@ -2727,17 +3024,17 @@ setInterval(() => {
   void (async () => {
     let changed = false
     await updateStore((s) => {
-      const now = getStoreNowIso(s)
+      const realNow = new Date().toISOString()
       for (const b of s.bookings) {
-        if (b.status === 'PENDING_CONFIRMATION' && b.holdExpiresAt && b.holdExpiresAt < now) {
+        if (b.status === 'PENDING_CONFIRMATION' && b.holdExpiresAt && b.holdExpiresAt < realNow) {
           b.status = 'EXPIRED'
           changed = true
         }
       }
-      const before = s.bookings.filter((b) => b.status === 'IN_PROGRESS').length
+      const beforeStatuses = s.bookings.map((b) => `${b.id}:${b.status}`).join('|')
       autoCompletePastBookings(s)
-      const after = s.bookings.filter((b) => b.status === 'IN_PROGRESS').length
-      if (after < before) changed = true
+      const afterStatuses = s.bookings.map((b) => `${b.id}:${b.status}`).join('|')
+      if (afterStatuses !== beforeStatuses) changed = true
     })
     if (changed) broadcast()
   })()

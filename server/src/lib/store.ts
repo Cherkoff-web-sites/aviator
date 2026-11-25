@@ -107,15 +107,18 @@ export function readStore(): DataStore {
   ensureFile()
   const raw = JSON.parse(readFileSync(STORE_PATH, 'utf8')) as DataStore
   const beforeDocs = JSON.stringify(raw.documents ?? null)
+  const beforeDesigns = JSON.stringify(raw.certificateDesigns ?? null)
   const hadCombo =
     Array.isArray(raw.certPrices) && raw.certPrices.some((p) => p.simulatorSlug === 'combo')
   const hadDesigns = Array.isArray(raw.certificateDesigns) && raw.certificateDesigns.length > 0
   const store = normalizeStore(raw)
+  const designsChanged = JSON.stringify(store.certificateDesigns ?? null) !== beforeDesigns
   const needsWrite =
     JSON.stringify(store.documents) !== beforeDocs ||
     (!hadCombo && store.certPrices.some((p) => p.simulatorSlug === 'combo')) ||
-    (!hadDesigns && (store.certificateDesigns?.length ?? 0) > 0)
-  // stub-документы, combo-тариф и виды сертификатов — один раз в файл
+    (!hadDesigns && (store.certificateDesigns?.length ?? 0) > 0) ||
+    designsChanged
+  // stub-документы, combo-тариф и миграция серий сертификатов — в файл
   if (needsWrite) {
     writeStore(store)
   }
@@ -235,6 +238,74 @@ export async function clearDemoData(): Promise<{
         (beforeF - (store.feedbackRequests?.length ?? 0)) +
         (beforeWh - store.workHours.length),
     }
+    writeStore(store)
+  })
+  await writeQueue
+  return { removed }
+}
+
+/**
+ * Удаляет все операционные данные: брони (в т.ч. с сайта), сертификаты, смены,
+ * уведомления, заявки, ТО, календарь, коды OTP, архив, логи.
+ * Пользователи, настройки, цены, контакты, документы и медиа не трогаются.
+ */
+export async function clearAllOperationalData(): Promise<{
+  removed: {
+    bookings: number
+    certificates: number
+    staffShifts: number
+    notifications: number
+    other: number
+  }
+}> {
+  let removed = {
+    bookings: 0,
+    certificates: 0,
+    staffShifts: 0,
+    notifications: 0,
+    other: 0,
+  }
+  writeQueue = writeQueue.then(() => {
+    backupStore()
+    const store = readStore()
+    const otherBefore =
+      store.waitingRoom.length +
+      store.maintenance.length +
+      store.workHours.length +
+      (store.feedbackRequests?.length ?? 0) +
+      store.pendingCodes.length +
+      (store.pilotHours?.length ?? 0) +
+      (store.archive?.length ?? 0) +
+      (store.appLogs?.length ?? 0) +
+      Object.keys(store.calendar ?? {}).length
+
+    removed = {
+      bookings: store.bookings.length,
+      certificates: store.certificates.length,
+      staffShifts: store.staffShifts.length,
+      notifications: store.notifications?.length ?? 0,
+      other: otherBefore,
+    }
+
+    store.bookings = []
+    store.certificates = []
+    store.staffShifts = []
+    store.waitingRoom = []
+    store.maintenance = []
+    store.workHours = []
+    store.pendingCodes = []
+    store.feedbackRequests = []
+    store.notifications = []
+    store.pilotHours = []
+    store.archive = []
+    store.appLogs = []
+    store.calendar = {}
+    store.counters = { ...store.counters, certificate: 0 }
+    if (store.settings) {
+      store.settings.demoNowIso = null
+      store.settings.demoNowSetAtIso = null
+    }
+
     writeStore(store)
   })
   await writeQueue

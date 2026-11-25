@@ -82,3 +82,29 @@ export function clearGiftDraft() {
     /* ignore */
   }
 }
+
+const BOOKING_OTP_KEY = 'aviator.bookingModal.otpPending'
+
+/** Незавершённое подтверждение email — живёт и при закрытом окне. */
+export type BookingOtpPending = {
+  bookingId: string
+  holdExpiresAt: string
+  email: string
+  otpResendUsed: boolean
+}
+
+export function loadBookingOtpPending(): BookingOtpPending | null {
+  return readJson<BookingOtpPending>(BOOKING_OTP_KEY)
+}
+
+export function saveBookingOtpPending(pending: BookingOtpPending) {
+  writeJson(BOOKING_OTP_KEY, pending)
+}
+
+export function clearBookingOtpPending() {
+  try {
+    sessionStorage.removeItem(BOOKING_OTP_KEY)
+  } catch {
+    /* ignore */
+  }
+}

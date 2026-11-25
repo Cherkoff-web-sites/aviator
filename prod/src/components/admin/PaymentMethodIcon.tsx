@@ -2,7 +2,7 @@ import { cn } from '@/lib/utils'
 import type { PaymentMethodValue } from '@/lib/admin-labels'
 import { labelOf, PAYMENT_METHOD_OPTIONS } from '@/lib/admin-labels'
 
-/** В таблицах: планета = На сайте, человечек = В офисе. */
+/** В таблицах: планета = На сайте, человечек = При посещении. */
 export default function PaymentMethodIcon({
   method,
   className,

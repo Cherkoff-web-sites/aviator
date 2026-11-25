@@ -11,7 +11,13 @@ export type BookingStatus =
   | 'CANCELLED'
   | 'EXPIRED'
 
-export type CertificateStatus = 'ACTIVE' | 'USED' | 'PARTIAL' | 'EXPIRED' | 'CANCELLED'
+export type CertificateStatus =
+  | 'PENDING_CONFIRMATION'
+  | 'ACTIVE'
+  | 'USED'
+  | 'PARTIAL'
+  | 'EXPIRED'
+  | 'CANCELLED'
 
 export type PaymentStatus = 'PAID' | 'UNPAID'
 
@@ -47,6 +53,8 @@ export type Booking = {
   certificateNumber?: string
   promoNote?: string
   holdExpiresAt?: string
+  /** Сколько раз клиент запросил повторный код (макс. 1). */
+  otpResendCount?: number
   /** Связка двух ног комбо 2в1 */
   comboGroupId?: string
   /** Пилот, подтвердивший/провёдший полёт */
@@ -66,15 +74,18 @@ export type StaffShift = {
 /** Ключ вида бланка (раньше фиксированный enum; теперь настраивается). */
 export type CertificateDesignColor = string
 
-/** Вид сертификата: тренажёр + цвет бланка + буква серии в номере. */
+/** Вид/серия сертификата: префикс номера + тренажёр + длительность + цвет бланка. */
 export type CertificateDesign = {
   id: string
-  /** Технический ключ (silver, custom-1…) — пишется в certificate.designColor */
+  /** Технический ключ (slug) — пишется в certificate.designColor */
   key: string
+  /** Дублирует code (для совместимости); в UI не показываем «названия цветов». */
   label: string
-  /** Неизменная буква серии в номере: №S123456 */
+  /** Серия в номере, напр. EB-B737NG- (макс. 13 вместе с цифрами) */
   code: string
   simulatorSlug: string
+  /** Минуты полёта, зашитые в эту серию */
+  durationMin: number
   swatch: string
   rowBg: string
   sortOrder: number
@@ -100,6 +111,9 @@ export type Certificate = {
   designColor?: CertificateDesignColor
   comment: string
   createdAt: string
+  /** Холд подтверждения email (публичная покупка с сайта). */
+  holdExpiresAt?: string
+  otpResendCount?: number
 }
 
 export type WaitingEntry = {
@@ -321,10 +335,12 @@ export type DataStore = {
     /** Соцсети футера: label → url */
     footerSocialLinks?: Record<string, string>
     /**
-     * Демо-override «текущего времени» (ISO).
-     * Если задано — статусы/подтверждения/автозавершение смотрят на него, а не на часы сервера.
+     * Демо-override «текущего времени» (ISO в момент установки).
+     * Вместе с demoNowSetAtIso время идёт дальше в реальном темпе.
      */
     demoNowIso?: string | null
+    /** Реальное время (ISO), когда выставили demoNowIso. */
+    demoNowSetAtIso?: string | null
   }
   counters: { certificate: number }
   pendingCodes: { bookingId: string; code: string; expiresAt: string; sentAt: string }[]

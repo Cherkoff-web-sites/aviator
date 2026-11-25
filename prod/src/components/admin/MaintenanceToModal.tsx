@@ -1,11 +1,13 @@
 import * as React from 'react'
-import { format } from 'date-fns'
+import { format, parseISO } from 'date-fns'
+import { ru } from 'date-fns/locale'
 
 import AdminFormModal from '@/components/admin/AdminFormModal'
 import { Button } from '@/components/ui/button'
+import { Calendar } from '@/components/ui/calendar'
 import { Input } from '@/components/ui/input'
-import { SiteDateInput } from '@/components/ui/site-date-input'
 import { BOOKING_TIME_SLOTS } from '@/components/booking/bookingTimeSlots'
+import { formatAdminDate } from '@/lib/admin-date'
 import { apiFetch } from '@/lib/api'
 
 type SimScope = 'all' | 'boeing-737' | 'mi-2'
@@ -16,6 +18,15 @@ export type MaintenanceToForm = {
   fullDay: boolean
   startTime: string
   endTime: string
+  notes: string
+}
+
+export type MaintenanceToEditRow = {
+  id: string
+  date: string
+  simulatorSlug?: string | null
+  startTime?: string | null
+  endTime?: string | null
   notes: string
 }
 
@@ -35,6 +46,21 @@ export function emptyMaintenanceToForm(date?: string): MaintenanceToForm {
   }
 }
 
+export function formFromMaintenanceRow(row: MaintenanceToEditRow): MaintenanceToForm {
+  const fullDay = !row.startTime || !row.endTime
+  return {
+    date: row.date,
+    sim:
+      row.simulatorSlug === 'mi-2' || row.simulatorSlug === 'boeing-737'
+        ? row.simulatorSlug
+        : 'all',
+    fullDay,
+    startTime: row.startTime || '12:00',
+    endTime: row.endTime || '13:00',
+    notes: row.notes || '',
+  }
+}
+
 export function bodyFromMaintenanceToForm(form: MaintenanceToForm) {
   return {
     date: form.date,
@@ -50,7 +76,11 @@ type Props = {
   onClose: () => void
   /** После успешного создания */
   onCreated?: (row: { id: string }) => void
+  /** После успешного сохранения правки */
+  onUpdated?: (row: { id: string }) => void
   initialDate?: string
+  /** Если задано — режим редактирования */
+  editRow?: MaintenanceToEditRow | null
   title?: string
 }
 
@@ -59,25 +89,39 @@ export default function MaintenanceToModal({
   open,
   onClose,
   onCreated,
+  onUpdated,
   initialDate,
-  title = 'Новое ТО',
+  editRow = null,
+  title,
 }: Props) {
+  const isEdit = Boolean(editRow?.id)
   const [form, setForm] = React.useState(() => emptyMaintenanceToForm(initialDate))
   const [busy, setBusy] = React.useState(false)
 
   React.useEffect(() => {
-    if (open) setForm(emptyMaintenanceToForm(initialDate))
-  }, [open, initialDate])
+    if (!open) return
+    if (editRow) setForm(formFromMaintenanceRow(editRow))
+    else setForm(emptyMaintenanceToForm(initialDate))
+  }, [open, initialDate, editRow])
 
   const save = async () => {
     if (!form.fullDay && form.startTime >= form.endTime) return
     setBusy(true)
     try {
-      const created = await apiFetch<{ id: string }>('/api/admin/maintenance', {
-        method: 'POST',
-        body: JSON.stringify(bodyFromMaintenanceToForm(form)),
-      })
-      onCreated?.(created)
+      const body = bodyFromMaintenanceToForm(form)
+      if (isEdit && editRow) {
+        await apiFetch(`/api/admin/maintenance/${editRow.id}`, {
+          method: 'PATCH',
+          body: JSON.stringify(body),
+        })
+        onUpdated?.({ id: editRow.id })
+      } else {
+        const created = await apiFetch<{ id: string }>('/api/admin/maintenance', {
+          method: 'POST',
+          body: JSON.stringify(body),
+        })
+        onCreated?.(created)
+      }
       onClose()
     } finally {
       setBusy(false)
@@ -90,19 +134,31 @@ export default function MaintenanceToModal({
       onClose={() => {
         if (!busy) onClose()
       }}
-      title={title}
-      description="Тренажёр + дата + время с/по. Можно закрыть весь день."
+      title={title ?? (isEdit ? 'Редактировать ТО' : 'Новое ТО')}
+      description={
+        isEdit
+          ? 'Измените дату, тренажёр, интервал или комментарий.'
+          : 'Тренажёр + дата + время с/по. Можно закрыть весь день.'
+      }
       size="md"
     >
       <div className="flex flex-col gap-4">
-        <label className="block text-sm">
-          Дата
-          <SiteDateInput
-            className="mt-1 h-9"
-            value={form.date}
-            onValueChange={(date) => setForm((f) => ({ ...f, date }))}
+        <div className="block text-sm">
+          <span className="mb-1 block">Дата</span>
+          <p className="mb-2 text-xs text-muted-foreground">
+            Выбрано: <span className="font-medium text-foreground">{formatAdminDate(form.date)}</span>
+          </p>
+          <Calendar
+            mode="single"
+            locale={ru}
+            selected={form.date ? parseISO(form.date) : undefined}
+            onSelect={(d) => {
+              if (!d) return
+              setForm((f) => ({ ...f, date: format(d, 'yyyy-MM-dd') }))
+            }}
+            className="w-fit max-w-full rounded-lg border"
           />
-        </label>
+        </div>
 
         <label className="block text-sm">
           Тренажёр
@@ -199,7 +255,7 @@ export default function MaintenanceToModal({
             disabled={busy || (!form.fullDay && form.startTime >= form.endTime)}
             onClick={() => void save()}
           >
-            Создать
+            {isEdit ? 'Сохранить' : 'Создать'}
           </Button>
         </div>
       </div>

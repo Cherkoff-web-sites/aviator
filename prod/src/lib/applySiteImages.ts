@@ -15,29 +15,55 @@ function durationMinFromPlanLabel(label: string): number | null {
   return Number.isFinite(n) ? n : null
 }
 
-/** Подставляет цены и CTA (highlighted) из админки в блок тарифов на сайте. */
+function planTemplateForDuration(
+  block: SimulatorPricingBlock,
+  durationMin: number,
+): SimulatorPricingPlan {
+  const hit = block.plans.find((p) => durationMinFromPlanLabel(p.durationLabel) === durationMin)
+  if (hit) return hit
+  return {
+    durationLabel: `${durationMin} минут`,
+    priceDisplay: '0 BYN',
+    ribbon: `${durationMin} мин полёта`,
+    features: ['Инструктаж и сопровождение инструктора', 'Фото- и видеосъемка'],
+  }
+}
+
+/**
+ * Тарифы на сайте = строки из админки «Цены и акции» (минуты / цена / CTA).
+ * Шаблоны текстов (ribbon, features) берутся из статики по длительности, если есть.
+ * @param allowedDurations если задано (из «Списки для форм») — чужие минуты (напр. старые 15) не показываем.
+ */
 export function mergeFlightPricesIntoBlock(
   block: SimulatorPricingBlock,
   prices: ApiPriceRow[] | undefined,
   simulatorSlug: string,
+  allowedDurations?: readonly number[] | null,
 ): SimulatorPricingBlock {
   if (!prices?.length) return block
-  const rows = prices.filter((p) => p.simulatorSlug === simulatorSlug)
+  const allow =
+    allowedDurations && allowedDurations.length > 0 ? new Set(allowedDurations) : null
+  const rows = [
+    ...prices.filter(
+      (p) =>
+        p.simulatorSlug === simulatorSlug &&
+        Number(p.durationMin) > 0 &&
+        Number(p.priceByn) >= 0 &&
+        (!allow || allow.has(Number(p.durationMin))),
+    ),
+  ].sort((a, b) => a.durationMin - b.durationMin)
   if (rows.length === 0) return block
 
-  const plans: SimulatorPricingPlan[] = block.plans.map((plan) => {
-    const dur = durationMinFromPlanLabel(plan.durationLabel)
-    if (dur == null) return { ...plan, highlighted: false }
-    const row = rows.find((r) => r.durationMin === dur)
-    if (!row) return { ...plan, highlighted: false }
+  const plans: SimulatorPricingPlan[] = rows.map((row) => {
+    const tpl = planTemplateForDuration(block, row.durationMin)
     return {
-      ...plan,
+      ...tpl,
+      durationLabel: `${row.durationMin} минут`,
       priceDisplay: `${row.priceByn} BYN`,
       highlighted: Boolean(row.highlighted),
     }
   })
 
-  // Если в API никто не отмечен CTA — оставляем первый как запасной для мульти-тарифов
   if (plans.length > 1 && !plans.some((p) => p.highlighted)) {
     const fallback = rows.find((r) => r.highlighted)
     if (fallback) {

@@ -50,6 +50,7 @@ export function addMinutesToTime(time: string, minutes: number) {
   return `${String(nh).padStart(2, '0')}:${String(nm).padStart(2, '0')}`
 }
 
+/** Пока SMTP нет — всегда один и тот же код для прохождения OTP. */
 export function generateCode(_len = 6) {
   return '123456'
 }
@@ -99,17 +100,26 @@ function bookingEndMins(b: { startTime: string; endTime?: string; durationMin?: 
   return timeToMinsLocal(b.startTime) + (Number(b.durationMin) || 0)
 }
 
-/** IN_PROGRESS → DONE, если дата/время окончания уже прошли (учёт демо-часов). */
+/**
+ * Автоматика таймлайна (WAITING без менеджера не трогаем):
+ * CONFIRMED → IN_PROGRESS после старта; IN_PROGRESS → DONE после окончания.
+ */
 export function autoCompletePastBookings(store: DataStore) {
   const now = getStoreNow(store)
   const today = localDateKey(now)
   const nowMins = now.getHours() * 60 + now.getMinutes()
   const nowIso = now.toISOString()
   for (const b of store.bookings) {
-    if (b.status !== 'IN_PROGRESS') continue
+    const startMins = timeToMinsLocal(b.startTime)
     const endMins = bookingEndMins(b)
+    const startPassed = b.date < today || (b.date === today && startMins <= nowMins)
     const endPassed = b.date < today || (b.date === today && endMins <= nowMins)
-    if (endPassed) {
+
+    if (b.status === 'CONFIRMED' && startPassed) {
+      b.status = 'IN_PROGRESS'
+      b.updatedAt = nowIso
+    }
+    if (b.status === 'IN_PROGRESS' && endPassed) {
       b.status = 'DONE'
       b.updatedAt = nowIso
     }

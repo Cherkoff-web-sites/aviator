@@ -118,7 +118,17 @@ const EMPTY_FORM = {
 }
 
 function statusRequiresPilot(status: string) {
-  return status === 'DONE' || status === 'IN_PROGRESS'
+  return status === 'DONE' || status === 'IN_PROGRESS' || status === 'CONFIRMED'
+}
+
+/** Вручную только подтверждение / отмена; остальное — автоматом. */
+const MANUAL_BOOKING_STATUS_VALUES = new Set(['WAITING', 'CONFIRMED', 'CANCELLED', 'EXPIRED', 'PENDING_CONFIRMATION'])
+
+function editableStatusOptions(current: string) {
+  const base = BOOKING_STATUS_OPTIONS.filter((o) => MANUAL_BOOKING_STATUS_VALUES.has(o.value))
+  if (base.some((o) => o.value === current)) return base
+  const currentOpt = BOOKING_STATUS_OPTIONS.find((o) => o.value === current)
+  return currentOpt ? [currentOpt, ...base] : base
 }
 
 function mapApiBooking(row: ApiBooking): BookingRow {
@@ -142,10 +152,9 @@ function mapApiBooking(row: ApiBooking): BookingRow {
       row.email ? `Email: ${row.email}` : '',
       row.promoNote ? `Акция: ${row.promoNote}` : '',
       row.birthdayDate
-        ? `ДР: ${row.birthdayDate.replace(/^(\d{1,2})\.(\d{1,2})$/, (_, d, m) => `${String(d).padStart(2, '0')}-${String(m).padStart(2, '0')}`)}`
+        ? `ДР: ${row.birthdayDate.replace(/^(\d{1,2})[.\-](\d{1,2})$/, (_, d, m) => `${String(d).padStart(2, '0')}.${String(m).padStart(2, '0')}`)}`
         : '',
       row.certificateNumber ? `Сертификат: ${row.certificateNumber}` : '',
-      row.holdExpiresAt ? `Резерв до: ${row.holdExpiresAt.slice(11, 16)}` : '',
     ]
       .filter(Boolean)
       .join(' · '),
@@ -204,8 +213,8 @@ function StatusBadge({ status }: { status: string }) {
       )
     case 'PENDING_CONFIRMATION':
       return (
-        <span className="inline-flex items-center gap-1.5 rounded-full bg-muted px-2.5 py-1 text-xs font-medium text-foreground">
-          <Loader2 className="size-3.5 shrink-0 animate-spin text-muted-foreground" />
+        <span className="inline-flex items-center gap-1.5 rounded-full bg-green-500/10 px-2.5 py-1 text-xs font-medium text-green-700 dark:text-green-400">
+          <Loader2 className="size-3.5 shrink-0 animate-spin text-green-700 dark:text-green-400" />
           {label}
         </span>
       )
@@ -904,7 +913,7 @@ export default function AdminDashboardPage() {
                     }
                   }}
                 >
-                  {BOOKING_STATUS_OPTIONS.map((o) => (
+                  {editableStatusOptions(form.status).map((o) => (
                     <option key={o.value} value={o.value}>
                       {o.label}
                     </option>

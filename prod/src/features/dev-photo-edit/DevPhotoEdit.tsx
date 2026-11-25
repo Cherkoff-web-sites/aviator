@@ -360,7 +360,7 @@ export default function DevPhotoEdit() {
           type="button"
           data-dev-photo-ui
           onClick={() => setOpen(true)}
-          className="fixed bottom-4 left-4 z-[99999] flex h-11 items-center gap-2 rounded-full border border-border bg-background px-3 text-xs font-semibold shadow-lg hover:bg-muted"
+          className="fixed bottom-24 left-3 z-[99999] flex h-11 items-center gap-2 rounded-full border border-border bg-background px-3 text-xs font-semibold shadow-lg hover:bg-muted"
           title="Временная замена фото (только в этой вкладке)"
         >
           <ImagePlus className="size-4" />
@@ -374,7 +374,7 @@ export default function DevPhotoEdit() {
       ) : (
         <div
           data-dev-photo-ui
-          className="fixed bottom-4 left-4 z-[99999] w-[min(100vw-2rem,300px)] rounded-xl border border-border bg-background p-3 shadow-xl"
+          className="fixed bottom-24 left-3 z-[99999] w-[min(100vw-2rem,300px)] rounded-xl border border-border bg-background p-3 shadow-xl"
         >
           <div className="mb-2 flex items-start justify-between gap-2">
             <div>

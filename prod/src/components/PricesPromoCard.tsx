@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 
 import { useBookingModal } from '../contexts/BookingModalContext'
+import { formatAdminDate } from '../lib/admin-date'
 
 const DOC_ICON = (
   <svg className="h-5 w-5 shrink-0 text-white" viewBox="0 0 24 24" fill="none" aria-hidden>
@@ -43,6 +44,13 @@ export type PricesPromoCardProps = {
   footerTitle?: string
   documentLine: string
   bookingPromo?: 'birthday' | 'happy-hours'
+  /** Акция сейчас недоступна (срок / active) — кнопка disabled */
+  disabled?: boolean
+  /** Текст причины (срок до … / акция завершена) */
+  disabledReason?: string
+  /** Дата окончания для отображения срока */
+  endsOn?: string | null
+  indefinite?: boolean
 }
 
 function PricesPromoCard({
@@ -55,17 +63,28 @@ function PricesPromoCard({
   footerTitle = 'Необходимые документы:',
   documentLine,
   bookingPromo,
+  disabled = false,
+  disabledReason,
+  endsOn,
+  indefinite,
 }: PricesPromoCardProps) {
   const { openBooking } = useBookingModal()
   return (
-    <article className="flex h-full flex-col overflow-hidden rounded-[40px] shadow-[0_16px_48px_rgba(0,45,98,0.18)]">
+    <article
+      className={[
+        'flex h-full flex-col overflow-hidden rounded-[40px] shadow-[0_16px_48px_rgba(0,45,98,0.18)]',
+        disabled ? 'opacity-75' : '',
+      ].join(' ')}
+    >
       <header
         className="flex shrink-0 items-center gap-4 px-6 py-5 text-white min-[990px]:gap-5 min-[990px]:px-8 min-[990px]:py-6"
         style={{ background: headerBackground }}
       >
         {headerIcon}
         <div className="min-w-0">
-          <p className="text-[16px] font-semibold leading-tight text-white min-[990px]:text-[18px]">{title}</p>
+          <p className="text-[16px] font-semibold leading-tight text-white min-[990px]:text-[18px]">
+            {title}
+          </p>
           <p className="mt-1 text-[28px] font-bold leading-none tracking-tight text-white min-[990px]:text-[36px]">
             {discount}
           </p>
@@ -82,11 +101,19 @@ function PricesPromoCard({
           </div>
           <ul className="m-0 flex list-none flex-col gap-3 p-0 pl-1">
             {terms.map((t) => (
-              <li key={t} className="relative pl-5 text-white/95 before:absolute before:left-0 before:top-[0.55em] before:h-1.5 before:w-1.5 before:rounded-full before:bg-white/80 before:content-['']">
+              <li
+                key={t}
+                className="relative pl-5 text-white/95 before:absolute before:left-0 before:top-[0.55em] before:h-1.5 before:w-1.5 before:rounded-full before:bg-white/80 before:content-['']"
+              >
                 {t}
               </li>
             ))}
           </ul>
+          {!indefinite && endsOn ? (
+            <p className="mt-3 text-[13px] text-white/75">
+              Срок акции до {formatAdminDate(endsOn)}
+            </p>
+          ) : null}
         </div>
 
         <div className="mt-auto flex flex-col gap-5 min-[990px]:gap-6">
@@ -103,11 +130,22 @@ function PricesPromoCard({
 
           <button
             type="button"
-            onClick={() => openBooking(bookingPromo ? { promo: bookingPromo } : undefined)}
-            className="btn-book-flight w-full px-6 py-3.5 text-[15px] font-semibold min-[990px]:py-4 min-[990px]:text-[17px]"
+            disabled={disabled}
+            onClick={() => {
+              if (disabled) return
+              openBooking(bookingPromo ? { promo: bookingPromo } : undefined)
+            }}
+            className={[
+              'btn-book-flight w-full px-6 py-3.5 text-[15px] font-semibold min-[990px]:py-4 min-[990px]:text-[17px]',
+              disabled ? 'cursor-not-allowed opacity-50' : '',
+            ].join(' ')}
+            title={disabled ? disabledReason || 'Акция сейчас недоступна' : undefined}
           >
-            Забронировать полет
+            {disabled ? 'Акция недоступна' : 'Забронировать полет'}
           </button>
+          {disabled && disabledReason ? (
+            <p className="-mt-3 text-center text-[12px] text-white/70">{disabledReason}</p>
+          ) : null}
         </div>
       </div>
     </article>

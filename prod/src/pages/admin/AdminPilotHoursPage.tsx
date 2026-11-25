@@ -26,7 +26,6 @@ import {
 } from '@/components/ui/table'
 import { useAdminAuth } from '@/contexts/AdminAuthContext'
 import { useLiveData } from '@/hooks/useLiveData'
-import { formatAdminDate } from '@/lib/admin-date'
 import { apiFetch, type AdminUser } from '@/lib/api'
 import { canEditBookings } from '@/lib/admin-access'
 import { labelOf, SIMULATOR_OPTIONS } from '@/lib/admin-labels'
@@ -68,11 +67,21 @@ type PilotHoursPayload = {
   shifts: ShiftEntry[]
 }
 
+type PilotTimesheetRow = {
+  userId: string
+  pilotName: string
+  boeingMin: number
+  mi2Min: number
+  totalMin: number
+  comment: string
+}
+
 const WEEKDAY_LABELS = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'] as const
 
 function minsLabel(minutes: number) {
   const h = Math.floor(minutes / 60)
   const m = minutes % 60
+  if (minutes <= 0) return '0 мин'
   return `${minutes} мин (${h}:${String(m).padStart(2, '0')})`
 }
 
@@ -115,17 +124,40 @@ export default function AdminPilotHoursPage() {
   const [comments, setComments] = React.useState<Record<string, string>>({})
   const [busy, setBusy] = React.useState(false)
 
-  React.useEffect(() => {
-    const next: Record<string, string> = {}
-    for (const row of data?.totals ?? []) {
-      next[`${row.userId}:${row.simulatorSlug}`] = row.comment ?? ''
-    }
-    setComments(next)
-  }, [data])
-
   const entries = data?.entries ?? []
   const shifts = data?.shifts ?? []
   const totals = data?.totals ?? []
+
+  const timesheet = React.useMemo(() => {
+    const byPilot = new Map<string, PilotTimesheetRow>()
+    for (const row of totals) {
+      const prev = byPilot.get(row.userId) ?? {
+        userId: row.userId,
+        pilotName: row.pilotName ?? pilotName(row.userId),
+        boeingMin: 0,
+        mi2Min: 0,
+        totalMin: 0,
+        comment: '',
+      }
+      if (row.simulatorSlug === 'mi-2') prev.mi2Min += row.minutes || 0
+      else prev.boeingMin += row.minutes || 0
+      prev.totalMin = prev.boeingMin + prev.mi2Min
+      if (!prev.comment && row.comment?.trim()) prev.comment = row.comment
+      if (row.pilotName) prev.pilotName = row.pilotName
+      byPilot.set(row.userId, prev)
+    }
+    return [...byPilot.values()]
+      .filter((r) => r.totalMin > 0)
+      .sort((a, b) => a.pilotName.localeCompare(b.pilotName, 'ru'))
+  }, [totals, pilotName])
+
+  React.useEffect(() => {
+    const next: Record<string, string> = {}
+    for (const row of timesheet) {
+      next[row.userId] = row.comment ?? ''
+    }
+    setComments(next)
+  }, [timesheet])
 
   const entriesByDate = React.useMemo(() => {
     const map = new Map<string, FlightEntry[]>()
@@ -148,25 +180,36 @@ export default function AdminPilotHoursPage() {
   }, [shifts])
 
   const totalMinutes = React.useMemo(
-    () => totals.reduce((sum, row) => sum + (row.minutes || 0), 0),
-    [totals],
+    () => timesheet.reduce((sum, row) => sum + row.totalMin, 0),
+    [timesheet],
   )
 
   const save = async () => {
     if (!canEdit) return
     setBusy(true)
     try {
+      // Комментарий на пилота; минуты по-прежнему из полётов
       await apiFetch('/api/admin/pilot-hours', {
         method: 'PUT',
         body: JSON.stringify({
           month: monthKey,
-          rows: totals.map((g) => ({
-            id: g.id,
-            userId: g.userId,
-            simulatorSlug: g.simulatorSlug,
-            minutes: g.minutes,
-            comment: comments[`${g.userId}:${g.simulatorSlug}`] ?? '',
-          })),
+          rows: timesheet.flatMap((g) => {
+            const comment = comments[g.userId] ?? ''
+            return [
+              {
+                userId: g.userId,
+                simulatorSlug: 'boeing-737',
+                minutes: g.boeingMin,
+                comment,
+              },
+              {
+                userId: g.userId,
+                simulatorSlug: 'mi-2',
+                minutes: g.mi2Min,
+                comment: '',
+              },
+            ]
+          }),
         }),
       })
       void reload()
@@ -187,7 +230,6 @@ export default function AdminPilotHoursPage() {
   }, [days])
 
   const monthLabel = format(viewMonth, 'LLLL yyyy', { locale: ru })
-  const todayKey = format(new Date(), 'yyyy-MM-dd')
 
   return (
     <div className="flex w-full min-w-0 flex-col gap-6">
@@ -222,11 +264,10 @@ export default function AdminPilotHoursPage() {
 
       <p className="text-sm text-muted-foreground">
         {isPilot
-          ? 'Ваши полёты («В процессе» / «Закончили»), где вас назначили пилотом, и ваши смены из графика. При подтверждении полёта смена в графике создаётся автоматически.'
-          : 'Факт по минутам — только полёты «В процессе» / «Закончили» с назначенным пилотом. При подтверждении полёта смена пилота в графике создаётся сама.'}
+          ? 'Календарь — ваши полёты по дням. Ниже табель: время по тренажёрам и итог за месяц.'
+          : 'Календарь — факт по дням. Табель — пилоты, кто летал в выбранном месяце, время по тренажёрам и итог.'}
       </p>
 
-      {/* Календарь факта — копия логики графика персонала */}
       <section className="overflow-hidden rounded-lg border border-border bg-background">
         <div className="border-b border-border px-4 py-3">
           <h2 className="text-sm font-semibold">Факт по дням</h2>
@@ -240,17 +281,16 @@ export default function AdminPilotHoursPage() {
         </div>
         <div className="flex flex-col">
           {weeks.map((week, wi) => (
-            <div
-              key={wi}
-              className="grid grid-cols-7 border-b border-border last:border-b-0"
-            >
+            <div key={wi} className="grid grid-cols-7 border-b border-border last:border-b-0">
               {week.map((day) => {
                 const key = format(day, 'yyyy-MM-dd')
                 const inMonth = isSameMonth(day, viewMonth)
                 const dayEntries = inMonth ? (entriesByDate.get(key) ?? []) : []
                 const dayShifts = inMonth ? (shiftsByDate.get(key) ?? []) : []
                 const dayMins = dayEntries.reduce((s, e) => s + e.durationMin, 0)
-                const flownSims = new Set(dayEntries.map((e) => `${e.pilotUserId}:${e.simulatorSlug}`))
+                const flownSims = new Set(
+                  dayEntries.map((e) => `${e.pilotUserId}:${e.simulatorSlug}`),
+                )
                 return (
                   <div
                     key={key}
@@ -318,166 +358,77 @@ export default function AdminPilotHoursPage() {
         </div>
       </section>
 
-      {/* Смены в графике */}
       <section className="rounded-lg border border-border bg-background">
         <div className="border-b border-border px-4 py-3">
-          <h2 className="text-sm font-semibold">Смены в графике (план)</h2>
+          <h2 className="text-sm font-semibold">Табель рабочего времени</h2>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            Пилоты, у кого были полёты в {monthLabel}. Детализация по дням — в календаре выше.
+          </p>
         </div>
         <div className="overflow-x-auto">
-          <Table className="min-w-[480px]">
-            <TableHeader>
-              <TableRow className="bg-muted/40 text-xs text-muted-foreground">
-                <TableHead className="px-3 py-2">Дата</TableHead>
-                <TableHead className="px-3 py-2">Пилот</TableHead>
-                <TableHead className="px-3 py-2">Тренажёр</TableHead>
-                <TableHead className="px-3 py-2">Статус дня</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {shifts.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={4} className="h-16 text-center text-sm text-muted-foreground">
-                    Смен в графике на этот месяц нет.
-                  </TableCell>
-                </TableRow>
-              ) : (
-                shifts.map((s) => {
-                  const past = s.date < todayKey
-                  const today = s.date === todayKey
-                  return (
-                    <TableRow key={s.id} className="border-border/70">
-                      <TableCell className="px-3 py-2 whitespace-nowrap">
-                        {formatAdminDate(s.date)}
-                      </TableCell>
-                      <TableCell className="px-3 py-2 whitespace-nowrap">
-                        {pilotName(s.userId)}
-                      </TableCell>
-                      <TableCell className="px-3 py-2 text-muted-foreground">
-                        {labelOf(SIMULATOR_OPTIONS, s.simulatorSlug)}
-                      </TableCell>
-                      <TableCell className="px-3 py-2 text-sm">
-                        <span
-                          className={cn(
-                            today && 'font-medium text-foreground',
-                            past && 'text-muted-foreground',
-                            !past && !today && 'text-emerald-700 dark:text-emerald-400',
-                          )}
-                        >
-                          {today ? 'Сегодня' : past ? 'Прошла' : 'Предстоит'}
-                        </span>
-                      </TableCell>
-                    </TableRow>
-                  )
-                })
-              )}
-            </TableBody>
-          </Table>
-        </div>
-      </section>
-
-      {/* Хронометраж списком */}
-      <section className="rounded-lg border border-border bg-background">
-        <div className="border-b border-border px-4 py-3">
-          <h2 className="text-sm font-semibold">Хронометраж полётов</h2>
-        </div>
-        <div className="overflow-x-auto">
-          <Table className="min-w-[640px]">
-            <TableHeader>
-              <TableRow className="bg-muted/40 text-xs text-muted-foreground">
-                <TableHead className="px-3 py-2">Дата</TableHead>
-                <TableHead className="px-3 py-2">Время</TableHead>
-                <TableHead className="px-3 py-2">Пилот</TableHead>
-                <TableHead className="px-3 py-2">Тренажёр</TableHead>
-                <TableHead className="px-3 py-2">Клиент</TableHead>
-                <TableHead className="px-3 py-2 text-right">Мин</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {entries.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={6} className="h-16 text-center text-sm text-muted-foreground">
-                    Нет подтверждённых полётов с назначенным пилотом за этот месяц.
-                  </TableCell>
-                </TableRow>
-              ) : (
-                entries.map((e) => (
-                  <TableRow key={e.id} className="border-border/70">
-                    <TableCell className="px-3 py-2 whitespace-nowrap">
-                      {formatAdminDate(e.date)}
-                    </TableCell>
-                    <TableCell className="px-3 py-2 font-mono text-sm tabular-nums whitespace-nowrap">
-                      {e.startTime}–{e.endTime}
-                    </TableCell>
-                    <TableCell className="px-3 py-2 whitespace-nowrap">
-                      {pilotName(e.pilotUserId)}
-                    </TableCell>
-                    <TableCell className="px-3 py-2 text-muted-foreground">
-                      {labelOf(SIMULATOR_OPTIONS, e.simulatorSlug)}
-                    </TableCell>
-                    <TableCell className="px-3 py-2">{e.clientName}</TableCell>
-                    <TableCell className="px-3 py-2 text-right font-mono tabular-nums">
-                      {e.durationMin}
-                    </TableCell>
-                  </TableRow>
-                ))
-              )}
-            </TableBody>
-          </Table>
-        </div>
-      </section>
-
-      {/* Итоги + комментарии */}
-      <section className="rounded-lg border border-border bg-background">
-        <div className="border-b border-border px-4 py-3">
-          <h2 className="text-sm font-semibold">Итоги / комментарии</h2>
-        </div>
-        <div className="overflow-x-auto">
-          <Table className="min-w-[560px]">
+          <Table className="min-w-[720px]">
             <TableHeader>
               <TableRow className="bg-muted/40 text-xs text-muted-foreground">
                 <TableHead className="px-3 py-2">Пилот</TableHead>
-                <TableHead className="px-3 py-2">Тренажёр</TableHead>
-                <TableHead className="px-3 py-2">Факт</TableHead>
+                <TableHead className="px-3 py-2">Boeing 737</TableHead>
+                <TableHead className="px-3 py-2">Ми-2</TableHead>
+                <TableHead className="px-3 py-2">Итого за месяц</TableHead>
                 <TableHead className="px-3 py-2">Комментарий</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {totals.map((row) => {
-                const key = `${row.userId}:${row.simulatorSlug}`
-                return (
-                  <TableRow key={key} className="border-border/70">
+              {timesheet.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={5} className="h-16 text-center text-sm text-muted-foreground">
+                    За этот месяц нет полётов с назначенным пилотом.
+                  </TableCell>
+                </TableRow>
+              ) : (
+                timesheet.map((row) => (
+                  <TableRow key={row.userId} className="border-border/70">
                     <TableCell className="px-3 py-2 font-medium whitespace-nowrap">
-                      {row.pilotName ?? pilotName(row.userId)}
-                    </TableCell>
-                    <TableCell className="px-3 py-2 text-muted-foreground">
-                      {labelOf(SIMULATOR_OPTIONS, row.simulatorSlug)}
+                      <span className="inline-flex items-center gap-2">
+                        <span
+                          className="size-2.5 shrink-0 rounded-full"
+                          style={{ backgroundColor: pilotColor(row.userId) }}
+                          aria-hidden
+                        />
+                        {row.pilotName}
+                      </span>
                     </TableCell>
                     <TableCell className="px-3 py-2 font-mono text-sm tabular-nums whitespace-nowrap">
-                      {minsLabel(row.minutes)}
+                      {minsLabel(row.boeingMin)}
                     </TableCell>
-                    <TableCell className="px-3 py-2">
+                    <TableCell className="px-3 py-2 font-mono text-sm tabular-nums whitespace-nowrap">
+                      {minsLabel(row.mi2Min)}
+                    </TableCell>
+                    <TableCell className="px-3 py-2 font-mono text-sm font-semibold tabular-nums whitespace-nowrap">
+                      {minsLabel(row.totalMin)}
+                    </TableCell>
+                    <TableCell className="px-3 py-2 min-w-[220px]">
                       <Input
                         className="h-8"
                         disabled={!canEdit}
-                        value={comments[key] ?? ''}
-                        placeholder="—"
+                        value={comments[row.userId] ?? ''}
+                        placeholder="Комментарий по пилоту"
                         onChange={(e) => {
                           const comment = e.target.value
-                          setComments((c) => ({ ...c, [key]: comment }))
+                          setComments((c) => ({ ...c, [row.userId]: comment }))
                         }}
                       />
                     </TableCell>
                   </TableRow>
-                )
-              })}
-              <TableRow className="bg-muted/30 font-semibold">
-                <TableCell className="px-3 py-3" colSpan={2}>
-                  Всего отработано за месяц
-                </TableCell>
-                <TableCell className="px-3 py-3 font-mono text-sm tabular-nums" colSpan={2}>
-                  {minsLabel(totalMinutes)}
-                </TableCell>
-              </TableRow>
+                ))
+              )}
+              {timesheet.length > 0 ? (
+                <TableRow className="bg-muted/30 font-semibold">
+                  <TableCell className="px-3 py-3">Всего по залу</TableCell>
+                  <TableCell className="px-3 py-3 font-mono text-sm tabular-nums" colSpan={3}>
+                    {minsLabel(totalMinutes)}
+                  </TableCell>
+                  <TableCell className="px-3 py-3" />
+                </TableRow>
+              ) : null}
             </TableBody>
           </Table>
         </div>

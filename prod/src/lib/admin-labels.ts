@@ -1,6 +1,7 @@
 /** Подписи статусов и справочников админки — по-русски, для селектов и таблиц. */
 
 export const CERTIFICATE_STATUS_OPTIONS = [
+  { value: 'PENDING_CONFIRMATION', label: 'Подтверждение email' },
   { value: 'ACTIVE', label: 'Активен' },
   { value: 'USED', label: 'Использован' },
   { value: 'PARTIAL', label: 'Частично использован' },
@@ -9,13 +10,13 @@ export const CERTIFICATE_STATUS_OPTIONS = [
 ] as const
 
 export const BOOKING_STATUS_OPTIONS = [
-  { value: 'PENDING_CONFIRMATION', label: 'Ожидает подтверждения' },
+  { value: 'PENDING_CONFIRMATION', label: 'Подтверждение email' },
   { value: 'CONFIRMED', label: 'Подтверждена' },
   { value: 'IN_PROGRESS', label: 'В процессе' },
   { value: 'WAITING', label: 'Ожидаем' },
   { value: 'DONE', label: 'Закончили' },
   { value: 'CANCELLED', label: 'Отменён' },
-  { value: 'EXPIRED', label: 'Истекла' },
+  { value: 'EXPIRED', label: 'Истёк код' },
 ] as const
 
 export const PROMO_TYPE_OPTIONS = [
@@ -57,7 +58,7 @@ export const CERT_SIMULATOR_OPTIONS = [
 /** Значения API: ONLINE / OFFLINE; в UI селектов — словесные подписи. */
 export const PAYMENT_METHOD_OPTIONS = [
   { value: 'ONLINE', label: 'На сайте' },
-  { value: 'OFFLINE', label: 'В офисе' },
+  { value: 'OFFLINE', label: 'При посещении' },
 ] as const
 
 export type PaymentMethodValue = (typeof PAYMENT_METHOD_OPTIONS)[number]['value']

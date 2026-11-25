@@ -1,10 +1,11 @@
 import * as React from 'react'
-import { Check, Clock, DatabaseZap, Eraser, Loader2, Plus } from 'lucide-react'
+import { Check, Clock, DatabaseZap, Eraser, Loader2, Plus, Trash2 } from 'lucide-react'
 
 import AdminFormModal from '@/components/admin/AdminFormModal'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { useAdminAuth } from '@/contexts/AdminAuthContext'
+import { useServerClock } from '@/contexts/ServerClockContext'
 import { apiFetch } from '@/lib/api'
 
 type FillResult = {
@@ -16,6 +17,16 @@ type FillResult = {
 
 type ClearResult = {
   removed: { bookings: number; certificates: number; staffShifts: number; other: number }
+}
+
+type ClearAllResult = {
+  removed: {
+    bookings: number
+    certificates: number
+    staffShifts: number
+    notifications: number
+    other: number
+  }
 }
 
 type DemoClock = {
@@ -55,8 +66,9 @@ function formatClockLabel(iso: string): string {
 
 export default function DemoDataButton() {
   const { role } = useAdminAuth()
+  const { now: liveNow, active: demoActive, reload: reloadServerClock } = useServerClock()
   const [open, setOpen] = React.useState(false)
-  const [busy, setBusy] = React.useState<'fill' | 'clear' | 'clock' | null>(null)
+  const [busy, setBusy] = React.useState<'fill' | 'clear' | 'clear-all' | 'clock' | null>(null)
   const [toast, setToast] = React.useState<string | null>(null)
   const [error, setError] = React.useState<string | null>(null)
   const [clock, setClock] = React.useState<DemoClock | null>(null)
@@ -116,6 +128,29 @@ export default function DemoDataButton() {
     }
   }
 
+  const clearAll = async () => {
+    const ok = window.confirm(
+      'Удалить ВСЕ данные: брони (в т.ч. с сайта), сертификаты, смены, уведомления, ТО, календарь?\n\nНастройки, цены, аккаунты и медиа останутся. Перед удалением сделается резервная копия.',
+    )
+    if (!ok) return
+    setBusy('clear-all')
+    setError(null)
+    try {
+      const res = await apiFetch<ClearAllResult>('/api/admin/all-data', { method: 'DELETE' })
+      setOpen(false)
+      const r = res.removed
+      showToast(
+        `Удалено всё: ${r.bookings} броней, ${r.certificates} сертификатов, ${r.notifications} уведомлений` +
+          (r.staffShifts || r.other ? `, ещё ${r.staffShifts + r.other}` : ''),
+      )
+      void loadClock().catch(() => {})
+    } catch {
+      setError('Не удалось удалить все данные')
+    } finally {
+      setBusy(null)
+    }
+  }
+
   const applyClock = async () => {
     const iso = localInputToIso(clockInput)
     if (!iso) {
@@ -131,6 +166,7 @@ export default function DemoDataButton() {
       })
       setClock(res)
       setClockInput(isoToLocalInput(res.demoNowIso || res.effectiveNowIso))
+      reloadServerClock()
       showToast(`Демо-время: ${formatClockLabel(res.effectiveNowIso)}`)
     } catch {
       setError('Не удалось сохранить время')
@@ -149,6 +185,7 @@ export default function DemoDataButton() {
       })
       setClock(res)
       setClockInput(isoToLocalInput(res.realNowIso))
+      reloadServerClock()
       showToast('Время сброшено на реальное серверное')
     } catch {
       setError('Не удалось сбросить время')
@@ -190,11 +227,11 @@ export default function DemoDataButton() {
               <h3 className="text-sm font-semibold text-foreground">Время сервера</h3>
             </div>
             <p className="mb-3 text-xs leading-relaxed text-muted-foreground">
-              Админка и автозавершение полётов смотрят на это время вместо реальных часов. Удобно
-              проверять окна подтверждения «Ожидаем» и переход «В процессе» → «Закончили».
+              Это время видят и сайт, и админка (слоты, статусы, календарь). После установки идёт
+              дальше в реальном темпе. Внизу слева — живые часы.
             </p>
             <label className="mb-2 block text-xs font-medium text-muted-foreground">
-              Текущее время (демо)
+              Задать демо-время
               <Input
                 type="datetime-local"
                 className="mt-1 h-9"
@@ -204,21 +241,26 @@ export default function DemoDataButton() {
               />
             </label>
             <p className="mb-3 text-[11px] text-muted-foreground">
-              Реальное:{' '}
-              <span className="font-medium text-foreground">
-                {clock ? formatClockLabel(clock.realNowIso) : '…'}
+              Сейчас (эффективное):{' '}
+              <span
+                className={
+                  demoActive
+                    ? 'font-semibold text-amber-700 dark:text-amber-300'
+                    : 'font-medium text-foreground'
+                }
+              >
+                {formatClockLabel(liveNow.toISOString())}
               </span>
-              {clock?.active ? (
+              {demoActive ? ' · демо' : ' · реальное'}
+              {clock ? (
                 <>
                   {' '}
-                  · активно:{' '}
-                  <span className="font-medium text-amber-700 dark:text-amber-300">
-                    {formatClockLabel(clock.effectiveNowIso)}
+                  · железо:{' '}
+                  <span className="font-medium text-foreground">
+                    {formatClockLabel(clock.realNowIso)}
                   </span>
                 </>
-              ) : (
-                <span> · override выключен</span>
-              )}
+              ) : null}
             </p>
             <div className="flex flex-wrap gap-2">
               <Button
@@ -271,21 +313,42 @@ export default function DemoDataButton() {
               <h3 className="text-sm font-semibold text-foreground">Очистка</h3>
             </div>
             <p className="mb-3 text-xs leading-relaxed text-muted-foreground">
-              Удаляет только демо-записи (id с префиксом demo-), чтобы не смешивать их с новыми
-              данными. Можно очистить и снова нажать «Добавить». Реальные брони и настройки остаются.
-              Демо-время при очистке не сбрасывается.
+              «Очистить демо» — только записи с id demo-. «Удалить все данные» — все брони (включая с
+              сайта), сертификаты, смены, уведомления, ТО, календарь и логи. Аккаунты, цены, настройки
+              и медиа остаются. Перед удалением — резервная копия.
             </p>
-            <Button
-              type="button"
-              size="sm"
-              variant="destructive"
-              className="gap-1.5"
-              disabled={!!busy}
-              onClick={() => void clear()}
-            >
-              {busy === 'clear' ? <Loader2 className="size-4 animate-spin" /> : <Eraser className="size-4" />}
-              Очистить демо данные
-            </Button>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                type="button"
+                size="sm"
+                variant="destructive"
+                className="gap-1.5"
+                disabled={!!busy}
+                onClick={() => void clear()}
+              >
+                {busy === 'clear' ? (
+                  <Loader2 className="size-4 animate-spin" />
+                ) : (
+                  <Eraser className="size-4" />
+                )}
+                Очистить демо данные
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="gap-1.5 border-destructive/40 text-destructive hover:bg-destructive/10"
+                disabled={!!busy}
+                onClick={() => void clearAll()}
+              >
+                {busy === 'clear-all' ? (
+                  <Loader2 className="size-4 animate-spin" />
+                ) : (
+                  <Trash2 className="size-4" />
+                )}
+                Удалить все данные
+              </Button>
+            </div>
           </section>
 
           {error ? <p className="text-xs text-destructive">{error}</p> : null}

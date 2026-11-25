@@ -1,4 +1,5 @@
 import * as React from 'react'
+import { flushSync } from 'react-dom'
 import { Upload } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
@@ -51,7 +52,11 @@ export function SiteImageSlot({
         method: 'POST',
         body: JSON.stringify({ dataUrl }),
       })
-      onChange(saved.url)
+      // flushSync — чтобы onSave увидел новый URL в draftRef родителя.
+      flushSync(() => {
+        onChange(saved.url)
+      })
+      onSave?.()
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Ошибка загрузки')
     } finally {

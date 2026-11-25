@@ -8,16 +8,27 @@ import 'react-day-picker/style.css'
 import type { BookingOpenPayload, BookingSimulatorSlug } from '../../contexts/BookingModalContext'
 import { useBookingModal } from '../../contexts/BookingModalContext'
 import { useGiftCertificateModal } from '../../contexts/GiftCertificateModalContext'
-import { apiFetch, type ApiPriceRow } from '../../lib/api'
+import { ApiError, apiFetch, type ApiPriceRow, type ApiPromo } from '../../lib/api'
+import {
+  isPromoUsableToday,
+  promoAppliesToSimulator,
+  promoByType,
+} from '../../lib/promos'
 import { formatAdminDate } from '../../lib/admin-date'
 import { useStoreSocket } from '../../hooks/useLiveData'
 import { usePublicOptionLists } from '../../hooks/usePublicOptionLists'
 import { usePublicSettings } from '../../hooks/usePublicSettings'
 import { useCertificateDesigns } from '../../hooks/useCertificateDesigns'
+import { phoneToTelHref, usePublicContacts } from '../../hooks/usePublicContacts'
+import { useServerNow } from '../../contexts/ServerClockContext'
 import {
   clearBookingDraft,
+  clearBookingOtpPending,
   loadBookingDraft,
+  loadBookingOtpPending,
   saveBookingDraft,
+  saveBookingOtpPending,
+  type BookingOtpPending,
 } from '../../lib/modalDrafts'
 import {
   sanitizeCertificateDigitsInput,
@@ -31,6 +42,7 @@ import {
 import {
   allDesignOptions,
   buildCertificateNumber,
+  maxDigitsForCode,
   parseCertificateParts,
 } from '../../lib/certificate-design'
 import {
@@ -77,11 +89,11 @@ function defaultAircraftFromSlug(slug: BookingSimulatorSlug | null | undefined):
 
 function formatSlotDisplay(date: Date, time: BookingTimeSlot) {
   const datePart = formatAdminDate(date)
-  return `${datePart}. ${time} Мск`
+  return `${datePart}, ${time} Мск`
 }
 
 function formatFooterSummary(date: Date, time: BookingTimeSlot) {
-  return `${formatAdminDate(date)}. ${time}`
+  return `${formatAdminDate(date)}, ${time}`
 }
 
 function Pill({
@@ -90,19 +102,26 @@ function Pill({
   className = '',
   onClick,
   type = 'button',
+  disabled = false,
 }: {
   selected: boolean
   children: React.ReactNode
   className?: string
   onClick?: () => void
   type?: 'button' | 'submit'
+  disabled?: boolean
 }) {
   return (
     <button
       type={type}
-      onClick={onClick}
+      disabled={disabled}
+      onClick={() => {
+        if (disabled) return
+        onClick?.()
+      }}
       className={[
         'rounded-full border px-4 py-2.5 text-center text-[13px] font-semibold uppercase tracking-wide transition-colors min-[990px]:px-5 min-[990px]:py-3 min-[990px]:text-[14px]',
+        disabled ? 'cursor-not-allowed opacity-55' : '',
         selected
           ? 'border-[#0075FF] bg-white text-[#0075FF]'
           : 'border-[#d1d5db] bg-[#f0f1f3] text-[#002D62] hover:border-[#0075FF]/40',
@@ -118,13 +137,22 @@ function SwitchRow({
   label,
   checked,
   onChange,
+  disabled = false,
+  title,
 }: {
   label: string
   checked: boolean
   onChange: (v: boolean) => void
+  disabled?: boolean
+  title?: string
 }) {
   return (
-    <div className="flex items-center justify-between gap-3">
+    <div
+      className={['flex items-center justify-between gap-3', disabled ? 'opacity-50' : ''].join(
+        ' ',
+      )}
+      title={title}
+    >
       <span className="text-[14px] font-semibold leading-snug text-[#002D62] min-[990px]:text-[15px]">
         {label}
       </span>
@@ -132,9 +160,15 @@ function SwitchRow({
         type="button"
         role="switch"
         aria-checked={checked}
-        onClick={() => onChange(!checked)}
+        aria-disabled={disabled}
+        disabled={disabled}
+        onClick={() => {
+          if (disabled) return
+          onChange(!checked)
+        }}
         className={[
           'relative h-7 w-12 shrink-0 rounded-full transition-colors',
+          disabled ? 'cursor-not-allowed' : '',
           checked ? 'bg-[#0075FF]' : 'bg-[#c5cad1]',
         ].join(' ')}
       >
@@ -240,17 +274,61 @@ function applyOpenPayload(
   return { aircraft, durationMin, pageSlug }
 }
 
-type WizardStep = 'form' | 'otp' | 'success'
+type WizardStep = 'form' | 'otp' | 'otp-failed' | 'success'
 
 const OTP_EMPTY = () => ['', '', '', '', '', '']
 
 /** Нестираемая метка акции для менеджеров в примечании. */
 const HAPPY_HOURS_NOTE_TAG = '«Счастливые часы»'
 
+const NOTE_PLACEHOLDER = 'Промокод или просьба (например: Счастливые часы)'
+
+/** Промокод «Счастливые часы» — целиком введено (с кавычками/без). */
+const HAPPY_HOURS_PROMO_RE =
+  /(?:^|[\s,.;:!?\-—–(/])[«"']?\s*сч[аa]стлив(?:ые|ый)?\s+час(?:ы|ов)?\s*[»"']?(?=$|[\s,.;:!?)\-—–])/giu
+
 function composeBookingComment(userNote: string, happyHoursOnly: boolean) {
   const user = userNote.trim()
   if (!happyHoursOnly) return user
   return user ? `${HAPPY_HOURS_NOTE_TAG}. ${user}` : HAPPY_HOURS_NOTE_TAG
+}
+
+/** Вырезать промокод из примечания, если фраза набрана полностью. */
+function extractHappyHoursPromoCode(raw: string): { matched: boolean; rest: string } {
+  const text = String(raw ?? '')
+  // Точное совпадение всей строки
+  const alone = text
+    .trim()
+    .replace(/^[«"']+|[»"']+$/g, '')
+    .replace(/\s+/g, ' ')
+    .toLowerCase()
+  if (/^сч[аa]стлив(?:ые|ый)?\s+час(?:ы|ов)?$/iu.test(alone)) {
+    return { matched: true, rest: '' }
+  }
+  HAPPY_HOURS_PROMO_RE.lastIndex = 0
+  if (!HAPPY_HOURS_PROMO_RE.test(text)) {
+    return { matched: false, rest: text }
+  }
+  HAPPY_HOURS_PROMO_RE.lastIndex = 0
+  const rest = text
+    .replace(HAPPY_HOURS_PROMO_RE, ' ')
+    .replace(/\s{2,}/g, ' ')
+    .replace(/^[\s,.;:!?\-—–]+|[\s,.;:!?\-—–]+$/g, '')
+    .trim()
+  return { matched: true, rest }
+}
+
+function formatOtpCountdown(msLeft: number) {
+  const totalSec = Math.max(0, Math.ceil(msLeft / 1000))
+  const m = Math.floor(totalSec / 60)
+  const s = totalSec % 60
+  return `${m}:${String(s).padStart(2, '0')}`
+}
+
+function otpStepFromPending(pending: BookingOtpPending | null): WizardStep | null {
+  if (!pending?.bookingId || !pending.holdExpiresAt) return null
+  if (Date.now() >= new Date(pending.holdExpiresAt).getTime()) return 'otp-failed'
+  return 'otp'
 }
 
 function parseDraftDate(value: string | null | undefined): Date | null {
@@ -283,6 +361,8 @@ function BookingModal() {
   const { isOpen, closeBooking, payload } = useBookingModal()
   const { openGiftCertificate } = useGiftCertificateModal()
   const publicSettings = usePublicSettings()
+  const contacts = usePublicContacts()
+  const serverNow = useServerNow()
   const optionLists = usePublicOptionLists()
   const { designs: certDesignRows } = useCertificateDesigns(false)
   const draftRef = useRef(loadBookingDraft())
@@ -295,7 +375,10 @@ function BookingModal() {
   const [wizardStep, setWizardStep] = useState<WizardStep>('form')
   const [otpDigits, setOtpDigits] = useState<string[]>(() => OTP_EMPTY())
   const [resendSec, setResendSec] = useState(60)
+  const [otpResendUsed, setOtpResendUsed] = useState(false)
+  const [holdExpiresAt, setHoldExpiresAt] = useState<string | null>(null)
   const [bookingId, setBookingId] = useState<string | null>(null)
+  const [otpMsLeft, setOtpMsLeft] = useState(0)
   const [phone, setPhone] = useState(() => sanitizePhoneInput(draft?.phone ?? ''))
   const [email, setEmail] = useState(() => sanitizeEmailInput(draft?.email ?? ''))
   const [bookingError, setBookingError] = useState('')
@@ -323,20 +406,9 @@ function BookingModal() {
       'Boeing + Ми-2',
     [optionLists],
   )
-  const durationChoiceRows = useMemo(() => {
-    if (isCombo) return [{ value: 60, label: '60 минут' }]
-    return filterDurationChoicesForSimulator(
-      durationChoicesFromList(optionLists?.duration),
-      aircraft,
-    )
-  }, [optionLists, aircraft, isCombo])
   const [durationMin, setDurationMin] = useState<FlightDurationMin>(
     () => draft?.durationMin ?? 30,
   )
-  useEffect(() => {
-    if (isCombo) return
-    setDurationMin((d) => clampDurationChoice(durationChoiceRows, d))
-  }, [durationChoiceRows, isCombo])
   const [hasGiftCert, setHasGiftCert] = useState(false)
   const initialCertParts = parseCertificateParts(draft?.giftCertNumber ?? '', certDesignRows)
   const [certSeriesCode, setCertSeriesCode] = useState(initialCertParts.code)
@@ -354,10 +426,12 @@ function BookingModal() {
   })
   const [name, setName] = useState(() => sanitizePersonNameInput(draft?.name ?? ''))
   const [note, setNote] = useState(() => sanitizeNoteInput(draft?.note ?? ''))
+  const [promoCodeHint, setPromoCodeHint] = useState('')
   const [payment, setPayment] = useState<'now' | 'visit'>(() => draft?.payment ?? 'visit')
   const [consent, setConsent] = useState(() => draft?.consent ?? false)
   const [submitted, setSubmitted] = useState(false)
   const [flightPrices, setFlightPrices] = useState<ApiPriceRow[]>([])
+  const [promos, setPromos] = useState<ApiPromo[]>([])
   const [calendarMap, setCalendarMap] = useState<Record<string, CalendarStatus>>({})
   const [fullyClosedDates, setFullyClosedDates] = useState<Set<string>>(() => new Set())
   const [maintenanceList, setMaintenanceList] = useState<PublicMaintenance[]>([])
@@ -368,11 +442,73 @@ function BookingModal() {
   const [busySlotsMi2, setBusySlotsMi2] = useState<BusyInterval[]>([])
   const [slotConflictHint, setSlotConflictHint] = useState('')
 
+  const giftLocksSimAndDuration = hasGiftCert && certValid === true && Boolean(certInfo)
+  const durationChoiceRows = useMemo(() => {
+    if (isCombo) return [{ value: 60, label: '60 минут' }]
+    const base = filterDurationChoicesForSimulator(
+      durationChoicesFromList(optionLists?.duration),
+      aircraft,
+    )
+    if (
+      giftLocksSimAndDuration &&
+      typeof certInfo?.durationMin === 'number' &&
+      certInfo.durationMin > 0 &&
+      !base.some((d) => d.value === certInfo.durationMin)
+    ) {
+      return [
+        ...base,
+        { value: certInfo.durationMin, label: `${certInfo.durationMin} минут` },
+      ].sort((a, b) => a.value - b.value)
+    }
+    return base
+  }, [optionLists, aircraft, isCombo, giftLocksSimAndDuration, certInfo?.durationMin])
+
+  useEffect(() => {
+    if (isCombo) return
+    if (giftLocksSimAndDuration && typeof certInfo?.durationMin === 'number') {
+      setDurationMin(certInfo.durationMin)
+      return
+    }
+    setDurationMin((d) => clampDurationChoice(durationChoiceRows, d))
+  }, [durationChoiceRows, isCombo, giftLocksSimAndDuration, certInfo?.durationMin])
+
   const clearSelectedDateTime = useCallback(() => {
     setSelectedDate(null)
     setSelectedTime(null)
     setSlotConflictHint('')
   }, [])
+
+  const persistOtpPending = useCallback(
+    (next: Partial<BookingOtpPending> & Pick<BookingOtpPending, 'bookingId' | 'holdExpiresAt'>) => {
+      const row: BookingOtpPending = {
+        bookingId: next.bookingId,
+        holdExpiresAt: next.holdExpiresAt,
+        email: next.email ?? email,
+        otpResendUsed: next.otpResendUsed ?? otpResendUsed,
+      }
+      saveBookingOtpPending(row)
+    },
+    [email, otpResendUsed],
+  )
+
+  const clearOtpState = useCallback(() => {
+    setWizardStep('form')
+    setOtpDigits(OTP_EMPTY())
+    setBookingId(null)
+    setBookingError('')
+    setResendSec(60)
+    setOtpResendUsed(false)
+    setHoldExpiresAt(null)
+    setOtpMsLeft(0)
+    clearBookingOtpPending()
+  }, [])
+
+  const startNewBookingFromOtp = useCallback(() => {
+    clearOtpState()
+    setSubmitted(false)
+    setDateTimeOpen(false)
+    setBirthdayPickerOpen(false)
+  }, [clearOtpState])
 
   const resetDraftFields = useCallback(() => {
     setAircraft('boeing-737')
@@ -394,18 +530,37 @@ function BookingModal() {
     setPayment('visit')
     setConsent(false)
     setSubmitted(false)
-    setWizardStep('form')
     setDateTimeOpen(false)
     setBirthdayPickerOpen(false)
-    setOtpDigits(OTP_EMPTY())
-    setResendSec(60)
-    setBookingId(null)
-    setBookingError('')
+    clearOtpState()
     clearBookingDraft()
-  }, [certDesignOptions])
+  }, [certDesignOptions, clearOtpState])
+
+  // При повторном открытии «Забронировать» — вернуть OTP / экран «видим запись»
+  useEffect(() => {
+    if (!isOpen) return
+    const pending = loadBookingOtpPending()
+    const step = otpStepFromPending(pending)
+    if (!pending || !step) return
+    setBookingId(pending.bookingId)
+    setHoldExpiresAt(pending.holdExpiresAt)
+    setOtpResendUsed(pending.otpResendUsed)
+    if (pending.email) setEmail(pending.email)
+    setOtpDigits(OTP_EMPTY())
+    setBookingError('')
+    setWizardStep(step)
+    setDateTimeOpen(false)
+    setBirthdayPickerOpen(false)
+  }, [isOpen])
+
+  const serverNowRef = useRef(serverNow)
+  serverNowRef.current = serverNow
+  /** Чтобы поздний ответ /public/promos не включал скидку после закрытия/повторного открытия. */
+  const openSeqRef = useRef(0)
 
   useEffect(() => {
     if (!isOpen) {
+      openSeqRef.current += 1
       setDateTimeOpen(false)
       setBirthdayPickerOpen(false)
       // Лояльности не тащим между открытиями — только явно из promo-контекста
@@ -416,6 +571,8 @@ function BookingModal() {
       setCertInfo(null)
       return
     }
+
+    const seq = ++openSeqRef.current
 
     if (payload?.combo) {
       setAircraft('combo')
@@ -439,18 +596,30 @@ function BookingModal() {
     setHasGiftCert(false)
     setBirthdayDiscount(false)
     setHappyHoursOnly(false)
+    setPromoCodeHint('')
     setCertValid(null)
     setCertInfo(null)
 
-    if (payload?.promo === 'birthday') {
-      setBirthdayDiscount(true)
-    } else if (payload?.promo === 'happy-hours') {
+    const wantedPromo = payload?.promo
+    if (wantedPromo !== 'birthday' && wantedPromo !== 'happy-hours') return
+
+    void apiFetch<ApiPromo[]>('/api/public/promos').then((rows) => {
+      if (openSeqRef.current !== seq) return
+      setPromos(rows)
+      const now = serverNowRef.current
+      if (wantedPromo === 'birthday') {
+        const p = promoByType(rows, 'BIRTHDAY')
+        if (isPromoUsableToday(p, now)) setBirthdayDiscount(true)
+        return
+      }
+      const p = promoByType(rows, 'HAPPY_HOURS')
+      if (!isPromoUsableToday(p, now)) return
       setHappyHoursOnly(true)
       setSelectedTime((t) => (t && isHappyHourTime(t) ? t : null))
-      // Сб/Вс не должны оставаться «активной» датой для счастливых часов
       setSelectedDate((d) => (d && isWeekend(d) ? null : d))
-    }
-  }, [isOpen, payload])
+    })
+    // serverNow тикает каждую секунду — нельзя класть в deps (мерцание скидки).
+  }, [isOpen, payload, optionLists?.duration])
 
   /** Занятость слотов на выбранную дату / тренажёр (+ Ми-2 для комбо) */
   useEffect(() => {
@@ -528,7 +697,8 @@ function BookingModal() {
       }>('/api/public/calendar'),
       apiFetch<ApiPriceRow[]>('/api/public/prices/flights'),
       apiFetch<{ bookingWindowMonths: number }>('/api/public/settings'),
-    ]).then(([cal, prices, settings]) => {
+      apiFetch<ApiPromo[]>('/api/public/promos'),
+    ]).then(([cal, prices, settings, promoRows]) => {
       const map: Record<string, CalendarStatus> = {}
       const closed = new Set<string>()
       for (const d of cal.days) {
@@ -539,6 +709,7 @@ function BookingModal() {
       setFullyClosedDates(closed)
       setMaintenanceList(cal.maintenance ?? [])
       setFlightPrices(prices)
+      setPromos(promoRows)
       setBookingWindowMonths(cal.bookingWindowMonths ?? settings.bookingWindowMonths ?? 12)
     })
   }, [])
@@ -580,18 +751,20 @@ function BookingModal() {
               durationMin: r.durationMin,
               number: r.number,
             })
-            if (r.simulatorSlug === 'mi-2' || r.simulatorSlug === 'boeing-737') {
+            // Тренажёр и тариф с подарочного сертификата — фиксируем
+            if (r.simulatorSlug === 'combo') {
+              setAircraft('combo')
+              setDurationMin(60)
+            } else if (r.simulatorSlug === 'mi-2' || r.simulatorSlug === 'boeing-737') {
               setAircraft(r.simulatorSlug)
+              if (typeof r.durationMin === 'number' && r.durationMin > 0) {
+                setDurationMin(r.durationMin)
+              }
+            } else if (typeof r.durationMin === 'number' && r.durationMin > 0) {
+              setDurationMin(r.durationMin)
             }
-            if (typeof r.durationMin === 'number' && r.durationMin > 0) {
-              const slug =
-                r.simulatorSlug === 'mi-2' || r.simulatorSlug === 'boeing-737'
-                  ? r.simulatorSlug
-                  : 'boeing-737'
-              setDurationMin(
-                clampDurationForSimulator(slug, r.durationMin, optionLists?.duration),
-              )
-            }
+            setBirthdayDiscount(false)
+            setHappyHoursOnly(false)
           } else {
             setCertInfo(null)
           }
@@ -624,6 +797,7 @@ function BookingModal() {
       comboMode: isCombo,
       durationMin: isCombo ? 30 : durationMin,
       fullyClosedDates,
+      now: serverNow,
     }),
     [
       birthdayDiscount,
@@ -639,6 +813,7 @@ function BookingModal() {
       isCombo,
       gapMin,
       fullyClosedDates,
+      serverNow,
     ],
   )
 
@@ -662,7 +837,7 @@ function BookingModal() {
       if (!selectedDate) return slots
       const dateKey = format(selectedDate, 'yyyy-MM-dd')
       return slots.filter((t) => {
-        if (isTimeSlotPast(selectedDate, t)) return false
+        if (isTimeSlotPast(selectedDate, t, serverNow)) return false
         return (
           resolveComboOrder({
             startTime: t,
@@ -686,7 +861,7 @@ function BookingModal() {
     if (selectedDate) {
       const dateKey = format(selectedDate, 'yyyy-MM-dd')
       slots = slots.filter((t) => {
-        if (isTimeSlotPast(selectedDate, t)) return false
+        if (isTimeSlotPast(selectedDate, t, serverNow)) return false
         if (isSlotClosedByMaintenance(dateKey, t, dur, aircraft, maintenanceList)) {
           return false
         }
@@ -705,6 +880,7 @@ function BookingModal() {
     busySlotsMi2,
     gapMin,
     isCombo,
+    serverNow,
   ])
 
   useEffect(() => {
@@ -726,7 +902,6 @@ function BookingModal() {
 
   useEffect(() => {
     if (wizardStep !== 'otp') return
-    setResendSec(60)
     const id = window.setInterval(() => {
       setResendSec((s) => (s <= 0 ? 0 : s - 1))
     }, 1000)
@@ -742,15 +917,134 @@ function BookingModal() {
       method: 'POST',
       body: JSON.stringify({ code }),
     })
-      .then(() => setWizardStep('success'))
-      .catch(() => setBookingError('Неверный или просроченный код'))
+      .then(() => {
+        clearBookingOtpPending()
+        setWizardStep('success')
+      })
+      .catch((err) => {
+        const msg = err instanceof ApiError ? err.message : String(err ?? '')
+        if (msg === 'CODE_EXPIRED' || /истёк|expired/i.test(msg)) {
+          setWizardStep('otp-failed')
+          return
+        }
+        setBookingError('Неверный код')
+        setOtpDigits(OTP_EMPTY())
+      })
   }, [otpDigits, wizardStep, bookingId])
+
+  // Таймер 5 мин (идёт и при закрытом окне — ориентир holdExpiresAt)
+  useEffect(() => {
+    if ((wizardStep !== 'otp' && wizardStep !== 'otp-failed') || !holdExpiresAt) {
+      setOtpMsLeft(0)
+      return
+    }
+    const ends = new Date(holdExpiresAt).getTime()
+    const tick = () => {
+      const left = ends - Date.now()
+      setOtpMsLeft(Math.max(0, left))
+      if (left <= 0 && wizardStep === 'otp') setWizardStep('otp-failed')
+    }
+    tick()
+    const id = window.setInterval(tick, 250)
+    return () => window.clearInterval(id)
+  }, [wizardStep, holdExpiresAt])
 
   useEffect(() => {
     if (wizardStep !== 'otp') return
     const id = window.requestAnimationFrame(() => otpRefs.current[0]?.focus())
     return () => window.cancelAnimationFrame(id)
   }, [wizardStep])
+
+  const birthdayPromo = useMemo(() => promoByType(promos, 'BIRTHDAY'), [promos])
+  const happyHoursPromo = useMemo(() => promoByType(promos, 'HAPPY_HOURS'), [promos])
+  const birthdayPromoLive = isPromoUsableToday(birthdayPromo, serverNow)
+  const happyHoursPromoLive = isPromoUsableToday(happyHoursPromo, serverNow)
+  const bookingSimSlug = isCombo ? 'combo' : aircraft
+  const birthdayAppliesToSim = promoAppliesToSimulator(birthdayPromo, bookingSimSlug)
+  const happyAppliesToSim = promoAppliesToSimulator(happyHoursPromo, bookingSimSlug)
+
+  useEffect(() => {
+    // Пока акции не подгрузились — не гасим ручной переключатель (иначе мерцание).
+    if (promos.length === 0) return
+    if (birthdayDiscount && (!birthdayPromoLive || !birthdayAppliesToSim)) {
+      setBirthdayDiscount(false)
+    }
+    if (happyHoursOnly && (!happyHoursPromoLive || !happyAppliesToSim)) {
+      setHappyHoursOnly(false)
+    }
+  }, [
+    promos.length,
+    birthdayPromoLive,
+    birthdayAppliesToSim,
+    birthdayDiscount,
+    happyHoursPromoLive,
+    happyAppliesToSim,
+    happyHoursOnly,
+  ])
+
+  /** Промокод в примечании → синяя плашка, если акция сейчас действует полностью. */
+  const tryApplyHappyHoursFromNote = useCallback(
+    (raw: string, opts?: { fromBlur?: boolean }) => {
+      if (happyHoursOnly || hasGiftCert) {
+        setNote(sanitizeNoteInput(raw))
+        return
+      }
+      const { matched, rest } = extractHappyHoursPromoCode(raw)
+      if (!matched) {
+        setNote(sanitizeNoteInput(raw))
+        if (promoCodeHint) setPromoCodeHint('')
+        return
+      }
+      // Фраза ещё может дописываться (без blur) — ждём завершение ввода
+      if (!opts?.fromBlur) {
+        const trimmed = raw.trim()
+        const aloneDone = /^[«"']?\s*сч[аa]стлив(?:ые|ый)?\s+час(?:ы|ов)?\s*[»"']?$/iu.test(
+          trimmed,
+        )
+        const endedWithSep = /сч[аa]стлив(?:ые|ый)?\s+час(?:ы|ов)?\s*[»"']?\s*[,.;:!?]/iu.test(
+          raw,
+        )
+        if (!aloneDone && !endedWithSep) {
+          setNote(sanitizeNoteInput(raw))
+          return
+        }
+      }
+
+      if (!happyHoursPromoLive) {
+        setNote(sanitizeNoteInput(raw))
+        setPromoCodeHint(
+          'Промокод распознан, но акция «Счастливые часы» сейчас недоступна (срок или отключена).',
+        )
+        return
+      }
+      if (!happyAppliesToSim) {
+        setNote(sanitizeNoteInput(raw))
+        setPromoCodeHint(
+          'Промокод распознан, но акция не действует для выбранного тренажёра.',
+        )
+        return
+      }
+
+      setPromoCodeHint('')
+      setNote(sanitizeNoteInput(rest))
+      setBirthdayDiscount(false)
+      setBirthdayPickerOpen(false)
+      setHasGiftCert(false)
+      setCertValid(null)
+      setCertInfo(null)
+      setHappyHoursOnly(true)
+      setSelectedTime((t) => (t && isHappyHourTime(t) ? t : null))
+      setSelectedDate((d) => (d && isWeekend(d) ? null : d))
+      setDateTimeOpen(false)
+    },
+    [
+      happyHoursOnly,
+      hasGiftCert,
+      promoCodeHint,
+      happyHoursPromoLive,
+      happyAppliesToSim,
+    ],
+  )
 
   const priceByn = useMemo(() => {
     const plane30 = getBaseFlightPrice(flightPrices, 'boeing-737', 30)
@@ -760,29 +1054,35 @@ function BookingModal() {
       aircraft as 'boeing-737' | 'mi-2',
       durationMin,
     )
+    const birthdayOk =
+      birthdayDiscount &&
+      birthdayPromoLive &&
+      birthdayAppliesToSim
+    const happyOk = happyHoursOnly && happyHoursPromoLive && happyAppliesToSim
     if (!selectedDate || !selectedTime) {
       return isCombo ? plane30 + heli30 : singleBase
     }
     const dateKey = format(selectedDate, 'yyyy-MM-dd')
     const dayStatus = calendarMap[dateKey]
-    // 2в1: скидка 15% (ДР) / 10% (счастливые часы) на каждый полёт 30 мин, не на «час»
-    if (isCombo) {
-      return computeBookingPriceByn({
-        legs: [plane30, heli30],
-        birthdayDiscount,
-        birthdayDate,
-        selectedDate,
-        selectedTime,
-        dayStatus,
-      })
-    }
-    return computeBookingPriceByn({
-      base: singleBase,
-      birthdayDiscount,
+    const discountOpts = {
+      birthdayDiscount: birthdayOk,
       birthdayDate,
       selectedDate,
       selectedTime,
       dayStatus,
+      birthdayDiscountPercent: birthdayPromo?.discountPercent,
+      happyHoursSelected: happyOk,
+      happyHoursDiscountPercent: happyHoursPromo?.discountPercent,
+    }
+    if (isCombo) {
+      return computeBookingPriceByn({
+        legs: [plane30, heli30],
+        ...discountOpts,
+      })
+    }
+    return computeBookingPriceByn({
+      base: singleBase,
+      ...discountOpts,
     })
   }, [
     aircraft,
@@ -794,6 +1094,48 @@ function BookingModal() {
     selectedTime,
     calendarMap,
     isCombo,
+    birthdayPromoLive,
+    birthdayAppliesToSim,
+    happyHoursOnly,
+    happyHoursPromoLive,
+    happyAppliesToSim,
+    birthdayPromo?.discountPercent,
+    happyHoursPromo?.discountPercent,
+  ])
+
+  const priceBaseByn = useMemo(() => {
+    if (isCombo) {
+      return (
+        getBaseFlightPrice(flightPrices, 'boeing-737', 30) +
+        getBaseFlightPrice(flightPrices, 'mi-2', 30)
+      )
+    }
+    return getBaseFlightPrice(flightPrices, aircraft as 'boeing-737' | 'mi-2', durationMin)
+  }, [aircraft, durationMin, flightPrices, isCombo])
+
+  const appliedDiscountPercent = useMemo(() => {
+    if (!selectedDate || !selectedTime) return 0
+    if (priceBaseByn <= 0 || priceByn >= priceBaseByn) return 0
+    if (birthdayDiscount && birthdayPromoLive && birthdayAppliesToSim) {
+      return birthdayPromo?.discountPercent ?? 15
+    }
+    if (happyHoursOnly && happyHoursPromoLive && happyAppliesToSim) {
+      return happyHoursPromo?.discountPercent ?? 10
+    }
+    return 0
+  }, [
+    selectedDate,
+    selectedTime,
+    priceBaseByn,
+    priceByn,
+    birthdayDiscount,
+    birthdayPromoLive,
+    birthdayAppliesToSim,
+    birthdayPromo?.discountPercent,
+    happyHoursOnly,
+    happyHoursPromoLive,
+    happyAppliesToSim,
+    happyHoursPromo?.discountPercent,
   ])
 
   const dateTimeLabel = useMemo(() => {
@@ -806,7 +1148,7 @@ function BookingModal() {
       !selectedDate ||
       !selectedTime ||
       isBookingDateDisabled(selectedDate, calendarMap, dateDisableOpts) ||
-      isTimeSlotPast(selectedDate, selectedTime) ||
+      isTimeSlotPast(selectedDate, selectedTime, serverNow) ||
       (happyHoursOnly && !isHappyHourTime(selectedTime))
     return {
       name: !isPersonNameValid(name),
@@ -838,27 +1180,44 @@ function BookingModal() {
     happyHoursOnly,
   ])
 
+  const dismissBookingModal = useCallback(() => {
+    setDateTimeOpen(false)
+    setBirthdayPickerOpen(false)
+    // Черновик имени/телефона/даты и т.д. не сбрасываем при закрытии —
+    // клиент может выбрать другой тариф и продолжить без повторного ввода.
+    // Полный сброс только после успешной брони.
+    if (wizardStep === 'success') {
+      resetDraftFields()
+    } else if (wizardStep === 'otp' || wizardStep === 'otp-failed') {
+      if (bookingId && holdExpiresAt) {
+        persistOtpPending({
+          bookingId,
+          holdExpiresAt,
+          email,
+          otpResendUsed,
+        })
+      }
+      // Состояние OTP оставляем в sessionStorage — при следующем «Забронировать» вернёмся сюда
+      setOtpDigits(OTP_EMPTY())
+      setBookingError('')
+    }
+    closeBooking()
+  }, [
+    bookingId,
+    closeBooking,
+    email,
+    holdExpiresAt,
+    otpResendUsed,
+    persistOtpPending,
+    resetDraftFields,
+    wizardStep,
+  ])
+
   const onDialogOpenChange = useCallback(
     (open: boolean) => {
-      if (!open) {
-        setDateTimeOpen(false)
-        setBirthdayPickerOpen(false)
-        // Черновик имени/телефона/даты и т.д. не сбрасываем при закрытии —
-        // клиент может выбрать другой тариф и продолжить без повторного ввода.
-        // Полный сброс только после успешной брони.
-        if (wizardStep === 'success') {
-          resetDraftFields()
-        } else if (wizardStep === 'otp') {
-          setWizardStep('form')
-          setOtpDigits(OTP_EMPTY())
-          setBookingId(null)
-          setBookingError('')
-          setResendSec(60)
-        }
-        closeBooking()
-      }
+      if (!open) dismissBookingModal()
     },
-    [closeBooking, resetDraftFields, wizardStep],
+    [dismissBookingModal],
   )
 
   const confirmDateTime = useCallback(() => {
@@ -873,7 +1232,7 @@ function BookingModal() {
   }, [birthdayDate])
 
   const confirmBirthdayDate = useCallback(() => {
-    setBirthdayDate(format(birthdayPickerDate, 'dd-MM'))
+    setBirthdayDate(format(birthdayPickerDate, 'dd.MM'))
     setBirthdayPickerOpen(false)
   }, [birthdayPickerDate])
 
@@ -941,19 +1300,26 @@ function BookingModal() {
           onInteractOutside={(e) => {
             e.preventDefault()
           }}
+          onEscapeKeyDown={() => {
+            dismissBookingModal()
+          }}
         >
           <div
             className="flex min-h-full justify-center px-[10px] py-6 min-[480px]:py-8 min-[990px]:py-10"
             onPointerDown={(e) => {
-              if (e.target === e.currentTarget) onDialogOpenChange(false)
+              if (e.target === e.currentTarget) dismissBookingModal()
+            }}
+            onClick={(e) => {
+              if (e.target === e.currentTarget) dismissBookingModal()
             }}
           >
             <div
               className="relative my-auto w-[min(calc(100vw-20px),960px)] max-w-[960px] rounded-2xl bg-white p-4 shadow-[0_24px_80px_rgba(0,45,98,0.22)] min-[480px]:p-5 min-[990px]:rounded-[24px] min-[990px]:p-8"
               onPointerDown={(e) => e.stopPropagation()}
+              onClick={(e) => e.stopPropagation()}
             >
           <div className="relative">
-            <div className="mb-4 flex items-start justify-between gap-3">
+            <div className="mb-4 flex min-h-9 items-start justify-between gap-3">
               {wizardStep === 'form' ? (
                 <div className="flex flex-1 flex-col items-center gap-1 pr-10">
                   <Dialog.Title className="text-center text-[20px] font-bold leading-tight text-[#002D62] min-[990px]:text-[22px]">
@@ -977,20 +1343,21 @@ function BookingModal() {
                     Хочу подарочный сертификат →
                   </button>
                 </div>
-              ) : wizardStep === 'otp' ? (
-                <Dialog.Title className="sr-only">Ввод кода из письма</Dialog.Title>
+              ) : wizardStep === 'otp' || wizardStep === 'otp-failed' ? (
+                <Dialog.Title className="sr-only">Подтверждение email</Dialog.Title>
               ) : (
                 <Dialog.Title className="sr-only">Бронирование оформлено</Dialog.Title>
               )}
-              <Dialog.Close
+              <button
                 type="button"
-                className="absolute right-0 top-0 inline-flex h-9 w-9 items-center justify-center rounded-full text-[#002D62] hover:bg-[#f0f1f3]"
+                className="absolute right-0 top-0 z-10 inline-flex h-9 w-9 items-center justify-center rounded-full text-[#002D62] hover:bg-[#f0f1f3]"
                 aria-label="Закрыть"
+                onClick={() => dismissBookingModal()}
               >
                 <span className="text-2xl leading-none" aria-hidden>
                   ×
                 </span>
-              </Dialog.Close>
+              </button>
             </div>
 
             {wizardStep === 'success' ? (
@@ -1001,15 +1368,74 @@ function BookingModal() {
                 <p className="mt-3 max-w-[340px] text-[15px] font-medium leading-relaxed text-[#5a6578] min-[990px]:mt-4 min-[990px]:text-[16px]">
                   Мы будем рады видеть вас!
                 </p>
+                <button
+                  type="button"
+                  className="mt-8 w-full max-w-[280px] rounded-xl bg-[linear-gradient(180deg,#4da3ff_0%,#0075ff_48%,#0050b3_100%)] py-3.5 text-[16px] font-semibold text-white shadow-[0_8px_24px_rgba(0,117,255,0.35)] transition-opacity hover:opacity-95"
+                  onClick={() => dismissBookingModal()}
+                >
+                  Готово
+                </button>
+              </div>
+            ) : wizardStep === 'otp-failed' ? (
+              <div className="flex flex-col items-center px-2 py-8 text-center min-[990px]:py-12">
+                <h2 className="text-[20px] font-bold leading-snug text-[#002D62] min-[990px]:text-[22px]">
+                  Мы видим вашу запись
+                </h2>
+                <p className="mt-4 max-w-[420px] text-[14px] font-medium leading-relaxed text-[#5a6578] min-[990px]:text-[15px]">
+                  Менеджер свяжется с вами для подтверждения. Или перезвоните нам по телефону{' '}
+                  <a
+                    href={phoneToTelHref(contacts.phone)}
+                    className="font-semibold text-[#0075FF] underline-offset-2 hover:underline"
+                  >
+                    {contacts.phone}
+                  </a>
+                  .
+                </p>
+                <div className="mt-8 flex w-full max-w-[320px] flex-col gap-3">
+                  <button
+                    type="button"
+                    className="w-full rounded-xl bg-[linear-gradient(180deg,#4da3ff_0%,#0075ff_48%,#0050b3_100%)] py-3.5 text-[16px] font-semibold text-white shadow-[0_8px_24px_rgba(0,117,255,0.35)]"
+                    onClick={() => startNewBookingFromOtp()}
+                  >
+                    Оставить новую бронь
+                  </button>
+                  <button
+                    type="button"
+                    className="w-full rounded-xl border border-[#d1d5db] bg-white py-3.5 text-[15px] font-semibold text-[#002D62] transition-colors hover:border-[#0075FF]/50"
+                    onClick={() => {
+                      clearOtpState()
+                      setDateTimeOpen(false)
+                      setBirthdayPickerOpen(false)
+                      closeBooking()
+                      openGiftCertificate()
+                    }}
+                  >
+                    Подарить новый полёт
+                  </button>
+                  <button
+                    type="button"
+                    className="text-[14px] font-medium text-[#5a6578] underline-offset-2 hover:underline"
+                    onClick={() => dismissBookingModal()}
+                  >
+                    Закрыть
+                  </button>
+                </div>
               </div>
             ) : wizardStep === 'otp' ? (
               <div className="flex flex-col px-1 pt-1 min-[990px]:px-2">
                 <h2 className="text-center text-[18px] font-bold leading-snug text-[#1a1f2e] min-[990px]:text-[20px]">
-                  Подтвердите бронирование по
+                  Подтвердите бронирование
                 </h2>
                 <p className="mt-4 text-center text-[13px] font-medium leading-relaxed text-[#6b7289] min-[990px]:mt-5 min-[990px]:text-[14px]">
-                  Введите код из письма, отправленного на {email || 'указанный email'}
+                  Введите код из письма, отправленного на {email || 'указанный email'}.
                 </p>
+                <p className="mt-3 text-center text-[15px] font-semibold text-[#002D62] min-[990px]:text-[16px]">
+                  Осталось{' '}
+                  <span className="tabular-nums text-[#0075FF]">{formatOtpCountdown(otpMsLeft)}</span>
+                </p>
+                {bookingError ? (
+                  <p className="mt-3 text-center text-[13px] font-medium text-red-600">{bookingError}</p>
+                ) : null}
                 <div className="mt-8 flex justify-center gap-2 min-[990px]:mt-10 min-[990px]:gap-2.5">
                   {otpDigits.map((digit, i) => (
                     <input
@@ -1023,6 +1449,7 @@ function BookingModal() {
                       maxLength={1}
                       value={digit}
                       onChange={(e) => {
+                        setBookingError('')
                         const v = sanitizeOtpDigitInput(e.target.value)
                         setOtpDigits((prev) => {
                           const next = [...prev]
@@ -1055,23 +1482,54 @@ function BookingModal() {
                   ))}
                 </div>
                 <p className="mt-8 text-center text-[13px] font-medium text-[#5a6578] min-[990px]:mt-10 min-[990px]:text-[14px]">
-                  Запросить новый код можно через{' '}
-                  {resendSec > 0 ? (
-                    <span className="font-semibold text-[#0075FF]">{resendSec} сек</span>
+                  {otpResendUsed ? (
+                    <span>Повторная отправка кода уже использована.</span>
+                  ) : resendSec > 0 ? (
+                    <>
+                      Запросить новый код можно через{' '}
+                      <span className="font-semibold text-[#0075FF]">{resendSec} сек</span>
+                    </>
                   ) : (
                     <button
                       type="button"
                       className="font-semibold text-[#0075FF] underline-offset-2 hover:underline"
                       onClick={() => {
                         if (!bookingId) return
-                        void apiFetch(`/api/public/bookings/${bookingId}/resend-code`, {
-                          method: 'POST',
-                        })
-                          .then(() => setResendSec(60))
-                          .catch(() => setBookingError('Повторная отправка пока недоступна'))
+                        void apiFetch<{
+                          ok: boolean
+                          resendLeft?: number
+                          holdExpiresAt?: string
+                        }>(`/api/public/bookings/${bookingId}/resend-code`, { method: 'POST' })
+                          .then(() => {
+                            setOtpResendUsed(true)
+                            setResendSec(60)
+                            setBookingError('')
+                            // Таймер 5 мин от заявки не сбрасываем
+                            if (bookingId && holdExpiresAt) {
+                              persistOtpPending({
+                                bookingId,
+                                holdExpiresAt,
+                                email,
+                                otpResendUsed: true,
+                              })
+                            }
+                          })
+                          .catch((err) => {
+                            const msg = err instanceof ApiError ? err.message : ''
+                            if (msg === 'CODE_EXPIRED' || /истёк|expired/i.test(msg)) {
+                              setWizardStep('otp-failed')
+                              return
+                            }
+                            if (msg === 'RESEND_LIMIT') {
+                              setOtpResendUsed(true)
+                              setBookingError('Повторная отправка доступна только один раз')
+                            } else {
+                              setBookingError('Повторная отправка пока недоступна')
+                            }
+                          })
                       }}
                     >
-                      отправить снова
+                      отправить снова (один раз)
                     </button>
                   )}
                 </p>
@@ -1087,7 +1545,7 @@ function BookingModal() {
                 </button>
                 <div className="min-w-0">
                   <p className="mb-2 text-[14px] font-semibold text-[#002D62] min-[990px]:text-[15px]">
-                    Дата дня рождения
+                    Число и месяц рождения (год не нужен)
                   </p>
                   <DayPicker
                     mode="single"
@@ -1107,7 +1565,7 @@ function BookingModal() {
                 <div className="mt-4 border-t border-dotted border-[#0075FF] pt-4 min-[990px]:mt-5 min-[990px]:pt-5">
                   <div className="flex flex-col gap-3 min-[990px]:flex-row min-[990px]:items-center min-[990px]:justify-between">
                     <p className="text-[14px] font-semibold text-[#002D62] min-[990px]:text-[15px]">
-                      {format(birthdayPickerDate, 'dd-MM')}
+                      {format(birthdayPickerDate, 'dd.MM')}
                     </p>
                     <button
                       type="button"
@@ -1136,6 +1594,7 @@ function BookingModal() {
                         <Pill
                           key={s.value}
                           selected={aircraft === s.value}
+                          disabled={giftLocksSimAndDuration}
                           className="w-full py-3"
                           onClick={() => {
                             const next = s.value as 'boeing-737' | 'mi-2'
@@ -1157,6 +1616,7 @@ function BookingModal() {
                       ))}
                     <Pill
                       selected={aircraft === 'combo'}
+                      disabled={giftLocksSimAndDuration}
                       className="w-full py-3"
                       onClick={() => {
                         if (aircraft !== 'combo') clearSelectedDateTime()
@@ -1170,9 +1630,11 @@ function BookingModal() {
 
                   <div>
                     <p className="mb-2 text-center text-[14px] font-semibold text-[#002D62] min-[990px]:text-[15px]">
-                      {isCombo
-                        ? `${comboLabel}: 30 мин + 30 мин (пауза между ними)`
-                        : 'Выберите продолжительность полета'}
+                      {giftLocksSimAndDuration
+                        ? 'Тариф по подарочному сертификату'
+                        : isCombo
+                          ? `${comboLabel}: 30 мин + 30 мин (пауза между ними)`
+                          : 'Выберите продолжительность полета'}
                     </p>
                     <div
                       className={[
@@ -1186,6 +1648,7 @@ function BookingModal() {
                         <Pill
                           key={d.value}
                           selected={durationMin === d.value}
+                          disabled={giftLocksSimAndDuration}
                           onClick={() => {
                             if (durationMin !== d.value) {
                               setSelectedTime(null)
@@ -1199,6 +1662,11 @@ function BookingModal() {
                         </Pill>
                       ))}
                     </div>
+                    {giftLocksSimAndDuration ? (
+                      <p className="mt-2 text-center text-[12px] text-[#5a6578]">
+                        Тренажёр и длительность заданы сертификатом и недоступны для изменения.
+                      </p>
+                    ) : null}
                   </div>
 
                   <div className="grid grid-cols-1 gap-4 min-[700px]:grid-cols-2 min-[700px]:items-start min-[700px]:gap-6">
@@ -1220,8 +1688,24 @@ function BookingModal() {
                         }}
                       />
                       <SwitchRow
-                        label="Хочу скидку в день рождения"
+                        label={
+                          birthdayPromoLive
+                            ? `Хочу скидку в день рождения${
+                                birthdayPromo?.discountPercent
+                                  ? ` (−${birthdayPromo.discountPercent}%)`
+                                  : ''
+                              }`
+                            : 'Скидка в день рождения недоступна'
+                        }
                         checked={birthdayDiscount}
+                        disabled={!birthdayPromoLive || !birthdayAppliesToSim}
+                        title={
+                          !birthdayPromoLive
+                            ? 'Акция не действует сегодня (срок или отключена в админке)'
+                            : !birthdayAppliesToSim
+                              ? 'Акция не распространяется на выбранный тренажёр'
+                              : undefined
+                        }
                         onChange={(v) => {
                           setBirthdayDiscount(v)
                           if (v) {
@@ -1280,29 +1764,37 @@ function BookingModal() {
                           ].join(' ')}
                         >
                           <label className="relative flex shrink-0 items-stretch border-r border-[#d1d5db] bg-white">
-                            <span className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-[14px] font-semibold text-[#002D62]">
-                              №
-                            </span>
                             <select
                               value={certSeriesCode}
-                              onChange={(e) => setCertSeriesCode(e.target.value)}
-                              className="h-full cursor-pointer appearance-none bg-transparent py-2.5 pl-8 pr-8 text-[14px] font-semibold text-[#002D62] outline-none min-[990px]:text-[15px]"
-                              aria-label="Серия (цвет бланка)"
+                              onChange={(e) => {
+                                const code = e.target.value
+                                setCertSeriesCode(code)
+                                setCertDigits((d) =>
+                                  sanitizeCertificateDigitsInput(d, maxDigitsForCode(code)),
+                                )
+                              }}
+                              className="h-full max-w-[11rem] cursor-pointer appearance-none bg-transparent py-2.5 pl-3 pr-7 text-[13px] font-semibold text-[#002D62] outline-none min-[990px]:text-[14px]"
+                              aria-label="Серия сертификата"
                               tabIndex={hasGiftCert ? undefined : -1}
                             >
                               {certDesignOptions.map((o) => (
                                 <option key={o.value} value={o.code}>
-                                  {o.code} — {o.label}
+                                  {o.code}
                                 </option>
                               ))}
                             </select>
                           </label>
                           <input
                             className="min-w-0 flex-1 border-0 bg-transparent px-3 py-2.5 text-[14px] font-medium text-[#002D62] outline-none placeholder:text-[#8b95a8] min-[990px]:text-[15px]"
-                            placeholder="Только цифры номера"
+                            placeholder="Цифры"
                             value={certDigits}
                             onChange={(e) =>
-                              setCertDigits(sanitizeCertificateDigitsInput(e.target.value))
+                              setCertDigits(
+                                sanitizeCertificateDigitsInput(
+                                  e.target.value,
+                                  maxDigitsForCode(certSeriesCode),
+                                ),
+                              )
                             }
                             inputMode="numeric"
                             autoComplete="off"
@@ -1311,8 +1803,9 @@ function BookingModal() {
                           />
                         </div>
                         <p className="mt-1.5 text-[12px] text-[#5a6578]">
-                          Полный номер: <span className="font-semibold text-[#002D62]">{giftCertNumber}</span>
-                          {' · '}серия по цвету бланка, вводите только цифры
+                          Полный номер:{' '}
+                          <span className="font-semibold text-[#002D62]">{giftCertNumber}</span>
+                          {' · '}макс. 13 букв/цифр
                         </p>
                         <PromoTip>
                           <p className="mb-0">
@@ -1362,7 +1855,7 @@ function BookingModal() {
                       </SwitchReveal>
 
                       <SwitchReveal open={birthdayDiscount}>
-                        <span className={labelClass()}>Дата дня рождения</span>
+                        <span className={labelClass()}>Число и месяц рождения</span>
                         <button
                           type="button"
                           onClick={openBirthdayPicker}
@@ -1375,7 +1868,7 @@ function BookingModal() {
                               birthdayDate ? 'text-[#002D62]' : 'text-[#8b95a8]',
                             ].join(' ')}
                           >
-                            {birthdayDate || 'Выберите дату дня рождения'}
+                            {birthdayDate || 'Введите число и месяц рождения'}
                           </span>
                           <CalendarFieldIcon />
                         </button>
@@ -1474,12 +1967,24 @@ function BookingModal() {
                       <input
                         id="booking-note"
                         className={inputClass()}
-                        placeholder="Есть какая то просьба?"
+                        placeholder={NOTE_PLACEHOLDER}
                         value={note}
-                        onChange={(e) => setNote(sanitizeNoteInput(e.target.value))}
+                        onChange={(e) => tryApplyHappyHoursFromNote(e.target.value)}
+                        onBlur={(e) =>
+                          tryApplyHappyHoursFromNote(e.target.value, { fromBlur: true })
+                        }
                         maxLength={500}
                       />
                     )}
+                    {promoCodeHint ? (
+                      <p className="mt-1.5 text-[12px] font-medium text-amber-700">{promoCodeHint}</p>
+                    ) : null}
+                    <SwitchReveal open={happyHoursOnly}>
+                      <p className="mt-1.5 text-[12px] text-[#5a6578]">
+                        Промокод принят. Дальше только будни и слоты 12:00–15:00, скидка −
+                        {happyHoursPromo?.discountPercent ?? 10}%.
+                      </p>
+                    </SwitchReveal>
                   </div>
 
                   <div className="grid grid-cols-1 gap-4 min-[700px]:grid-cols-2 min-[700px]:gap-6">
@@ -1523,7 +2028,19 @@ function BookingModal() {
                   */}
 
                   <p className="text-[16px] font-bold text-[#002D62] min-[990px]:text-[17px]">
-                    Стоимость: {priceByn} BYN
+                    Стоимость:{' '}
+                    {appliedDiscountPercent > 0 && priceBaseByn > priceByn ? (
+                      <>
+                        <span className="mr-2 font-semibold text-[#8b95a8] line-through">
+                          {priceBaseByn} BYN
+                        </span>
+                        <span>
+                          {priceByn} BYN (−{appliedDiscountPercent}%)
+                        </span>
+                      </>
+                    ) : (
+                      <>{priceByn} BYN</>
+                    )}
                   </p>
 
                   {bookingError ? (
@@ -1531,122 +2048,6 @@ function BookingModal() {
                   ) : null}
 
                   <div className="flex flex-col gap-[10px]">
-                    <button
-                      type="button"
-                      className="w-full rounded-xl bg-[linear-gradient(180deg,#4da3ff_0%,#0075ff_48%,#0050b3_100%)] py-3.5 text-[16px] font-semibold text-white shadow-[0_8px_24px_rgba(0,117,255,0.35)] transition-opacity hover:opacity-95 min-[990px]:py-4 min-[990px]:text-[17px]"
-                      onClick={() => {
-                        setSubmitted(true)
-                        setBookingError('')
-                        if (fieldErrors.name) {
-                          setBookingError('Укажите корректное имя (минимум 2 символа).')
-                          return
-                        }
-                        if (fieldErrors.phone) {
-                          setBookingError('Укажите корректный телефон.')
-                          return
-                        }
-                        if (fieldErrors.email) {
-                          setBookingError('Укажите корректный email — на него придёт код.')
-                          return
-                        }
-                        if (fieldErrors.giftCert) {
-                          setBookingError('Проверьте номер подарочного сертификата.')
-                          return
-                        }
-                        if (fieldErrors.birthday) {
-                          setBookingError('Укажите дату рождения в формате ДД.ММ.')
-                          return
-                        }
-                        if (fieldErrors.consent) {
-                          setBookingError('Нужно согласие на обработку персональных данных.')
-                          return
-                        }
-                        if (fieldErrors.dateTime || !selectedDate || !selectedTime) {
-                          setBookingError(
-                            describeBookingDateTimeProblem(
-                              selectedDate,
-                              selectedTime,
-                              calendarMap,
-                              dateDisableOpts,
-                            ) ??
-                              'Выберите доступные дату и время полёта. Недоступные дни и занятые слоты выбрать нельзя.',
-                          )
-                          setDateTimeOpen(true)
-                          return
-                        }
-                        void (async () => {
-                          try {
-                            const bodyBase = {
-                              date: format(selectedDate, 'yyyy-MM-dd'),
-                              startTime: selectedTime,
-                              name,
-                              phone,
-                              email,
-                              paymentMethod: payment === 'now' ? 'ONLINE' : 'OFFLINE',
-                              comment: isCombo
-                                ? composeBookingComment(
-                                    note.trim() ? `2в1. ${note.trim()}` : '2в1',
-                                    happyHoursOnly,
-                                  )
-                                : composeBookingComment(note, happyHoursOnly),
-                              isBirthdayPromo: birthdayDiscount,
-                              isHappyHoursPromo: happyHoursOnly,
-                              birthdayDate: birthdayDate || undefined,
-                              certificateNumber: hasGiftCert ? giftCertNumber : undefined,
-                            }
-                            const result = isCombo
-                              ? await apiFetch<{ bookingId: string }>('/api/public/bookings/combo', {
-                                  method: 'POST',
-                                  body: JSON.stringify(bodyBase),
-                                })
-                              : await apiFetch<{ bookingId: string }>('/api/public/bookings', {
-                                  method: 'POST',
-                                  body: JSON.stringify({
-                                    ...bodyBase,
-                                    durationMin,
-                                    simulatorSlug: aircraft,
-                                  }),
-                                })
-                            setBookingId(result.bookingId)
-                            setOtpDigits(OTP_EMPTY())
-                            setWizardStep('otp')
-                            setResendSec(60)
-                          } catch (err) {
-                            const msg = err instanceof Error ? err.message : ''
-                            if (msg.includes('заблокир') || msg.includes('DATE_BLOCKED')) {
-                              setBookingError(
-                                'Эта дата заблокирована (ТО или закрытие). Выберите другой день.',
-                              )
-                              setDateTimeOpen(true)
-                            } else if (msg.includes('праздник') || msg.includes('DATE_HOLIDAY')) {
-                              setBookingError(
-                                'В выходные и праздники это предложение недоступно. Выберите будний день.',
-                              )
-                            } else if (msg.includes('занято') || msg.includes('SLOT_TAKEN') || msg.includes('интервал')) {
-                              setBookingError(
-                                `Слот занят или слишком близко к другой записи (нужен интервал ${gapMin} мин). Выберите другое время.`,
-                              )
-                              setSelectedTime(null)
-                              setSlotConflictHint(
-                                `Нужен интервал ${gapMin} мин между полётами. Выберите другое время.`,
-                              )
-                              setDateTimeOpen(true)
-                            } else if (msg.includes('ТО') || msg.includes('MAINTENANCE')) {
-                              setBookingError(msg || 'Выбранный слот недоступен из‑за ТО.')
-                              setDateTimeOpen(true)
-                            } else {
-                              setBookingError(
-                                msg ||
-                                  'Не удалось создать бронь. Проверьте дату, время и контактные данные.',
-                              )
-                            }
-                          }
-                        })()
-                      }}
-                    >
-                      {payment === 'now' ? 'Забронировать и оплатить' : 'Забронировать полет'}
-                    </button>
-
                     <label
                       className={[
                         'flex cursor-pointer gap-3 text-left text-[13px] font-medium leading-snug min-[990px]:text-[14px]',
@@ -1686,6 +2087,140 @@ function BookingModal() {
                         .
                       </span>
                     </label>
+
+                    <button
+                      type="button"
+                      className="w-full rounded-xl bg-[linear-gradient(180deg,#4da3ff_0%,#0075ff_48%,#0050b3_100%)] py-3.5 text-[16px] font-semibold text-white shadow-[0_8px_24px_rgba(0,117,255,0.35)] transition-opacity hover:opacity-95 min-[990px]:py-4 min-[990px]:text-[17px]"
+                      onClick={() => {
+                        setSubmitted(true)
+                        setBookingError('')
+                        if (fieldErrors.name) {
+                          setBookingError('Укажите корректное имя (минимум 2 символа).')
+                          return
+                        }
+                        if (fieldErrors.phone) {
+                          setBookingError('Укажите корректный телефон.')
+                          return
+                        }
+                        if (fieldErrors.email) {
+                          setBookingError('Укажите корректный email — на него придёт код.')
+                          return
+                        }
+                        if (fieldErrors.giftCert) {
+                          setBookingError('Проверьте номер подарочного сертификата.')
+                          return
+                        }
+                        if (fieldErrors.birthday) {
+                          setBookingError('Укажите число и месяц рождения (ДД.ММ).')
+                          return
+                        }
+                        if (fieldErrors.consent) {
+                          setBookingError('Нужно согласие на обработку персональных данных.')
+                          return
+                        }
+                        if (fieldErrors.dateTime || !selectedDate || !selectedTime) {
+                          setBookingError(
+                            describeBookingDateTimeProblem(
+                              selectedDate,
+                              selectedTime,
+                              calendarMap,
+                              dateDisableOpts,
+                            ) ??
+                              'Выберите доступные дату и время полёта. Недоступные дни и занятые слоты выбрать нельзя.',
+                          )
+                          setDateTimeOpen(true)
+                          return
+                        }
+                        void (async () => {
+                          try {
+                            const bodyBase = {
+                              date: format(selectedDate, 'yyyy-MM-dd'),
+                              startTime: selectedTime,
+                              name,
+                              phone,
+                              email,
+                              // Бронь с сайта всегда канал «На сайте»
+                              paymentMethod: 'ONLINE' as const,
+                              comment: isCombo
+                                ? composeBookingComment(
+                                    note.trim() ? `2в1. ${note.trim()}` : '2в1',
+                                    happyHoursOnly,
+                                  )
+                                : composeBookingComment(note, happyHoursOnly),
+                              isBirthdayPromo: birthdayDiscount,
+                              isHappyHoursPromo: happyHoursOnly,
+                              birthdayDate: birthdayDate || undefined,
+                              certificateNumber: hasGiftCert ? giftCertNumber : undefined,
+                            }
+                            const result = isCombo
+                              ? await apiFetch<{ bookingId: string; holdExpiresAt?: string }>(
+                                  '/api/public/bookings/combo',
+                                  {
+                                    method: 'POST',
+                                    body: JSON.stringify(bodyBase),
+                                  },
+                                )
+                              : await apiFetch<{ bookingId: string; holdExpiresAt?: string }>(
+                                  '/api/public/bookings',
+                                  {
+                                    method: 'POST',
+                                    body: JSON.stringify({
+                                      ...bodyBase,
+                                      durationMin,
+                                      simulatorSlug: aircraft,
+                                    }),
+                                  },
+                                )
+                            const holdAt =
+                              result.holdExpiresAt ??
+                              new Date(Date.now() + 5 * 60_000).toISOString()
+                            setBookingId(result.bookingId)
+                            setHoldExpiresAt(holdAt)
+                            setOtpDigits(OTP_EMPTY())
+                            setOtpResendUsed(false)
+                            setResendSec(60)
+                            persistOtpPending({
+                              bookingId: result.bookingId,
+                              holdExpiresAt: holdAt,
+                              email,
+                              otpResendUsed: false,
+                            })
+                            setWizardStep('otp')
+                          } catch (err) {
+                            const msg = err instanceof Error ? err.message : ''
+                            if (msg.includes('заблокир') || msg.includes('DATE_BLOCKED')) {
+                              setBookingError(
+                                'Эта дата заблокирована (ТО или закрытие). Выберите другой день.',
+                              )
+                              setDateTimeOpen(true)
+                            } else if (msg.includes('праздник') || msg.includes('DATE_HOLIDAY')) {
+                              setBookingError(
+                                'В выходные и праздники это предложение недоступно. Выберите будний день.',
+                              )
+                            } else if (msg.includes('занято') || msg.includes('SLOT_TAKEN') || msg.includes('интервал')) {
+                              setBookingError(
+                                `Слот занят или слишком близко к другой записи (нужен интервал ${gapMin} мин). Выберите другое время.`,
+                              )
+                              setSelectedTime(null)
+                              setSlotConflictHint(
+                                `Нужен интервал ${gapMin} мин между полётами. Выберите другое время.`,
+                              )
+                              setDateTimeOpen(true)
+                            } else if (msg.includes('ТО') || msg.includes('MAINTENANCE')) {
+                              setBookingError(msg || 'Выбранный слот недоступен из‑за ТО.')
+                              setDateTimeOpen(true)
+                            } else {
+                              setBookingError(
+                                msg ||
+                                  'Не удалось создать бронь. Проверьте дату, время и контактные данные.',
+                              )
+                            }
+                          }
+                        })()
+                      }}
+                    >
+                      {payment === 'now' ? 'Забронировать и оплатить' : 'Забронировать полет'}
+                    </button>
                   </div>
                 </div>
               </div>

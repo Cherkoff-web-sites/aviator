@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react'
 import { useParams } from 'react-router-dom'
 import { Swiper, SwiperSlide } from 'swiper/react'
 
@@ -262,12 +262,22 @@ function SimulatorPricingSection({
   const defaultIdxRef = useRef(defaultPlanIndex(block))
   const [selectedIdx, setSelectedIdx] = useState(() => defaultPlanIndex(block))
   const leaveTimerRef = useRef<number | null>(null)
+  const plansSignature = block.plans
+    .map((p) => `${p.durationLabel}:${p.priceDisplay}:${p.highlighted ? 1 : 0}`)
+    .join('|')
 
   useEffect(() => {
     const idx = defaultPlanIndex(block)
     defaultIdxRef.current = idx
-    setSelectedIdx(idx)
-  }, [block])
+    // Не сбрасывать hover/выбранную карточку на CTA при каждом новом объекте block
+    // (live-цены / тик часов родителя) — иначе скачок «навёл → откатилось».
+    setSelectedIdx((prev) => {
+      if (block.plans.length <= 1) return -1
+      if (prev >= 0 && prev < block.plans.length) return prev
+      return idx
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- только при смене состава/цен/CTA
+  }, [plansSignature])
 
   useEffect(
     () => () => {
@@ -284,13 +294,18 @@ function SimulatorPricingSection({
     setSelectedIdx(index)
   }
 
-  /** Сброс на CTA с небольшой задержкой — иначе при увеличении карточки срабатывает leave и мерцает */
-  const resetToDefaultSoon = () => {
+  /**
+   * Сброс на CTA только когда курсор реально ушёл с блока тарифов.
+   * relatedTarget внутри shell — ложный leave из‑за роста absolute-карточки; игнорируем.
+   */
+  const resetToDefaultSoon = (e: ReactMouseEvent<HTMLDivElement>) => {
+    const next = e.relatedTarget
+    if (next instanceof Node && e.currentTarget.contains(next)) return
     if (leaveTimerRef.current != null) window.clearTimeout(leaveTimerRef.current)
     leaveTimerRef.current = window.setTimeout(() => {
       setSelectedIdx(defaultIdxRef.current)
       leaveTimerRef.current = null
-    }, 80)
+    }, 120)
   }
 
   const simulatorSlug: BookingSimulatorSlug | null =
@@ -320,11 +335,9 @@ function SimulatorPricingSection({
       return
     }
     const n = Number(m[1])
-    const durationMin =
-      n === 30 || n === 60 || n === 90 || n === 120 ? (n as 30 | 60 | 90 | 120) : null
     openBooking({
       simulatorSlug,
-      durationMin: durationMin ?? undefined,
+      durationMin: Number.isFinite(n) && n > 0 ? (n as 30 | 60 | 90 | 120) : undefined,
     })
   }
 

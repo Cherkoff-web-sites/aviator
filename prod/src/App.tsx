@@ -5,10 +5,12 @@ import BookingModal from './components/booking/BookingModal'
 import GiftCertificateModal from './components/giftCertificate/GiftCertificateModal'
 import ScrollToTop from './components/ScrollToTop'
 import SiteThemeSync from './components/SiteThemeSync'
+import ServerClockBadge from './components/ServerClockBadge'
 import { AdminAuthProvider } from './contexts/AdminAuthContext'
 import ModalExclusiveBridge from './components/ModalExclusiveBridge'
 import { BookingModalProvider } from './contexts/BookingModalContext'
 import { GiftCertificateModalProvider } from './contexts/GiftCertificateModalContext'
+import { ServerClockProvider } from './contexts/ServerClockContext'
 import AdminLayout from './pages/admin/AdminLayout'
 import AdminLoginPage from './pages/admin/AdminLoginPage'
 import AdminAccountsPage from './pages/admin/AdminAccountsPage'
@@ -47,6 +49,7 @@ function App() {
     <div className="flex min-h-0 flex-1 flex-col">
       <BrowserRouter>
         <AdminAuthProvider>
+        <ServerClockProvider>
         <BookingModalProvider>
           <GiftCertificateModalProvider>
             <ScrollToTop />
@@ -108,10 +111,12 @@ function App() {
             <GiftCertificateModal />
             <FeedbackWidget />
             <CookieConsent />
+            <ServerClockBadge />
             {/* TEMP: убрать вместе с features/dev-photo-edit */}
             <DevPhotoEdit />
           </GiftCertificateModalProvider>
         </BookingModalProvider>
+        </ServerClockProvider>
         </AdminAuthProvider>
       </BrowserRouter>
     </div>

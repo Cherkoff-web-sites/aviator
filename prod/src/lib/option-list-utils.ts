@@ -70,8 +70,19 @@ export function clampDurationChoice(
   choices: DurationChoice[],
   durationMin: number,
 ): number {
+  if (!choices.length) return durationMin > 0 ? durationMin : 30
   if (choices.some((d) => d.value === durationMin)) return durationMin
-  return choices[choices.length - 1]?.value ?? choices[0]?.value ?? 30
+  // Ближайшая доступная длительность (не «последняя в списке» — иначе 15→120 и цена 0).
+  let best = choices[0]!.value
+  let bestDist = Math.abs(best - durationMin)
+  for (const c of choices) {
+    const dist = Math.abs(c.value - durationMin)
+    if (dist < bestDist) {
+      best = c.value
+      bestDist = dist
+    }
+  }
+  return best
 }
 
 export function labelForOption(
