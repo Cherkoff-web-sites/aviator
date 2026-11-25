@@ -59,6 +59,7 @@ const PENCIL = '/assets/admin/certificates_pencil_icon.svg'
 const selectClass =
   'mt-1 flex h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm shadow-sm'
 
+/** bump: trigger deploy */
 export default function AdminCertificatesPage() {
   const [formOpen, setFormOpen] = React.useState(false)
   const [editId, setEditId] = React.useState<string | null>(null)
