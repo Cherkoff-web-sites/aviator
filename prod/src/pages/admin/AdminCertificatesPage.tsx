@@ -31,9 +31,7 @@ import {
   PAYMENT_METHOD_OPTIONS,
 } from '@/lib/admin-labels'
 import {
-  clampDurationChoice,
   durationChoicesFromList,
-  filterDurationChoicesForSimulator,
   simulatorChoicesFromList,
   type OptionListRow,
 } from '@/lib/option-list-utils'
@@ -113,14 +111,6 @@ export default function AdminCertificatesPage() {
     () =>
       simulatorChoicesFromList(optionLists?.cert_simulator, [...CERT_SIMULATOR_OPTIONS]),
     [optionLists],
-  )
-  const durationChoiceRows = React.useMemo(
-    () =>
-      filterDurationChoicesForSimulator(
-        durationChoicesFromList(optionLists?.cert_duration ?? optionLists?.duration),
-        form.simulatorSlug,
-      ),
-    [optionLists, form.simulatorSlug],
   )
 
   const numberParts = React.useMemo(
