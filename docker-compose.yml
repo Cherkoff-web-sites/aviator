@@ -6,6 +6,7 @@ services:
     environment:
       PORT: "3001"
       STORE_PATH: /app/data/store.json
+      UPLOAD_DIR: /app/data/uploads
     volumes:
       - store_data:/app/data
     expose:

@@ -29,6 +29,7 @@ RUN chmod +x /start.sh && mkdir -p /app/data
 ENV PORT=3001
 ENV BIND_HOST=127.0.0.1
 ENV STORE_PATH=/app/data/store.json
+ENV UPLOAD_DIR=/app/data/uploads
 ENV NODE_ENV=production
 VOLUME /app/data
 EXPOSE 80
