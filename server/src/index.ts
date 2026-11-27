@@ -14,7 +14,17 @@ ensureUploadDir()
 
 app.use(cors({ origin: true, credentials: true }))
 app.use(express.json({ limit: '45mb' }))
-app.use('/uploads', express.static(UPLOAD_DIR))
+app.use(
+  '/uploads',
+  express.static(UPLOAD_DIR, {
+    fallthrough: false,
+    setHeaders(res) {
+      // Не кэшируем «битый» первый ответ у CDN/браузера надолго.
+      res.setHeader('Cache-Control', 'public, max-age=3600')
+      res.setHeader('X-Content-Type-Options', 'nosniff')
+    },
+  }),
+)
 
 app.use('/api', apiRouter)
 

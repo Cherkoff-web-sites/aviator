@@ -48,11 +48,18 @@ function LandingHero() {
       className="relative flex min-h-[100dvh] w-full flex-col overflow-hidden bg-[#151824]"
     >
       <img
+        key={heroImage}
         src={heroImage}
         alt=""
         aria-hidden
         className="absolute inset-0 h-full w-full object-cover"
         style={{ objectPosition: '87% 50%' }}
+        onError={(e) => {
+          const el = e.currentTarget
+          if (el.dataset.retried === '1' || !heroImage || heroImage.startsWith('data:')) return
+          el.dataset.retried = '1'
+          el.src = `${heroImage}${heroImage.includes('?') ? '&' : '?'}t=${Date.now()}`
+        }}
       />
       <div className="absolute inset-0 bg-gradient-to-t from-black/55 via-black/20 to-black/35" />
 

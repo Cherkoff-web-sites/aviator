@@ -16,6 +16,31 @@ function readFileAsDataUrl(file: File): Promise<string> {
   })
 }
 
+/** Ждём, пока nginx/Node реально начнут отдавать файл (иначе img ловит 404 и «залипает»). */
+function waitUntilImageReady(url: string, attempts = 10): Promise<boolean> {
+  const base = resolveMediaUrl(url)
+  if (!base || base.startsWith('data:')) return Promise.resolve(true)
+
+  return new Promise((resolve) => {
+    let i = 0
+    const tryOnce = () => {
+      const img = new Image()
+      const probe = `${base}${base.includes('?') ? '&' : '?'}probe=${Date.now()}-${i}`
+      img.onload = () => resolve(true)
+      img.onerror = () => {
+        i += 1
+        if (i >= attempts) {
+          resolve(false)
+          return
+        }
+        window.setTimeout(tryOnce, 120 + i * 80)
+      }
+      img.src = probe
+    }
+    tryOnce()
+  })
+}
+
 export function SiteImageSlot({
   label,
   hint,
@@ -39,7 +64,12 @@ export function SiteImageSlot({
   const inputRef = React.useRef<HTMLInputElement>(null)
   const [busy, setBusy] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
-  const preview = resolveMediaUrl(value)
+  /** Локальный data URL — сразу после выбора файла, пока /uploads ещё «прогревается». */
+  const [localPreview, setLocalPreview] = React.useState<string | null>(null)
+  const [imgTick, setImgTick] = React.useState(0)
+
+  const remotePreview = resolveMediaUrl(value)
+  const preview = localPreview || remotePreview
   const dirty = baseline !== undefined && value.trim() !== baseline.trim()
 
   const upload = async (file: File | undefined) => {
@@ -48,16 +78,31 @@ export function SiteImageSlot({
     setError(null)
     try {
       const dataUrl = await readFileAsDataUrl(file)
+      // Сразу показываем выбранный файл — без ожидания сети.
+      setLocalPreview(dataUrl)
+
       const saved = await apiFetch<{ url: string }>('/api/admin/uploads', {
         method: 'POST',
         body: JSON.stringify({ dataUrl }),
       })
+
+      const ready = await waitUntilImageReady(saved.url)
+      if (!ready) {
+        // Файл записан, но отдача ещё нестабильна — всё равно сохраняем URL,
+        // локальный превью остаётся до обновления страницы / следующего value.
+        setError('Файл загружен, превью с сервера подождёт пару секунд')
+      }
+
       // flushSync — чтобы onSave увидел новый URL в draftRef родителя.
       flushSync(() => {
         onChange(saved.url)
       })
+      setImgTick((t) => t + 1)
+      // Публикуем на сайт только после проверки (или исчерпания попыток).
       onSave?.()
+      if (ready) setLocalPreview(null)
     } catch (e) {
+      setLocalPreview(null)
       setError(e instanceof Error ? e.message : 'Ошибка загрузки')
     } finally {
       setBusy(false)
@@ -79,7 +124,20 @@ export function SiteImageSlot({
         ].join(' ')}
       >
         {preview ? (
-          <img src={preview} alt="" className="absolute inset-0 h-full w-full object-cover" />
+          <img
+            key={`${preview}-${imgTick}`}
+            src={preview}
+            alt=""
+            className="absolute inset-0 h-full w-full object-cover"
+            onError={(e) => {
+              // Один повтор с cache-bust — если первый GET поймал пустой/старый ответ.
+              const el = e.currentTarget
+              if (el.dataset.retried === '1') return
+              if (!remotePreview || remotePreview.startsWith('data:')) return
+              el.dataset.retried = '1'
+              el.src = `${remotePreview}${remotePreview.includes('?') ? '&' : '?'}t=${Date.now()}`
+            }}
+          />
         ) : null}
       </div>
       <Input
